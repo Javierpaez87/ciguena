@@ -12,12 +12,12 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const DEMO_CREDENTIALS: Record<string, { password: string; profileId: string }> = {
-  'admin@bondiapps.com': { password: 'bondi2024', profileId: 'super1' },
-  'admin@ypf.com': { password: 'ypf2024', profileId: 'admin1' },
-  'juan.perez@ypf.com': { password: 'worker2024', profileId: 'u1' },
-  'maria.gomez@ypf.com': { password: 'worker2024', profileId: 'u2' },
-  'carlos.molina@ypf.com': { password: 'worker2024', profileId: 'u3' },
-  'lucia.fernandez@ypf.com': { password: 'worker2024', profileId: 'u4' },
+  'admin@bondiapps.com': { password: 'bondi2026', profileId: 'super1' },
+  'admin@demooilenergyco.com': { password: 'demo2026', profileId: 'admin1' },
+  'juan.perez@demooilenergyco.com': { password: 'worker2026', profileId: 'u1' },
+  'maria.gomez@demooilenergyco.com': { password: 'worker2026', profileId: 'u2' },
+  'carlos.molina@demooilenergyco.com': { password: 'worker2026', profileId: 'u3' },
+  'lucia.fernandez@demooilenergyco.com': { password: 'worker2026', profileId: 'u4' },
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -28,7 +28,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     await new Promise(r => setTimeout(r, 800));
 
-    const cred = DEMO_CREDENTIALS[email.toLowerCase()];
+    const normalizedEmail = email.trim().toLowerCase();
+    const cred = DEMO_CREDENTIALS[normalizedEmail];
+
     if (!cred || cred.password !== password) {
       setIsLoading(false);
       return { error: 'Email o contraseña incorrectos.' };
@@ -42,11 +44,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser({
       id: profile.id,
-      email: profile.email,
+      email: normalizedEmail,
       role: profile.role as UserRole,
       tenant_id: profile.tenant_id,
       full_name: profile.full_name,
-      profile,
+      profile: {
+        ...profile,
+        email: normalizedEmail,
+      },
     });
 
     setIsLoading(false);
