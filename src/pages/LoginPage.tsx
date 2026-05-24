@@ -18,8 +18,8 @@ export default function LoginPage() {
 
   const demoAccounts = [
     { label: 'Super Admin BondiApps', email: 'admin@bondiapps.com', password: 'bondi2024', color: 'amber' },
-    { label: 'Admin Oil & Gas Demo', email: 'admin@oil&gas.com', password: 'oil&gas2026', color: 'blue' },
-    { label: 'Trabajador (Juan Pérez)', email: 'juan.perez@oil&gas.com', password: 'worker2024', color: 'green' },
+    { label: 'Admin Oil & Gas Demo', email: 'admin@oilgas.com', password: 'oilgas2026', color: 'blue' },
+    { label: 'Trabajador (Juan Pérez)', email: 'juan.perez@oilgas.com', password: 'worker2024', color: 'green' },
   ];
 
   return (
