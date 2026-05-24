@@ -17,9 +17,9 @@ export default function LoginPage() {
   };
 
   const demoAccounts = [
-    { label: 'Super Admin BondiApps', email: 'admin@bondiapps.com', password: 'bondi2024', color: 'amber' },
-    { label: 'Admin Oil Demo', email: 'admin@ypf.com', password: 'ypf2024', color: 'blue' },
-    { label: 'Trabajador (Juan Pérez)', email: 'juan.perez@ypf.com', password: 'worker2024', color: 'green' },
+    { label: 'Super Admin BondiApps', email: 'admin@bondiapps.com', password: 'bondi2026', color: 'amber' },
+    { label: 'Admin Demo Oil Energy Co.', email: 'admin@demooilenergyco.com', password: 'demo2026', color: 'blue' },
+    { label: 'Trabajador Demo', email: 'juan.perez@demooilenergyco.com', password: 'worker2026', color: 'green' },
   ];
 
   return (
@@ -45,18 +45,25 @@ export default function LoginPage() {
           </div>
 
           <h2 className="text-3xl font-bold text-steel-50 mb-4 leading-tight">
-            Capacitación Industrial<br />para Oil & Gas
+            Demo corporativo<br />para Oil & Gas
           </h2>
-          <p className="text-steel-300 leading-relaxed text-sm max-w-sm">
-            Plataforma de cumplimiento operativo: gestión de trainings, certificaciones y aptitud laboral para la industria energética.
+
+          <p className="text-steel-300 leading-relaxed text-sm max-w-sm mb-4">
+            Esta versión demo utiliza cuentas y datos ficticios para presentar las distintas caras del producto:
+            Super Admin BondiApps, Admin Empresa y Usuario/Trabajador.
+          </p>
+
+          <p className="text-steel-400 leading-relaxed text-sm max-w-sm">
+            CIGÜEÑA es una plataforma de cumplimiento operativo para gestionar trainings, certificaciones,
+            aptitud laboral y seguimiento de avance en equipos vinculados a la industria energética.
           </p>
         </div>
 
         <div className="relative space-y-4">
           {[
-            { label: 'Gestión multi-tenant', desc: 'Múltiples empresas en una sola plataforma' },
-            { label: 'Certificados automáticos', desc: 'Emisión y seguimiento de vigencia' },
-            { label: 'Cumplimiento normativo', desc: 'HSE, EPP, Trabajos en altura y más' },
+            { label: 'Gestión multi-tenant', desc: 'Múltiples empresas demo en una sola plataforma' },
+            { label: 'Certificados automáticos', desc: 'Emisión, descarga y seguimiento de vigencia' },
+            { label: 'Cumplimiento operativo', desc: 'Trainings, tests, normas y aptos para equipos de campo' },
           ].map(item => (
             <div key={item.label} className="flex items-start gap-3">
               <div className="w-5 h-5 bg-amber-500/20 border border-amber-500/40 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -71,7 +78,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative text-xs text-steel-600">
-          © 2024 BondiApps. Todos los derechos reservados.
+          © 2026 BondiApps. Todos los derechos reservados.
         </div>
       </div>
 
@@ -91,7 +98,9 @@ export default function LoginPage() {
 
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-steel-50 mb-1">Iniciar sesión</h1>
-            <p className="text-sm text-steel-400">Ingresá con tus credenciales para acceder a la plataforma.</p>
+            <p className="text-sm text-steel-400">
+              Ingresá con una cuenta demo para explorar la plataforma desde diferentes roles.
+            </p>
           </div>
 
           {error && (
@@ -152,7 +161,7 @@ export default function LoginPage() {
           <div className="border-t border-steel-700 pt-5">
             <p className="text-xs font-semibold text-steel-500 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Shield size={12} />
-              Cuentas demo
+              Cuentas demo ficticias
             </p>
             <div className="space-y-2">
               {demoAccounts.map(acc => (
@@ -169,6 +178,9 @@ export default function LoginPage() {
                 </button>
               ))}
             </div>
+            <p className="text-xs text-steel-500 mt-3 leading-relaxed">
+              Las cuentas y datos utilizados en esta demo son ficticios y permiten visualizar el producto desde distintos perfiles de uso.
+            </p>
           </div>
         </div>
       </div>
