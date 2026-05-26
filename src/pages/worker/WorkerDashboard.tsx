@@ -6,7 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getAssignmentsByUser, getCertificatesByUser } from '../../lib/mockData';
 
 interface WorkerDashboardProps {
-  onNavigate: (view: string) => void;
+  onNavigate: (view: string, data?: unknown) => void;
 }
 
 export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
@@ -54,7 +54,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-steel-300">Continuar donde lo dejaste</h3>
           {activeAssignments.map(a => (
-            <div key={a.id} className="card hover:border-amber-500/40 transition-all cursor-pointer" onClick={() => onNavigate('worker-trainings')}>
+            <div key={a.id} className="card hover:border-amber-500/40 transition-all cursor-pointer" onClick={() => onNavigate('worker-player', { assignment: a })}>
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
                   <BookOpen size={20} className="text-petroleum-200" />

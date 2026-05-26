@@ -67,18 +67,24 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
             {currentLesson.lesson_type === 'video' ? (
               <div className="relative aspect-video bg-petroleum-950">
                 {currentLesson.video_embed_url ? (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="w-20 h-20 bg-amber-500/20 border border-amber-500/40 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Play size={32} className="text-amber-400 ml-1" />
-                      </div>
-                      <p className="text-steel-300 text-sm">Video: {currentLesson.title}</p>
-                      <p className="text-steel-500 text-xs mt-1">Proveedor: {currentLesson.video_provider} · {currentLesson.video_id}</p>
-                      {currentLesson.duration_seconds && (
-                        <p className="text-steel-500 text-xs">{Math.floor(currentLesson.duration_seconds / 60)} min</p>
-                      )}
-                    </div>
-                  </div>
+                  currentLesson.video_embed_url.endsWith('.mp4') ? (
+                    <video
+                      controls
+                      className="w-full h-full object-contain bg-petroleum-950"
+                      poster={currentLesson.video_thumbnail_url ?? undefined}
+                    >
+                      <source src={currentLesson.video_embed_url} type="video/mp4" />
+                      Tu navegador no soporta la reproducción de video.
+                    </video>
+                  ) : (
+                    <iframe
+                      src={currentLesson.video_embed_url}
+                      title={currentLesson.title}
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  )
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-steel-600">
                     <Video size={40} />
