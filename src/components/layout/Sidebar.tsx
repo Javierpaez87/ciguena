@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Award, BarChart2,
   MessageSquare, Settings, ChevronLeft, ChevronRight, Building2,
-  Shield, Flame, Menu, X, Bell, GraduationCap, FileText, Play,
+  Shield, Menu, X, Bell, GraduationCap, FileText, Play,
   Wrench, LogOut, ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -62,8 +62,8 @@ export default function Sidebar({ activeView, onNavigate }: SidebarProps) {
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className={`flex items-center gap-3 px-4 py-5 border-b border-steel-700 ${collapsed ? 'justify-center' : ''}`}>
-        <div className="flex-shrink-0 w-9 h-9 bg-amber-500 rounded-lg flex items-center justify-center">
-          <Flame size={20} className="text-petroleum-950" />
+        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border border-amber-500/30 flex items-center justify-center p-1 shadow-lg shadow-amber-500/10">
+          <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
         </div>
         {!collapsed && (
           <div>

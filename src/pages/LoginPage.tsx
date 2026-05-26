@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Flame, Eye, EyeOff, Shield, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Shield, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
@@ -35,8 +35,8 @@ export default function LoginPage() {
 
         <div className="relative">
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center">
-              <Flame size={24} className="text-petroleum-950" />
+            <div className="w-12 h-12 rounded-xl bg-steel-950/70 border border-amber-500/30 flex items-center justify-center p-1.5 shadow-lg shadow-amber-500/10">
+              <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
             </div>
             <div>
               <div className="text-2xl font-bold text-amber-400 tracking-wide">CIGÜEÑA</div>
@@ -87,8 +87,8 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
-            <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
-              <Flame size={20} className="text-petroleum-950" />
+            <div className="w-10 h-10 rounded-xl bg-steel-900 border border-amber-500/30 flex items-center justify-center p-1.5 shadow-lg shadow-amber-500/10">
+              <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
             </div>
             <div>
               <div className="text-xl font-bold text-amber-400">CIGÜEÑA</div>
