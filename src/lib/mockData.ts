@@ -57,6 +57,8 @@ export const mockModules: TrainingModule[] = [
   { id: 'm3', training_id: 'tr1', title: 'Procedimientos de emergencia', description: 'Plan de respuesta ante emergencias', order_index: 3, created_at: '2024-01-01T10:00:00Z' },
   { id: 'm4', training_id: 'tr1', title: 'Evaluación y cierre', description: 'Test final y certificación', order_index: 4, created_at: '2024-01-01T10:00:00Z' },
   { id: 'm5', training_id: 'tr2', title: 'Cuidado de Manos: Introducción', description: 'Conceptos iniciales sobre protección de manos en tareas operativas.', order_index: 1, created_at: '2026-05-24T10:00:00Z' },
+
+  { id: 'm6', training_id: 'tr3', title: 'Trabajo en altura: Introducción', description: 'Reglas básicas, riesgos principales y controles críticos para trabajos en altura.', order_index: 1, created_at: '2026-05-24T10:00:00Z' },
 ];
 
 export const mockLessons: TrainingLesson[] = [
@@ -65,6 +67,8 @@ export const mockLessons: TrainingLesson[] = [
   { id: 'l3', module_id: 'm2', title: 'Riesgos físicos y químicos', description: null, lesson_type: 'video', video_provider: 'bunny', video_id: 'vid003', video_embed_url: 'https://iframe.mediadelivery.net/embed/123/vid003', video_thumbnail_url: 'https://images.pexels.com/photos/3862130/pexels-photo-3862130.jpeg?w=400', duration_seconds: 900, resource_url: null, order_index: 1, is_required: true, created_at: '2024-01-01T10:00:00Z' },
   { id: 'l4', module_id: 'm2', title: 'Riesgos ergonómicos', description: null, lesson_type: 'video', video_provider: 'bunny', video_id: 'vid004', video_embed_url: 'https://iframe.mediadelivery.net/embed/123/vid004', video_thumbnail_url: 'https://images.pexels.com/photos/3862632/pexels-photo-3862632.jpeg?w=400', duration_seconds: 600, resource_url: null, order_index: 2, is_required: false, created_at: '2024-01-01T10:00:00Z' },
   { id: 'l5', module_id: 'm5', title: 'Cuidado de Manos: Introducción', description: 'Video introductorio del mock de capacitación sobre cuidado y protección de manos.', lesson_type: 'video', video_provider: 'external', video_id: 'cuidado-de-manos-test2', video_embed_url: '/videos/cuidado-de-manos-test2.mp4', video_thumbnail_url: null, duration_seconds: 180, resource_url: null, order_index: 1, is_required: true, created_at: '2026-05-24T10:00:00Z' },
+
+  { id: 'l6', module_id: 'm6', title: 'Trabajo en altura: Life-Saving Rule', description: 'Video externo de referencia sobre trabajo en altura para reforzar controles críticos y prevención de caídas.', lesson_type: 'video', video_provider: 'youtube', video_id: 'U5N8xLZ-NY4', video_embed_url: 'https://www.youtube.com/embed/U5N8xLZ-NY4', video_thumbnail_url: null, duration_seconds: 60, resource_url: 'https://www.youtube.com/watch?v=U5N8xLZ-NY4&list=PLt0-qTVCvEp2I9MYBd0rqSdooubmkCgAf&index=1', order_index: 1, is_required: true, created_at: '2026-05-24T10:00:00Z' },
 ];
 
 export const mockQuestions: QuizQuestion[] = [
