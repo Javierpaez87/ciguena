@@ -20,7 +20,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   const expiringSoon = certificates.filter(c => c.status === 'expiring_soon').length;
   const avgProgress = assignments.length ? Math.round(assignments.reduce((s, a) => s + a.progress_percentage, 0) / assignments.length) : 0;
 
-  const activeAssignments = assignments.filter(a => !['certificate_issued', 'completed'].includes(a.status)).slice(0, 3);
+  const activeAssignments = assignments.filter(a => !['certificate_issued', 'completed'].includes(a.status));
 
   return (
     <div className="space-y-6">
