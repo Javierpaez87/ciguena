@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import AppLayout from './components/layout/AppLayout';
@@ -60,6 +60,14 @@ function AppContent() {
   const { user } = useAuth();
   const [activeView, setActiveView] = useState(() => DEFAULT_VIEW[user?.role ?? 'worker'] ?? 'worker-dashboard');
   const [viewData, setViewData] = useState<unknown>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const defaultView = DEFAULT_VIEW[user.role] ?? 'worker-dashboard';
+    setActiveView(defaultView);
+    setViewData(null);
+  }, [user?.id, user?.role]);
 
   const navigate = (view: string, data?: unknown) => {
     setActiveView(view);

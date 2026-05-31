@@ -1,11 +1,94 @@
-import React from 'react';
-import { Users, BookOpen, Award, TrendingUp, Clock, AlertTriangle, CheckCircle, Activity, XCircle } from 'lucide-react';
+import { Users, BookOpen, Award, TrendingUp, Clock, CheckCircle, Activity, XCircle } from 'lucide-react';
 import MetricCard from '../../components/ui/MetricCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getUsersByTenant, getAssignmentsByTenant, getCertificatesByTenant, mockFeedback, mockActivityLog
 } from '../../lib/mockData';
+
+interface ChartItem {
+  label: string;
+  value: number;
+  className: string;
+}
+
+function percent(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
+function DonutChart({ items, centerLabel, centerValue }: { items: ChartItem[]; centerLabel: string; centerValue: string | number }) {
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+  let accumulated = 0;
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-6">
+      <div className="relative h-40 w-40 rounded-full bg-steel-800">
+        <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+          <circle cx="60" cy="60" r="45" fill="none" stroke="currentColor" strokeWidth="18" className="text-steel-800" />
+          {items.map(item => {
+            const dash = total ? (item.value / total) * 282.74 : 0;
+            const offset = 282.74 - accumulated;
+            accumulated += dash;
+            return (
+              <circle
+                key={item.label}
+                cx="60"
+                cy="60"
+                r="45"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="18"
+                strokeDasharray={`${dash} ${282.74 - dash}`}
+                strokeDashoffset={offset}
+                strokeLinecap="round"
+                className={item.className}
+              />
+            );
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center rounded-full">
+          <div className="text-2xl font-bold text-steel-100">{centerValue}</div>
+          <div className="text-xs text-steel-500">{centerLabel}</div>
+        </div>
+      </div>
+      <div className="flex-1 w-full space-y-3">
+        {items.map(item => (
+          <div key={item.label} className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`h-2.5 w-2.5 rounded-full ${item.className.replace('text-', 'bg-')}`} />
+              <span className="text-sm text-steel-300 truncate">{item.label}</span>
+            </div>
+            <div className="text-sm font-semibold text-steel-100">
+              {item.value} <span className="text-xs font-normal text-steel-500">({percent(item.value, total)}%)</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HorizontalBars({ items, total }: { items: ChartItem[]; total: number }) {
+  return (
+    <div className="space-y-4">
+      {items.map(item => {
+        const width = percent(item.value, total);
+        return (
+          <div key={item.label}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-sm text-steel-300">{item.label}</span>
+              <span className="text-sm font-semibold text-steel-100">{item.value}</span>
+            </div>
+            <div className="h-2.5 rounded-full bg-steel-800 overflow-hidden">
+              <div className={`h-full rounded-full ${item.className.replace('text-', 'bg-')}`} style={{ width: `${width}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -26,11 +109,46 @@ export default function AdminDashboard() {
   const expiringSoon = certificates.filter(c => c.status === 'expiring_soon').length;
   const avgProgress = assignments.length ? Math.round(assignments.reduce((s, a) => s + a.progress_percentage, 0) / assignments.length) : 0;
 
+  const trainingStatusItems: ChartItem[] = [
+    { label: 'Completados', value: completed, className: 'text-emerald-400' },
+    { label: 'En curso', value: inProgress, className: 'text-sky-400' },
+    { label: 'No iniciados', value: notStarted, className: 'text-slate-500' },
+  ];
+
+  const certificateItems: ChartItem[] = [
+    { label: 'Vigentes', value: validCerts, className: 'text-emerald-400' },
+    { label: 'Próx. a vencer', value: expiringSoon, className: 'text-amber-400' },
+    { label: 'Vencidos', value: expiredCerts, className: 'text-red-400' },
+  ];
+
+  const areaProgress = users
+    .filter(u => u.role === 'worker')
+    .reduce<Record<string, { users: number; progress: number; assignments: number }>>((acc, profile) => {
+      const area = profile.area ?? 'Sin área';
+      const userAssignments = assignments.filter(a => a.user_id === profile.id);
+      const userProgress = userAssignments.length
+        ? Math.round(userAssignments.reduce((sum, assignment) => sum + assignment.progress_percentage, 0) / userAssignments.length)
+        : 0;
+
+      acc[area] = acc[area] ?? { users: 0, progress: 0, assignments: 0 };
+      acc[area].users += 1;
+      acc[area].progress += userProgress;
+      acc[area].assignments += userAssignments.length;
+      return acc;
+    }, {});
+
+  const areaItems = Object.entries(areaProgress).map(([area, data]) => ({
+    label: area,
+    value: data.users ? Math.round(data.progress / data.users) : 0,
+    users: data.users,
+    assignments: data.assignments,
+  }));
+
   const actionLabel: Record<string, string> = {
-    completed_training: 'completó',
-    assigned_training: 'fue asignado a',
-    started_training: 'inició',
-    certificate_issued: 'certificado emitido para',
+    completed_training: 'completó un training',
+    assigned_training: 'recibió una asignación',
+    started_training: 'inició un training',
+    certificate_issued: 'obtuvo un certificado',
   };
 
   return (
@@ -49,8 +167,51 @@ export default function AdminDashboard() {
         <MetricCard title="Certs. vencidos" value={expiredCerts} icon={<XCircle size={20} />} accent="red" subtitle={`${expiringSoon} próximos a vencer`} />
       </div>
 
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="card xl:col-span-1">
+          <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
+            <Activity size={16} className="text-amber-400" />
+            Estado de trainings
+          </h3>
+          <p className="text-xs text-steel-500 mb-5">Distribución general de asignaciones activas.</p>
+          <DonutChart items={trainingStatusItems} centerLabel="asignaciones" centerValue={assignments.length} />
+        </div>
+
+        <div className="card xl:col-span-1">
+          <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
+            <Award size={16} className="text-amber-400" />
+            Estado de certificados
+          </h3>
+          <p className="text-xs text-steel-500 mb-5">Vigencia, vencimientos próximos y certificados vencidos.</p>
+          <HorizontalBars items={certificateItems} total={Math.max(certificates.length, 1)} />
+        </div>
+
+        <div className="card xl:col-span-1">
+          <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
+            <Users size={16} className="text-amber-400" />
+            Avance por área
+          </h3>
+          <p className="text-xs text-steel-500 mb-5">Promedio de avance por sector de la empresa.</p>
+          <div className="space-y-4">
+            {areaItems.map(area => (
+              <div key={area.label}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div>
+                    <span className="text-sm text-steel-300">{area.label}</span>
+                    <span className="text-xs text-steel-500 ml-2">{area.users} usuarios · {area.assignments} asignaciones</span>
+                  </div>
+                  <span className="text-sm font-semibold text-steel-100">{area.value}%</span>
+                </div>
+                <div className="h-2.5 rounded-full bg-steel-800 overflow-hidden">
+                  <div className="h-full rounded-full bg-amber-400" style={{ width: `${area.value}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent assignments */}
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-4 flex items-center gap-2">
             <BookOpen size={16} className="text-amber-400" />
@@ -72,25 +233,23 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Certificates */}
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-4 flex items-center gap-2">
-            <Award size={16} className="text-amber-400" />
-            Certificados
+            <Clock size={16} className="text-amber-400" />
+            Actividad reciente
           </h3>
-          <div className="space-y-3 mb-4">
-            <div className="flex items-center justify-between p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-              <span className="text-sm text-emerald-300 flex items-center gap-2"><CheckCircle size={14} /> Vigentes</span>
-              <span className="text-lg font-bold text-emerald-400">{validCerts}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-              <span className="text-sm text-amber-300 flex items-center gap-2"><AlertTriangle size={14} /> Próx. a vencer</span>
-              <span className="text-lg font-bold text-amber-400">{expiringSoon}</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <span className="text-sm text-red-300 flex items-center gap-2"><XCircle size={14} /> Vencidos</span>
-              <span className="text-lg font-bold text-red-400">{expiredCerts}</span>
-            </div>
+          <div className="space-y-2 mb-4">
+            {activity.map(item => (
+              <div key={item.id} className="flex items-start gap-3 p-2.5 bg-steel-900 rounded-lg">
+                <div className="h-8 w-8 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center flex-shrink-0">
+                  <Activity size={14} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm text-steel-200">{actionLabel[item.action] ?? item.action}</div>
+                  <div className="text-xs text-steel-500">{new Date(item.created_at).toLocaleDateString('es-AR')}</div>
+                </div>
+              </div>
+            ))}
           </div>
           {feedback.length > 0 && (
             <div className="border-t border-steel-700 pt-3">
