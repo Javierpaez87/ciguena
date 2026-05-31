@@ -17,7 +17,6 @@ export default function LoginPage() {
   };
 
   const demoAccounts = [
-    { label: 'Super Admin BondiApps', email: 'admin@bondiapps.com', password: 'bondi2026', color: 'amber' },
     { label: 'Admin Demo Oil Energy Co.', email: 'admin@demooilenergyco.com', password: 'demo2026', color: 'blue' },
     { label: 'Trabajador Demo', email: 'juan.perez@demooilenergyco.com', password: 'worker2026', color: 'green' },
   ];
@@ -49,8 +48,8 @@ export default function LoginPage() {
           </h2>
 
           <p className="text-steel-300 leading-relaxed text-sm max-w-sm mb-4">
-            Esta versión demo utiliza cuentas y datos ficticios para presentar las distintas caras del producto:
-            Super Admin BondiApps, Admin Empresa y Usuario/Trabajador.
+            Esta versión demo utiliza cuentas y datos ficticios para presentar los dos perfiles principales del producto:
+            Admin Empresa y Usuario/Trabajador.
           </p>
 
           <p className="text-steel-400 leading-relaxed text-sm max-w-sm">
@@ -99,7 +98,7 @@ export default function LoginPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-steel-50 mb-1">Iniciar sesión</h1>
             <p className="text-sm text-steel-400">
-              Ingresá con una cuenta demo para explorar la plataforma desde diferentes roles.
+              Ingresá con una cuenta demo para explorar la plataforma desde los perfiles disponibles.
             </p>
           </div>
 
@@ -171,7 +170,7 @@ export default function LoginPage() {
                   onClick={() => { setEmail(acc.email); setPassword(acc.password); }}
                   className="w-full text-left px-3 py-2.5 bg-steel-800 hover:bg-steel-700 border border-steel-700 hover:border-steel-600 rounded-lg transition-all group"
                 >
-                  <div className={`text-xs font-semibold mb-0.5 ${acc.color === 'amber' ? 'text-amber-400' : acc.color === 'blue' ? 'text-blue-400' : 'text-emerald-400'}`}>
+                  <div className={`text-xs font-semibold mb-0.5 ${acc.color === 'blue' ? 'text-blue-400' : 'text-emerald-400'}`}>
                     {acc.label}
                   </div>
                   <div className="text-xs text-steel-400">{acc.email} · {acc.password}</div>
@@ -179,7 +178,7 @@ export default function LoginPage() {
               ))}
             </div>
             <p className="text-xs text-steel-500 mt-3 leading-relaxed">
-              Las cuentas y datos utilizados en esta demo son ficticios y permiten visualizar el producto desde distintos perfiles de uso.
+              Las cuentas y datos utilizados en esta demo son ficticios y permiten visualizar el producto desde el perfil administrador y trabajador.
             </p>
           </div>
         </div>
