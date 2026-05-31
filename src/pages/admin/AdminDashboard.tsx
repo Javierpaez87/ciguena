@@ -1,5 +1,5 @@
+// AdminDashboard.tsx · v3 · 8 KPI cards superiores con gráficos integrados
 import { Users, BookOpen, Award, TrendingUp, Clock, CheckCircle, Activity, XCircle } from 'lucide-react';
-import MetricCard from '../../components/ui/MetricCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -12,9 +12,52 @@ interface ChartItem {
   className: string;
 }
 
+interface MiniMetricCardProps {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  icon: React.ReactNode;
+  accent: 'amber' | 'blue' | 'green' | 'red' | 'steel';
+  chartType: 'donut' | 'bar' | 'spark';
+  chartValue: number;
+  chartLabel?: string;
+}
+
+const accentStyles = {
+  amber: {
+    icon: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    bar: 'bg-amber-400',
+    ring: 'text-amber-400',
+  },
+  blue: {
+    icon: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    bar: 'bg-blue-400',
+    ring: 'text-blue-400',
+  },
+  green: {
+    icon: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    bar: 'bg-emerald-400',
+    ring: 'text-emerald-400',
+  },
+  red: {
+    icon: 'bg-red-500/10 text-red-400 border-red-500/20',
+    bar: 'bg-red-400',
+    ring: 'text-red-400',
+  },
+  steel: {
+    icon: 'bg-steel-700 text-steel-300 border-steel-600',
+    bar: 'bg-steel-400',
+    ring: 'text-steel-400',
+  },
+};
+
 function percent(value: number, total: number) {
   if (!total) return 0;
   return Math.round((value / total) * 100);
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function DonutChart({ items, centerLabel, centerValue }: { items: ChartItem[]; centerLabel: string; centerValue: string | number }) {
@@ -23,7 +66,7 @@ function DonutChart({ items, centerLabel, centerValue }: { items: ChartItem[]; c
 
   return (
     <div className="flex flex-col sm:flex-row items-center gap-6">
-      <div className="relative h-40 w-40 rounded-full bg-steel-800">
+      <div className="relative h-36 w-36 flex-shrink-0 rounded-full bg-steel-800">
         <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
           <circle cx="60" cy="60" r="45" fill="none" stroke="currentColor" strokeWidth="18" className="text-steel-800" />
           {items.map(item => {
@@ -47,19 +90,19 @@ function DonutChart({ items, centerLabel, centerValue }: { items: ChartItem[]; c
             );
           })}
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center rounded-full">
-          <div className="text-2xl font-bold text-steel-100">{centerValue}</div>
-          <div className="text-xs text-steel-500">{centerLabel}</div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center rounded-full px-3 text-center">
+          <div className="text-2xl font-bold leading-none text-steel-100">{centerValue}</div>
+          <div className="mt-1 text-[10px] uppercase tracking-wide text-steel-500">{centerLabel}</div>
         </div>
       </div>
-      <div className="flex-1 w-full space-y-3">
+      <div className="flex-1 w-full space-y-3 min-w-0">
         {items.map(item => (
           <div key={item.label} className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <span className={`h-2.5 w-2.5 rounded-full ${item.className.replace('text-', 'bg-')}`} />
+              <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${item.className.replace('text-', 'bg-')}`} />
               <span className="text-sm text-steel-300 truncate">{item.label}</span>
             </div>
-            <div className="text-sm font-semibold text-steel-100">
+            <div className="text-sm font-semibold text-steel-100 whitespace-nowrap">
               {item.value} <span className="text-xs font-normal text-steel-500">({percent(item.value, total)}%)</span>
             </div>
           </div>
@@ -90,6 +133,83 @@ function HorizontalBars({ items, total }: { items: ChartItem[]; total: number })
   );
 }
 
+function MiniChart({ type, value, accent }: { type: MiniMetricCardProps['chartType']; value: number; accent: MiniMetricCardProps['accent'] }) {
+  const safeValue = clampPercent(value);
+  const styles = accentStyles[accent];
+  const circumference = 100.53;
+  const dash = (safeValue / 100) * circumference;
+  const sparkBars = [38, 55, 44, 72, 58, safeValue || 8];
+
+  if (type === 'donut') {
+    return (
+      <div className="relative h-16 w-16 flex-shrink-0">
+        <svg viewBox="0 0 40 40" className="h-full w-full -rotate-90">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="currentColor" strokeWidth="5" className="text-steel-800" />
+          <circle
+            cx="20"
+            cy="20"
+            r="16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="5"
+            strokeDasharray={`${dash} ${circumference - dash}`}
+            strokeLinecap="round"
+            className={styles.ring}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-steel-200">
+          {safeValue}%
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'spark') {
+    return (
+      <div className="flex h-14 w-20 items-end gap-1.5 rounded-xl bg-steel-950/40 px-2 py-2">
+        {sparkBars.map((bar, index) => (
+          <div key={index} className="flex-1 rounded-full bg-steel-700 overflow-hidden">
+            <div className={`w-full rounded-full ${styles.bar}`} style={{ height: `${clampPercent(bar)}%` }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-20">
+      <div className="mb-1 flex items-center justify-between text-[10px] text-steel-500">
+        <span>avance</span>
+        <span>{safeValue}%</span>
+      </div>
+      <div className="h-2.5 rounded-full bg-steel-800 overflow-hidden">
+        <div className={`h-full rounded-full ${styles.bar}`} style={{ width: `${safeValue}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function MiniMetricCard({ title, value, subtitle, icon, accent, chartType, chartValue, chartLabel }: MiniMetricCardProps) {
+  const styles = accentStyles[accent];
+
+  return (
+    <div className="card p-4 min-h-[170px] flex flex-col justify-between">
+      <div className="flex items-start justify-between gap-3">
+        <div className={`h-11 w-11 rounded-xl border flex items-center justify-center flex-shrink-0 ${styles.icon}`}>
+          {icon}
+        </div>
+        <MiniChart type={chartType} value={chartValue} accent={accent} />
+      </div>
+      <div className="mt-4">
+        <div className="text-2xl font-bold leading-tight text-steel-100">{value}</div>
+        <div className="mt-1 text-sm font-medium text-steel-300 leading-snug">{title}</div>
+        {subtitle && <div className="mt-1 text-xs text-steel-500 leading-snug">{subtitle}</div>}
+        {chartLabel && <div className="mt-2 text-[10px] uppercase tracking-wide text-steel-600">{chartLabel}</div>}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? 't1';
@@ -108,6 +228,13 @@ export default function AdminDashboard() {
   const expiredCerts = certificates.filter(c => c.status === 'expired').length;
   const expiringSoon = certificates.filter(c => c.status === 'expiring_soon').length;
   const avgProgress = assignments.length ? Math.round(assignments.reduce((s, a) => s + a.progress_percentage, 0) / assignments.length) : 0;
+  const completionRate = percent(completed, assignments.length);
+  const activeUserRate = percent(activeUsers, users.length);
+  const inProgressRate = percent(inProgress, assignments.length);
+  const notStartedRate = percent(notStarted, assignments.length);
+  const validCertRate = percent(validCerts, certificates.length);
+  const expiredCertRate = percent(expiredCerts, Math.max(certificates.length, 1));
+  const expiringSoonRate = percent(expiringSoon, Math.max(certificates.length, 1));
 
   const trainingStatusItems: ChartItem[] = [
     { label: 'Completados', value: completed, className: 'text-emerald-400' },
@@ -153,19 +280,93 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="Usuarios totales" value={users.length} icon={<Users size={20} />} accent="amber" subtitle={`${activeUsers} activos`} />
-        <MetricCard title="Trainings asignados" value={assignments.length} icon={<BookOpen size={20} />} accent="blue" />
-        <MetricCard title="Certificados vigentes" value={validCerts} icon={<Award size={20} />} accent="green" />
-        <MetricCard title="Avance promedio" value={`${avgProgress}%`} icon={<TrendingUp size={20} />} accent="amber" />
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="No iniciados" value={notStarted} icon={<Clock size={20} />} accent="steel" />
-        <MetricCard title="En curso" value={inProgress} icon={<Activity size={20} />} accent="blue" />
-        <MetricCard title="Completados" value={completed} icon={<CheckCircle size={20} />} accent="green" />
-        <MetricCard title="Certs. vencidos" value={expiredCerts} icon={<XCircle size={20} />} accent="red" subtitle={`${expiringSoon} próximos a vencer`} />
-      </div>
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-steel-500">Indicadores principales</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <MiniMetricCard
+            title="Usuarios totales"
+            value={users.length}
+            icon={<Users size={20} />}
+            accent="amber"
+            subtitle={`${activeUsers} activos`}
+            chartType="donut"
+            chartValue={activeUserRate}
+            chartLabel="usuarios activos"
+          />
+          <MiniMetricCard
+            title="Trainings asignados"
+            value={assignments.length}
+            icon={<BookOpen size={20} />}
+            accent="blue"
+            subtitle={`${completed} completados`}
+            chartType="bar"
+            chartValue={completionRate}
+            chartLabel="cumplimiento"
+          />
+          <MiniMetricCard
+            title="Certificados vigentes"
+            value={validCerts}
+            icon={<Award size={20} />}
+            accent="green"
+            subtitle={`${certificates.length} certificados totales`}
+            chartType="donut"
+            chartValue={validCertRate}
+            chartLabel="vigencia"
+          />
+          <MiniMetricCard
+            title="Avance promedio"
+            value={`${avgProgress}%`}
+            icon={<TrendingUp size={20} />}
+            accent="amber"
+            subtitle="promedio de la empresa"
+            chartType="spark"
+            chartValue={avgProgress}
+            chartLabel="avance general"
+          />
+          <MiniMetricCard
+            title="No iniciados"
+            value={notStarted}
+            icon={<Clock size={20} />}
+            accent="steel"
+            subtitle={`${notStartedRate}% de asignaciones`}
+            chartType="bar"
+            chartValue={notStartedRate}
+            chartLabel="pendientes"
+          />
+          <MiniMetricCard
+            title="En curso"
+            value={inProgress}
+            icon={<Activity size={20} />}
+            accent="blue"
+            subtitle={`${inProgressRate}% de asignaciones`}
+            chartType="spark"
+            chartValue={inProgressRate}
+            chartLabel="actividad"
+          />
+          <MiniMetricCard
+            title="Completados"
+            value={completed}
+            icon={<CheckCircle size={20} />}
+            accent="green"
+            subtitle={`${completionRate}% de cumplimiento`}
+            chartType="donut"
+            chartValue={completionRate}
+            chartLabel="finalizados"
+          />
+          <MiniMetricCard
+            title="Certs. vencidos"
+            value={expiredCerts}
+            icon={<XCircle size={20} />}
+            accent="red"
+            subtitle={`${expiringSoon} próximos a vencer`}
+            chartType="bar"
+            chartValue={expiredCerts > 0 ? expiredCertRate : expiringSoonRate}
+            chartLabel={expiredCerts > 0 ? 'riesgo vencido' : 'riesgo próximo'}
+          />
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="card xl:col-span-1">
@@ -174,7 +375,7 @@ export default function AdminDashboard() {
             Estado de trainings
           </h3>
           <p className="text-xs text-steel-500 mb-5">Distribución general de asignaciones activas.</p>
-          <DonutChart items={trainingStatusItems} centerLabel="asignaciones" centerValue={assignments.length} />
+          <DonutChart items={trainingStatusItems} centerLabel="total" centerValue={assignments.length} />
         </div>
 
         <div className="card xl:col-span-1">
@@ -195,12 +396,12 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             {areaItems.map(area => (
               <div key={area.label}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div>
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <div className="min-w-0">
                     <span className="text-sm text-steel-300">{area.label}</span>
                     <span className="text-xs text-steel-500 ml-2">{area.users} usuarios · {area.assignments} asignaciones</span>
                   </div>
-                  <span className="text-sm font-semibold text-steel-100">{area.value}%</span>
+                  <span className="text-sm font-semibold text-steel-100 whitespace-nowrap">{area.value}%</span>
                 </div>
                 <div className="h-2.5 rounded-full bg-steel-800 overflow-hidden">
                   <div className="h-full rounded-full bg-amber-400" style={{ width: `${area.value}%` }} />
