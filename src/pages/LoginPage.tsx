@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Shield, AlertCircle } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function LoginPage() {
+interface LoginPageProps {
+  onRegister: () => void;
+  onForgotPassword: () => void;
+}
+
+export default function LoginPage({ onRegister, onForgotPassword }: LoginPageProps) {
   const { login, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -12,20 +17,14 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const { error: err } = await login(email, password);
-    if (err) setError(err);
-  };
 
-  const demoAccounts = [
-    { label: 'Admin Demo Oil Energy Co.', email: 'admin@demooilenergyco.com', password: 'demo2026', color: 'blue' },
-    { label: 'Trabajador Demo', email: 'juan.perez@demooilenergyco.com', password: 'worker2026', color: 'green' },
-  ];
+    const { error: loginError } = await login(email, password);
+    if (loginError) setError(loginError);
+  };
 
   return (
     <div className="min-h-screen bg-steel-950 flex">
-      {/* Left panel - branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-petroleum-950 via-steel-900 to-petroleum-900 p-12 flex-col justify-between relative overflow-hidden">
-        {/* Background pattern */}
         <div className="absolute inset-0 opacity-5">
           <div className="absolute top-20 left-20 w-64 h-64 border border-amber-400 rounded-full" />
           <div className="absolute top-40 left-40 w-96 h-96 border border-amber-400 rounded-full" />
@@ -44,25 +43,23 @@ export default function LoginPage() {
           </div>
 
           <h2 className="text-3xl font-bold text-steel-50 mb-4 leading-tight">
-            Demo corporativo<br />para Oil & Gas
+            Cumplimiento operativo<br />para equipos de Oil &amp; Gas
           </h2>
 
           <p className="text-steel-300 leading-relaxed text-sm max-w-sm mb-4">
-            Esta versión demo utiliza cuentas y datos ficticios para presentar los dos perfiles principales del producto:
-            Admin Empresa y Usuario/Trabajador.
+            Gestioná capacitaciones, certificaciones, evaluaciones y seguimiento de avances desde una única plataforma.
           </p>
 
           <p className="text-steel-400 leading-relaxed text-sm max-w-sm">
-            CIGÜEÑA es una plataforma de cumplimiento operativo para gestionar trainings, certificaciones,
-            aptitud laboral y seguimiento de avance en equipos vinculados a la industria energética.
+            Cada usuario accede a las herramientas y la información correspondientes a su empresa y a su rol.
           </p>
         </div>
 
         <div className="relative space-y-4">
           {[
-            { label: 'Gestión multi-tenant', desc: 'Múltiples empresas demo en una sola plataforma' },
+            { label: 'Gestión por empresa', desc: 'Usuarios, permisos y contenidos organizados por compañía' },
             { label: 'Certificados automáticos', desc: 'Emisión, descarga y seguimiento de vigencia' },
-            { label: 'Cumplimiento operativo', desc: 'Trainings, tests, normas y aptos para equipos de campo' },
+            { label: 'Trazabilidad', desc: 'Seguimiento de trainings, evaluaciones y cumplimiento' },
           ].map(item => (
             <div key={item.label} className="flex items-start gap-3">
               <div className="w-5 h-5 bg-amber-500/20 border border-amber-500/40 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -81,10 +78,8 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right panel - login form */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
             <div className="w-10 h-10 rounded-xl bg-steel-900 border border-amber-500/30 flex items-center justify-center p-1.5 shadow-lg shadow-amber-500/10">
               <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
@@ -98,7 +93,7 @@ export default function LoginPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-steel-50 mb-1">Iniciar sesión</h1>
             <p className="text-sm text-steel-400">
-              Ingresá con una cuenta demo para explorar la plataforma desde los perfiles disponibles.
+              Ingresá con tu cuenta para acceder a la plataforma.
             </p>
           </div>
 
@@ -109,10 +104,11 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4 mb-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="label">Email</label>
+              <label className="label" htmlFor="login-email">Email</label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -122,10 +118,22 @@ export default function LoginPage() {
                 autoComplete="email"
               />
             </div>
+
             <div>
-              <label className="label">Contraseña</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="label mb-0" htmlFor="login-password">Contraseña</label>
+                <button
+                  type="button"
+                  onClick={onForgotPassword}
+                  className="text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+
               <div className="relative">
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
@@ -136,13 +144,15 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowPassword(current => !current)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-steel-400 hover:text-steel-200"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
+
             <button type="submit" disabled={isLoading} className="btn-primary w-full justify-center py-3">
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -156,29 +166,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Demo accounts */}
-          <div className="border-t border-steel-700 pt-5">
-            <p className="text-xs font-semibold text-steel-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Shield size={12} />
-              Cuentas demo ficticias
-            </p>
-            <div className="space-y-2">
-              {demoAccounts.map(acc => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  onClick={() => { setEmail(acc.email); setPassword(acc.password); }}
-                  className="w-full text-left px-3 py-2.5 bg-steel-800 hover:bg-steel-700 border border-steel-700 hover:border-steel-600 rounded-lg transition-all group"
-                >
-                  <div className={`text-xs font-semibold mb-0.5 ${acc.color === 'blue' ? 'text-blue-400' : 'text-emerald-400'}`}>
-                    {acc.label}
-                  </div>
-                  <div className="text-xs text-steel-400">{acc.email} · {acc.password}</div>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-steel-500 mt-3 leading-relaxed">
-              Las cuentas y datos utilizados en esta demo son ficticios y permiten visualizar el producto desde el perfil administrador y trabajador.
+          <div className="mt-6 pt-6 border-t border-steel-700 text-center">
+            <p className="text-sm text-steel-400">
+              ¿Todavía no tenés cuenta?{' '}
+              <button
+                type="button"
+                onClick={onRegister}
+                className="font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+              >
+                Crear cuenta
+              </button>
             </p>
           </div>
         </div>

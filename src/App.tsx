@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import AppLayout from './components/layout/AppLayout';
 
 // Super Admin
@@ -56,8 +58,11 @@ const DEFAULT_VIEW: Record<string, string> = {
   worker: 'worker-dashboard',
 };
 
+type AuthScreen = 'login' | 'register' | 'forgot-password';
+
 function AppContent() {
   const { user } = useAuth();
+  const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [activeView, setActiveView] = useState(() => DEFAULT_VIEW[user?.role ?? 'worker'] ?? 'worker-dashboard');
   const [viewData, setViewData] = useState<unknown>(null);
 
@@ -75,7 +80,22 @@ function AppContent() {
     else setViewData(null);
   };
 
-  if (!user) return <LoginPage />;
+  if (!user) {
+    if (authScreen === 'register') {
+      return <RegisterPage onBackToLogin={() => setAuthScreen('login')} />;
+    }
+
+    if (authScreen === 'forgot-password') {
+      return <ForgotPasswordPage onBackToLogin={() => setAuthScreen('login')} />;
+    }
+
+    return (
+      <LoginPage
+        onRegister={() => setAuthScreen('register')}
+        onForgotPassword={() => setAuthScreen('forgot-password')}
+      />
+    );
+  }
 
   const meta = VIEW_META[activeView] ?? { title: 'CIGÜEÑA', subtitle: '' };
 
