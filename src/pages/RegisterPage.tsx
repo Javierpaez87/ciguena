@@ -1,15 +1,32 @@
-import React, { useState } from 'react';
-import { AlertTriangle, ArrowLeft, Eye, EyeOff, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle,
+  Eye,
+  EyeOff,
+  Loader2,
+  X,
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface RegisterPageProps {
   onBackToLogin: () => void;
 }
 
-const companies = [
-  { id: 'demo-oil-energy-co', name: 'Demo Oil Energy Co.' },
-];
+interface CompanyOption {
+  id: string;
+  name: string;
+}
 
 export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
+  const { register, isLoading } = useAuth();
+
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
+
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -19,13 +36,47 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [requestedAdmin, setRequestedAdmin] = useState(false);
   const [showAdminWarning, setShowAdminWarning] = useState(false);
-  const [message, setMessage] = useState('');
+
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadCompanies() {
+      setIsLoadingCompanies(true);
+
+      const { data, error: companiesError } = await supabase
+        .from('tenants')
+        .select('id, name')
+        .eq('status', 'active')
+        .order('name', { ascending: true });
+
+      if (ignore) return;
+
+      if (companiesError) {
+        setError('No pudimos cargar el listado de empresas. Intentá nuevamente en unos minutos.');
+        setCompanies([]);
+      } else {
+        setCompanies((data ?? []) as CompanyOption[]);
+      }
+
+      setIsLoadingCompanies(false);
+    }
+
+    loadCompanies();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const handleAdminRequestChange = (checked: boolean) => {
     if (checked) {
       setShowAdminWarning(true);
       return;
     }
+
     setRequestedAdmin(false);
   };
 
@@ -34,16 +85,62 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     setShowAdminWarning(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setMessage('');
+  const clearForm = () => {
+    setFullName('');
+    setEmail('');
+    setPhone('');
+    setCompanyId('');
+    setPassword('');
+    setConfirmPassword('');
+    setRequestedAdmin(false);
+  };
 
-    if (password !== confirmPassword) {
-      setMessage('Las contraseñas no coinciden.');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+
+    if (companyId === 'not-found') {
+      setError('Para registrar una empresa nueva, contactá a BondiApps para habilitarla previamente.');
       return;
     }
 
-    setMessage('Formulario listo. En el siguiente paso lo conectaremos con Supabase.');
+    if (!companyId) {
+      setError('Seleccioná tu empresa.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    const { error: registerError } = await register({
+      fullName: fullName.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      companyId,
+      password,
+      requestedAdmin,
+    });
+
+    if (registerError) {
+      setError(registerError);
+      return;
+    }
+
+    setSuccessMessage(
+      requestedAdmin
+        ? 'Tu cuenta fue creada correctamente y tu solicitud de acceso como administrador quedó pendiente de validación por BondiApps y la empresa seleccionada.'
+        : 'Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de tu empresa.'
+    );
+
+    clearForm();
   };
 
   return (
@@ -69,33 +166,77 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
             </div>
           </div>
 
-          {message && (
-            <div className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              {message}
+          {error && (
+            <div className="mb-5 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-red-400" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mb-5 flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              <CheckCircle size={16} className="mt-0.5 flex-shrink-0 text-emerald-400" />
+              <span>{successMessage}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="label" htmlFor="register-name">Nombre y apellido</label>
-              <input id="register-name" className="input" value={fullName} onChange={e => setFullName(e.target.value)} required autoComplete="name" />
+              <input
+                id="register-name"
+                className="input"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                required
+                autoComplete="name"
+                disabled={isLoading}
+              />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label" htmlFor="register-email">Email</label>
-                <input id="register-email" type="email" className="input" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+                <input
+                  id="register-email"
+                  type="email"
+                  className="input"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  disabled={isLoading}
+                />
               </div>
               <div>
                 <label className="label" htmlFor="register-phone">Teléfono</label>
-                <input id="register-phone" type="tel" className="input" value={phone} onChange={e => setPhone(e.target.value)} required autoComplete="tel" placeholder="+54 9 ..." />
+                <input
+                  id="register-phone"
+                  type="tel"
+                  className="input"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  required
+                  autoComplete="tel"
+                  placeholder="+54 9 ..."
+                  disabled={isLoading}
+                />
               </div>
             </div>
 
             <div>
               <label className="label" htmlFor="register-company">Empresa</label>
-              <select id="register-company" className="input" value={companyId} onChange={e => setCompanyId(e.target.value)} required>
-                <option value="">Seleccioná tu empresa</option>
+              <select
+                id="register-company"
+                className="input"
+                value={companyId}
+                onChange={e => setCompanyId(e.target.value)}
+                required
+                disabled={isLoading || isLoadingCompanies}
+              >
+                <option value="">
+                  {isLoadingCompanies ? 'Cargando empresas...' : 'Seleccioná tu empresa'}
+                </option>
                 {companies.map(company => (
                   <option key={company.id} value={company.id}>{company.name}</option>
                 ))}
@@ -116,6 +257,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                     required
                     minLength={8}
                     autoComplete="new-password"
+                    disabled={isLoading}
                   />
                   <button
                     type="button"
@@ -139,6 +281,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                   required
                   minLength={8}
                   autoComplete="new-password"
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -150,6 +293,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                   checked={requestedAdmin}
                   onChange={e => handleAdminRequestChange(e.target.checked)}
                   className="mt-1 h-4 w-4 accent-amber-500"
+                  disabled={isLoading}
                 />
                 <span>
                   <span className="block text-sm font-semibold text-steel-100">Solicitar acceso como administrador</span>
@@ -160,7 +304,14 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
               </label>
             </div>
 
-            <button type="submit" className="btn-primary w-full justify-center py-3">Crear cuenta</button>
+            <button type="submit" disabled={isLoading || isLoadingCompanies} className="btn-primary w-full justify-center py-3">
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin" />
+                  Creando cuenta...
+                </span>
+              ) : 'Crear cuenta'}
+            </button>
           </form>
 
           <p className="mt-6 text-center text-sm text-steel-400">
