@@ -28,7 +28,13 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function buildAuthUser(authUserId: string, email: string, profile: Profile): AuthUser {
+type SupabaseProfile = Profile & {
+  auth_user_id?: string;
+  phone?: string | null;
+  requested_admin?: boolean;
+};
+
+function buildAuthUser(email: string, profile: SupabaseProfile): AuthUser {
   return {
     id: profile.id,
     email,
@@ -53,7 +59,21 @@ async function getProfileForAuthUser(authUserId: string) {
     return { profile: null, error };
   }
 
-  return { profile: data as Profile, error: null };
+  return { profile: data as SupabaseProfile, error: null };
+}
+
+function normalizeRegisterError(message: string) {
+  const lower = message.toLowerCase();
+
+  if (lower.includes('already') || lower.includes('registered') || lower.includes('ya existe')) {
+    return 'Ya existe una cuenta registrada con ese email.';
+  }
+
+  if (lower.includes('rate limit') || lower.includes('email rate')) {
+    return 'No pudimos completar el registro en este momento. Intentá nuevamente en unos minutos o contactá a BondiApps.';
+  }
+
+  return message || 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.';
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -82,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    setUser(buildAuthUser(authUser.id, email, profile));
+    setUser(buildAuthUser(email, profile));
     setIsLoading(false);
   }, []);
 
@@ -107,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        setUser(buildAuthUser(authUser.id, authUser.email ?? '', profile));
+        setUser(buildAuthUser(authUser.email ?? '', profile));
         setIsLoading(false);
       });
     });
@@ -153,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: 'Tu cuenta no se encuentra activa.' };
     }
 
-    setUser(buildAuthUser(data.user.id, normalizedEmail, profile));
+    setUser(buildAuthUser(normalizedEmail, profile));
     setIsLoading(false);
     return { error: null };
   }, []);
@@ -161,46 +181,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(async (payload: RegisterPayload) => {
     setIsLoading(true);
 
-    const normalizedEmail = payload.email.trim().toLowerCase();
-
-    const { data, error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password: payload.password,
-      options: {
-        data: {
-          full_name: payload.fullName,
-          phone: payload.phone,
-          requested_admin: payload.requestedAdmin,
+    try {
+      const response = await fetch('/.netlify/functions/register-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      },
-    });
+        body: JSON.stringify(payload),
+      });
 
-    if (error || !data.user) {
+      const result = await response.json().catch(() => ({}));
+
       setIsLoading(false);
-      return { error: error?.message ?? 'No pudimos crear la cuenta.' };
-    }
 
-    const { error: profileError } = await supabase.from('profiles').insert({
-      auth_user_id: data.user.id,
-      tenant_id: payload.companyId,
-      full_name: payload.fullName,
-      email: normalizedEmail,
-      phone: payload.phone,
-      role: 'worker',
-      status: 'pending',
-      requested_admin: payload.requestedAdmin,
-    });
+      if (!response.ok) {
+        return {
+          error: normalizeRegisterError(result.error),
+        };
+      }
 
-    if (profileError) {
+      return { error: null };
+    } catch {
       setIsLoading(false);
-      return { error: profileError.message };
+      return {
+        error: 'No pudimos conectar con el servidor de registro. Intentá nuevamente en unos minutos.',
+      };
     }
-
-    await supabase.auth.signOut();
-    setUser(null);
-    setIsLoading(false);
-
-    return { error: null };
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
