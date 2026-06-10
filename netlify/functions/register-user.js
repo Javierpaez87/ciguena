@@ -22,6 +22,29 @@ function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeEmail(value) {
+  return clean(value).toLowerCase();
+}
+
+function getFriendlyAuthError(message = '') {
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes('already') ||
+    lower.includes('registered') ||
+    lower.includes('already been registered') ||
+    lower.includes('user already registered')
+  ) {
+    return 'Ya existe una cuenta registrada con ese email.';
+  }
+
+  if (lower.includes('password')) {
+    return 'La contraseña no cumple con los requisitos mínimos.';
+  }
+
+  return 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.';
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return json(200, { ok: true });
@@ -38,6 +61,7 @@ export const handler = async (event) => {
   }
 
   let payload;
+
   try {
     payload = JSON.parse(event.body || '{}');
   } catch {
@@ -45,7 +69,7 @@ export const handler = async (event) => {
   }
 
   const fullName = clean(payload.fullName);
-  const email = clean(payload.email).toLowerCase();
+  const email = normalizeEmail(payload.email);
   const phone = clean(payload.phone);
   const companyId = clean(payload.companyId);
   const password = typeof payload.password === 'string' ? payload.password : '';
@@ -66,16 +90,24 @@ export const handler = async (event) => {
     },
   });
 
-  const { data: existingProfile } = await supabaseAdmin
+  // Evita duplicados en profiles
+  const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
     .from('profiles')
     .select('id')
     .eq('email', email)
     .maybeSingle();
 
+  if (existingProfileError) {
+    return json(500, {
+      error: 'No pudimos verificar si el usuario ya existía. Intentá nuevamente.',
+    });
+  }
+
   if (existingProfile) {
     return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
   }
 
+  // Crear usuario en Supabase Auth, ya confirmado
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -88,15 +120,23 @@ export const handler = async (event) => {
   });
 
   if (authError || !authData.user) {
-    const message = authError?.message || 'No pudimos crear la cuenta.';
-
-    if (message.toLowerCase().includes('already')) {
-      return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
-    }
-
-    return json(400, { error: 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.' });
+    return json(400, {
+      error: getFriendlyAuthError(authError?.message),
+    });
   }
 
+  // Refuerzo: volver a marcar el email como confirmado.
+  // Esto ayuda si Supabase crea el usuario pero igual queda "waiting for verification".
+  await supabaseAdmin.auth.admin.updateUserById(authData.user.id, {
+    email_confirm: true,
+    user_metadata: {
+      full_name: fullName,
+      phone,
+      requested_admin: requestedAdmin,
+    },
+  });
+
+  // Crear perfil pendiente en Cigüeña
   const { error: profileError } = await supabaseAdmin.from('profiles').insert({
     auth_user_id: authData.user.id,
     tenant_id: companyId,
@@ -109,8 +149,12 @@ export const handler = async (event) => {
   });
 
   if (profileError) {
+    // Si falla el profile, eliminamos el usuario Auth para no dejar cuentas huérfanas
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-    return json(400, { error: 'No pudimos crear el perfil de usuario. Intentá nuevamente.' });
+
+    return json(400, {
+      error: 'No pudimos crear el perfil de usuario. Intentá nuevamente.',
+    });
   }
 
   return json(200, {
