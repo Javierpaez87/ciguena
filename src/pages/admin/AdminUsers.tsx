@@ -12,6 +12,7 @@ import {
   Upload,
   FileText,
   CheckCircle,
+  Download,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -179,7 +180,13 @@ function getAssignmentProgress(assignment: Assignment) {
   return 0;
 }
 
-function parseCsvLine(line: string) {
+function detectCsvDelimiter(headerLine: string) {
+  const commaCount = (headerLine.match(/,/g) || []).length;
+  const semicolonCount = (headerLine.match(/;/g) || []).length;
+  return semicolonCount > commaCount ? ';' : ',';
+}
+
+function parseCsvLine(line: string, delimiter = ',') {
   const result: string[] = [];
   let current = '';
   let insideQuotes = false;
@@ -199,7 +206,7 @@ function parseCsvLine(line: string) {
       continue;
     }
 
-    if (char === ',' && !insideQuotes) {
+    if (char === delimiter && !insideQuotes) {
       result.push(current.trim());
       current = '';
       continue;
@@ -256,10 +263,12 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
 
   if (lines.length <= 1) return [];
 
-  const headers = parseCsvLine(lines[0]).map(normalizeHeader);
+  const delimiter = detectCsvDelimiter(lines[0]);
+  const headers = parseCsvLine(lines[0], delimiter).map(normalizeHeader);
+  const emailsInCsv = new Set<string>();
 
   return lines.slice(1).map((line, index) => {
-    const values = parseCsvLine(line);
+    const values = parseCsvLine(line, delimiter);
     const row: Record<string, string> = {};
 
     headers.forEach((header, headerIndex) => {
@@ -268,7 +277,12 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
 
     const firstName = getColumnValue(row, ['nombre', 'first_name', 'firstname']);
     const lastName = getColumnValue(row, ['apellido', 'last_name', 'lastname']);
-    const email = getColumnValue(row, ['email', 'mail', 'correo', 'correo_electronico']).toLowerCase();
+    const email = getColumnValue(row, [
+      'email',
+      'mail',
+      'correo',
+      'correo_electronico',
+    ]).toLowerCase();
     const dni = getColumnValue(row, ['dni', 'documento', 'documento_nacional']);
     const phone = getColumnValue(row, ['telefono', 'phone', 'celular', 'mobile']);
     const position = getColumnValue(row, ['puesto', 'position', 'cargo', 'rol_operativo']);
@@ -290,7 +304,12 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
     if (!email) errors.push('Falta email');
     if (email && !isValidEmail(email)) errors.push('Email inválido');
     if (email && existingEmails.has(email)) errors.push('Email ya existe');
+    if (email && emailsInCsv.has(email)) errors.push('Email duplicado en el CSV');
     if (!fullName) errors.push('Falta nombre');
+
+    if (email) {
+      emailsInCsv.add(email);
+    }
 
     return {
       rowNumber: index + 2,
@@ -318,6 +337,64 @@ function sortByCreatedAtDesc<T extends { created_at?: string | null; assigned_at
     const dateB = new Date(b.created_at || b.assigned_at || '').getTime();
     return dateB - dateA;
   });
+}
+
+function downloadCsvTemplate() {
+  const headers = [
+    'nombre',
+    'apellido',
+    'email',
+    'dni',
+    'telefono',
+    'puesto',
+    'area',
+    'legajo',
+    'empresa_contratista',
+    'estado',
+  ];
+
+  const exampleRows = [
+    [
+      'Juan',
+      'Perez',
+      'juan.perez@empresa.com',
+      '30111222',
+      '+54 9 11 2233-4455',
+      'Operador de campo',
+      'Operaciones',
+      'EMP001',
+      'Contratista SA',
+      'pending',
+    ],
+    [
+      'Maria',
+      'Gomez',
+      'maria.gomez@empresa.com',
+      '30999888',
+      '+54 9 11 6677-8899',
+      'Supervisora HSE',
+      'Seguridad e Higiene',
+      'EMP002',
+      '',
+      'pending',
+    ],
+  ];
+
+  const csvContent = [headers, ...exampleRows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'modelo_carga_trabajadores_ciguena.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(url);
 }
 
 export default function AdminUsers() {
@@ -644,9 +721,7 @@ export default function AdminUsers() {
 
       setShowInvite(false);
       setInviteEmails('');
-      setSuccessMessage(
-        `${newProfiles.length} trabajador(es) cargado(s) como preaprobado(s).`
-      );
+      setSuccessMessage(`${newProfiles.length} trabajador(es) cargado(s) como preaprobado(s).`);
     } catch (error) {
       console.error('Error inviting users:', error);
       setErrorMessage(
@@ -673,9 +748,7 @@ export default function AdminUsers() {
       setCsvRows(parsedRows);
       setShowCsvModal(true);
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : 'No se pudo leer el archivo CSV.'
-      );
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo leer el archivo CSV.');
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -740,15 +813,15 @@ export default function AdminUsers() {
       setSuccessMessage(`${profilesToInsert.length} trabajador(es) importado(s) desde CSV.`);
     } catch (error) {
       console.error('Error importing CSV:', error);
-      setErrorMessage(
-        error instanceof Error ? error.message : 'No se pudo importar el CSV.'
-      );
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo importar el CSV.');
     } finally {
       setSaving(false);
     }
   }
 
   const detailAssignments = showDetail ? assignmentsByUser[showDetail.id] ?? [] : [];
+  const validCsvRows = csvRows.filter((row) => row.errors.length === 0);
+  const invalidCsvRows = csvRows.filter((row) => row.errors.length > 0);
 
   if (loading) {
     return (
@@ -779,9 +852,6 @@ export default function AdminUsers() {
     );
   }
 
-  const validCsvRows = csvRows.filter((row) => row.errors.length === 0);
-  const invalidCsvRows = csvRows.filter((row) => row.errors.length > 0);
-
   return (
     <div className="space-y-4">
       {(errorMessage || successMessage) && (
@@ -810,10 +880,7 @@ export default function AdminUsers() {
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2 flex-1 max-w-lg">
           <div className="relative flex-1">
-            <Search
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400"
-            />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -840,7 +907,13 @@ export default function AdminUsers() {
             Actualizar
           </button>
 
-          <button onClick={() => fileInputRef.current?.click()} className="btn-secondary text-xs">
+          <button
+            onClick={() => {
+              setCsvRows([]);
+              setShowCsvModal(true);
+            }}
+            className="btn-secondary text-xs"
+          >
             <Upload size={14} />
             Cargar CSV
           </button>
@@ -1186,7 +1259,7 @@ export default function AdminUsers() {
           setShowCsvModal(false);
           setCsvRows([]);
         }}
-        title="Importar trabajadores desde CSV"
+        title={csvRows.length > 0 ? 'Previsualizar importación CSV' : 'Cargar trabajadores por CSV'}
         size="xl"
         footer={
           <>
@@ -1199,87 +1272,186 @@ export default function AdminUsers() {
             >
               Cancelar
             </button>
-            <button
-              onClick={importCsvRows}
-              disabled={saving || validCsvRows.length === 0}
-              className="btn-primary"
-            >
-              <Upload size={15} />
-              {saving ? 'Importando...' : `Importar ${validCsvRows.length}`}
-            </button>
+
+            {csvRows.length > 0 ? (
+              <button
+                onClick={importCsvRows}
+                disabled={saving || validCsvRows.length === 0}
+                className="btn-primary"
+              >
+                <Upload size={15} />
+                {saving ? 'Importando...' : `Importar ${validCsvRows.length}`}
+              </button>
+            ) : (
+              <button onClick={() => fileInputRef.current?.click()} className="btn-primary">
+                <Upload size={15} />
+                Seleccionar CSV
+              </button>
+            )}
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-steel-900 rounded-lg p-3">
-              <div className="text-xs text-steel-500">Filas detectadas</div>
-              <div className="text-xl font-bold text-steel-100">{csvRows.length}</div>
+        {csvRows.length === 0 ? (
+          <div className="space-y-5">
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+              <div className="text-sm font-semibold text-amber-200 mb-1">
+                Carga masiva de trabajadores
+              </div>
+              <p className="text-sm text-amber-100/80">
+                Subí un archivo CSV con la nómina de trabajadores de la empresa. Los usuarios
+                cargados quedarán preaprobados para que, cuando se registren con su email, puedan
+                validarse automáticamente.
+              </p>
             </div>
 
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
-              <div className="text-xs text-emerald-500">Válidas</div>
-              <div className="text-xl font-bold text-emerald-300">{validCsvRows.length}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                onClick={downloadCsvTemplate}
+                className="rounded-xl border border-steel-700 bg-steel-900 hover:bg-steel-800 transition-colors p-4 text-left"
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <Download size={20} className="text-amber-400" />
+                  <div className="text-sm font-semibold text-steel-100">
+                    Descargar modelo CSV
+                  </div>
+                </div>
+                <p className="text-xs text-steel-400">
+                  Bajá una plantilla con las columnas correctas y dos filas de ejemplo.
+                </p>
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-xl border border-steel-700 bg-steel-900 hover:bg-steel-800 transition-colors p-4 text-left"
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <Upload size={20} className="text-emerald-400" />
+                  <div className="text-sm font-semibold text-steel-100">
+                    Seleccionar archivo CSV
+                  </div>
+                </div>
+                <p className="text-xs text-steel-400">
+                  Elegí el archivo completo para validar e importar trabajadores.
+                </p>
+              </button>
             </div>
 
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-              <div className="text-xs text-red-400">Con errores</div>
-              <div className="text-xl font-bold text-red-300">{invalidCsvRows.length}</div>
+            <div className="rounded-xl border border-steel-700 bg-steel-900 p-4">
+              <div className="text-sm font-semibold text-steel-200 mb-3">
+                Columnas aceptadas
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-steel-400">
+                <div>
+                  <div className="text-steel-300 font-medium mb-1">Obligatorias</div>
+                  <ul className="space-y-1">
+                    <li>email</li>
+                    <li>nombre y apellido, o nombre_completo</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <div className="text-steel-300 font-medium mb-1">Opcionales</div>
+                  <ul className="space-y-1">
+                    <li>dni</li>
+                    <li>telefono</li>
+                    <li>puesto</li>
+                    <li>area</li>
+                    <li>legajo</li>
+                    <li>empresa_contratista</li>
+                    <li>estado: pending, active o inactive</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-steel-900 rounded-lg p-3">
+                <div className="text-xs text-steel-500">Filas detectadas</div>
+                <div className="text-xl font-bold text-steel-100">{csvRows.length}</div>
+              </div>
 
-          <div className="rounded-xl border border-steel-700 overflow-hidden max-h-[420px] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-steel-900 sticky top-0">
-                <tr>
-                  <th className="table-header">Fila</th>
-                  <th className="table-header">Nombre</th>
-                  <th className="table-header">Email</th>
-                  <th className="table-header">DNI</th>
-                  <th className="table-header">Puesto</th>
-                  <th className="table-header">Área</th>
-                  <th className="table-header">Legajo</th>
-                  <th className="table-header">Estado</th>
-                </tr>
-              </thead>
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                <div className="text-xs text-emerald-500">Válidas</div>
+                <div className="text-xl font-bold text-emerald-300">{validCsvRows.length}</div>
+              </div>
 
-              <tbody>
-                {csvRows.map((row) => (
-                  <tr
-                    key={row.rowNumber}
-                    className={`border-b border-steel-800 ${
-                      row.errors.length > 0 ? 'bg-red-500/5' : ''
-                    }`}
-                  >
-                    <td className="table-cell text-steel-500">{row.rowNumber}</td>
-                    <td className="table-cell text-steel-200">
-                      <div>{row.full_name || '—'}</div>
-                      {row.errors.length > 0 && (
-                        <div className="text-xs text-red-400 mt-1">{row.errors.join(' · ')}</div>
-                      )}
-                    </td>
-                    <td className="table-cell text-steel-300">{row.email || '—'}</td>
-                    <td className="table-cell text-steel-300">{row.dni || '—'}</td>
-                    <td className="table-cell text-steel-300">{row.position || '—'}</td>
-                    <td className="table-cell text-steel-300">{row.area || '—'}</td>
-                    <td className="table-cell text-steel-300">{row.employee_code || '—'}</td>
-                    <td className="table-cell">
-                      <StatusBadge status={row.status || 'pending'} />
-                    </td>
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                <div className="text-xs text-red-400">Con errores</div>
+                <div className="text-xl font-bold text-red-300">{invalidCsvRows.length}</div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-steel-700 overflow-hidden max-h-[420px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-steel-900 sticky top-0">
+                  <tr>
+                    <th className="table-header">Fila</th>
+                    <th className="table-header">Nombre</th>
+                    <th className="table-header">Email</th>
+                    <th className="table-header">DNI</th>
+                    <th className="table-header">Puesto</th>
+                    <th className="table-header">Área</th>
+                    <th className="table-header">Legajo</th>
+                    <th className="table-header">Estado</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
 
-          <div className="text-xs text-steel-500 flex items-start gap-2">
-            <FileText size={14} className="mt-0.5" />
-            <div>
-              Columnas aceptadas: nombre, apellido, nombre_completo, email, mail, dni, telefono,
-              puesto, area, legajo, empresa_contratista, estado.
+                <tbody>
+                  {csvRows.map((row) => (
+                    <tr
+                      key={row.rowNumber}
+                      className={`border-b border-steel-800 ${
+                        row.errors.length > 0 ? 'bg-red-500/5' : ''
+                      }`}
+                    >
+                      <td className="table-cell text-steel-500">{row.rowNumber}</td>
+                      <td className="table-cell text-steel-200">
+                        <div>{row.full_name || '—'}</div>
+                        {row.errors.length > 0 && (
+                          <div className="text-xs text-red-400 mt-1">
+                            {row.errors.join(' · ')}
+                          </div>
+                        )}
+                      </td>
+                      <td className="table-cell text-steel-300">{row.email || '—'}</td>
+                      <td className="table-cell text-steel-300">{row.dni || '—'}</td>
+                      <td className="table-cell text-steel-300">{row.position || '—'}</td>
+                      <td className="table-cell text-steel-300">{row.area || '—'}</td>
+                      <td className="table-cell text-steel-300">{row.employee_code || '—'}</td>
+                      <td className="table-cell">
+                        <StatusBadge status={row.status || 'pending'} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-xs text-steel-500 flex items-start gap-2">
+                <FileText size={14} className="mt-0.5" />
+                <div>
+                  Las filas válidas se importarán como trabajadores preaprobados. Las filas con
+                  errores no se importan.
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setCsvRows([]);
+                  fileInputRef.current?.click();
+                }}
+                className="btn-secondary text-xs"
+              >
+                <Upload size={14} />
+                Elegir otro archivo
+              </button>
             </div>
           </div>
-        </div>
+        )}
       </Modal>
 
       <Modal
