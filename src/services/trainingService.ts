@@ -13,6 +13,6 @@ export async function getSuperAdminTrainings(): Promise<Training[]> {
 
 export async function getAdminTrainingsByTenant(_tenantId: string): Promise<Training[]> {
   // Por ahora devolvemos todos los trainings activos del catálogo base.
-  // Próximo paso: reemplazar esto por una consulta a Supabase.
+  // Próximo paso: reemplazar esto por una consulta real a Supabase.
   return baseTrainings.filter(training => training.status === 'active');
 }
