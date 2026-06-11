@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, BookOpen, Clock, Award, Plus, ChevronRight } from 'lucide-react';
+import { Search, BookOpen, Clock, Award, Plus, ChevronRight, PlayCircle, ClipboardCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
@@ -40,9 +40,10 @@ export default function AdminTrainings() {
         .eq('enabled', true);
 
       if (tenantTrainingsError) {
+        console.error('tenantTrainingsError:', tenantTrainingsError);
         setTrainings([]);
         setIsLoading(false);
-        setLoadError('No pudimos cargar los trainings habilitados para tu empresa.');
+        setLoadError(`No pudimos cargar los trainings habilitados: ${tenantTrainingsError.message}`);
         return;
       }
 
@@ -65,6 +66,7 @@ export default function AdminTrainings() {
         .order('full_name', { ascending: true });
 
       if (profilesError) {
+        console.error('profilesError:', profilesError);
         setUsers([]);
         setLoadError('Cargamos los trainings, pero no pudimos cargar los usuarios de tu empresa.');
         setIsLoading(false);
@@ -90,6 +92,71 @@ export default function AdminTrainings() {
     setShowAssign(null);
     setSelectedUsers(new Set());
     setAssignAll(false);
+  };
+
+  const getContentLabel = (training: Training) => {
+    if (training.content_type === 'local_video') return 'Video local';
+    if (training.content_type === 'video') return 'Video';
+    if (training.content_type === 'youtube') return 'YouTube';
+    if (training.content_type === 'document') return 'Documento';
+    if (training.content_type === 'external') return 'Recurso externo';
+    return 'No definido';
+  };
+
+  const renderPreviewContent = (training: Training) => {
+    if (!training.content_url) {
+      return (
+        <div className="rounded-xl border border-steel-700 bg-steel-900 p-6 text-center">
+          <PlayCircle size={28} className="mx-auto mb-3 text-steel-500" />
+          <p className="text-sm font-medium text-steel-200 mb-1">
+            Este training todavía no tiene contenido cargado.
+          </p>
+          <p className="text-xs text-steel-500">
+            El contenido podrá ser un video, documento o recurso externo.
+          </p>
+        </div>
+      );
+    }
+
+    if (training.content_type === 'local_video' || training.content_type === 'video') {
+      return (
+        <video
+          src={training.content_url}
+          controls
+          className="w-full rounded-xl border border-steel-700 bg-black"
+        />
+      );
+    }
+
+    if (training.content_type === 'youtube') {
+      return (
+        <div className="aspect-video w-full overflow-hidden rounded-xl border border-steel-700 bg-black">
+          <iframe
+            src={training.content_url}
+            title={training.title}
+            className="h-full w-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-xl border border-steel-700 bg-steel-900 p-6">
+        <p className="text-sm text-steel-300 mb-4">
+          Este contenido se abre como recurso externo.
+        </p>
+        <a
+          href={training.content_url}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-primary inline-flex"
+        >
+          Abrir contenido
+        </a>
+      </div>
+    );
   };
 
   return (
@@ -166,13 +233,7 @@ export default function AdminTrainings() {
 
                   {tr.content_type && (
                     <span className="badge badge-neutral">
-                      {tr.content_type === 'local_video'
-                        ? 'Video local'
-                        : tr.content_type === 'youtube'
-                          ? 'YouTube'
-                          : tr.content_type === 'document'
-                            ? 'Documento'
-                            : 'Contenido'}
+                      {getContentLabel(tr)}
                     </span>
                   )}
                 </div>
@@ -232,36 +293,69 @@ export default function AdminTrainings() {
           title={showDetail.title}
           size="lg"
         >
-          <div className="space-y-4">
-            <p className="text-sm text-steel-300">
-              {showDetail.description}
-            </p>
+          <div className="space-y-5">
+            <div>
+              <p className="text-sm text-steel-300">
+                {showDetail.description}
+              </p>
+            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Categoría', value: showDetail.category },
-                { label: 'Duración', value: `${showDetail.duration_minutes} minutos` },
-                { label: 'Puntaje mínimo', value: `${showDetail.passing_score}%` },
-                { label: 'Intentos máx.', value: showDetail.max_attempts?.toString() ?? 'Ilimitado' },
-                { label: 'Vigencia', value: showDetail.validity_months ? `${showDetail.validity_months} meses` : 'Sin vigencia' },
-                { label: 'Emite certificado', value: showDetail.certificate_enabled ? 'Sí' : 'No' },
-                {
-                  label: 'Contenido',
-                  value:
-                    showDetail.content_type === 'local_video'
-                      ? 'Video local'
-                      : showDetail.content_type === 'youtube'
-                        ? 'YouTube'
-                        : showDetail.content_type === 'document'
-                          ? 'Documento'
-                          : 'No definido',
-                },
-              ].map(item => (
-                <div key={item.label} className="bg-steel-900 rounded-lg p-3">
-                  <div className="text-xs text-steel-500 mb-1">{item.label}</div>
-                  <div className="text-sm font-medium text-steel-200">{item.value}</div>
-                </div>
-              ))}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <PlayCircle size={16} className="text-amber-400" />
+                <h3 className="text-sm font-semibold text-steel-100">
+                  Contenido del training
+                </h3>
+              </div>
+
+              {renderPreviewContent(showDetail)}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <ClipboardCheck size={16} className="text-amber-400" />
+                <h3 className="text-sm font-semibold text-steel-100">
+                  Evaluación
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Requiere examen', value: showDetail.passing_score > 0 ? 'Sí' : 'No' },
+                  { label: 'Preguntas configuradas', value: 'Próximamente' },
+                  { label: 'Puntaje mínimo', value: `${showDetail.passing_score}%` },
+                  { label: 'Intentos máx.', value: showDetail.max_attempts?.toString() ?? 'Ilimitado' },
+                ].map(item => (
+                  <div key={item.label} className="bg-steel-900 rounded-lg p-3">
+                    <div className="text-xs text-steel-500 mb-1">{item.label}</div>
+                    <div className="text-sm font-medium text-steel-200">{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Award size={16} className="text-amber-400" />
+                <h3 className="text-sm font-semibold text-steel-100">
+                  Certificación
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Categoría', value: showDetail.category },
+                  { label: 'Duración', value: `${showDetail.duration_minutes} minutos` },
+                  { label: 'Vigencia', value: showDetail.validity_months ? `${showDetail.validity_months} meses` : 'Sin vigencia' },
+                  { label: 'Emite certificado', value: showDetail.certificate_enabled ? 'Sí' : 'No' },
+                  { label: 'Tipo de contenido', value: getContentLabel(showDetail) },
+                ].map(item => (
+                  <div key={item.label} className="bg-steel-900 rounded-lg p-3">
+                    <div className="text-xs text-steel-500 mb-1">{item.label}</div>
+                    <div className="text-sm font-medium text-steel-200">{item.value}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </Modal>
