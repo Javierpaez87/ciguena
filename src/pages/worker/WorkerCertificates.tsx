@@ -61,6 +61,7 @@ export default function WorkerCertificates() {
   const [certificates, setCertificates] = useState<SupabaseCertificate[]>([]);
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
   const [isEthicsModalOpen, setIsEthicsModalOpen] = useState(false);
+  const [selectedCertificate, setSelectedCertificate] = useState<SupabaseCertificate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -114,11 +115,7 @@ export default function WorkerCertificates() {
     }
 
     const tenantIds = Array.from(
-      new Set(
-        (certificatesData ?? [])
-          .map(cert => cert.tenant_id)
-          .filter(Boolean)
-      )
+      new Set((certificatesData ?? []).map(cert => cert.tenant_id).filter(Boolean))
     );
 
     let tenantsById = new Map<string, { name?: string }>();
@@ -204,47 +201,32 @@ export default function WorkerCertificates() {
           <main class="document">
             <div class="brand">CIGÜEÑA</div>
             <div class="subtitle">by BondiApps · Registro de aceptación electrónica</div>
-
             <h1>Código de Ética BondiApps</h1>
-
-            <p>
-              Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable
-              al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.
-            </p>
-
+            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.</p>
             <h2>Declaración de aceptación</h2>
-            <p>
-              ${ethicsAcceptance.acceptance_text || 'Declaro haber leído y aceptado el Código de Ética BondiApps.'}
-            </p>
-
+            <p>${ethicsAcceptance.acceptance_text || 'Declaro haber leído y aceptado el Código de Ética BondiApps.'}</p>
             <section class="box">
               <div class="label">Firmante</div>
               <div><strong>Nombre:</strong> ${ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}</div>
               <div><strong>Documento:</strong> ${ethicsAcceptance.accepted_document_number || 'Sin documento'}</div>
               <div><strong>Fecha de aceptación:</strong> ${formatDateTime(ethicsAcceptance.accepted_at)}</div>
             </section>
-
             <section class="signature">
               <div>
-                <div class="signature-box">
-                  ${
-                    ethicsAcceptance.signature_image_url
-                      ? `<img src="${ethicsAcceptance.signature_image_url}" alt="Firma registrada" />`
-                      : '<span style="color:#64748b;font-size:12px;">Firma no disponible</span>'
-                  }
-                </div>
+                <div class="signature-box">${
+                  ethicsAcceptance.signature_image_url
+                    ? `<img src="${ethicsAcceptance.signature_image_url}" alt="Firma registrada" />`
+                    : '<span style="color:#64748b;font-size:12px;">Firma no disponible</span>'
+                }</div>
                 <div class="line">Firma electrónica del trabajador</div>
               </div>
-
               <div>
                 <div style="height:90px;display:flex;align-items:center;font-weight:800;color:#f59e0b;">BondiApps</div>
                 <div class="line">Registro emitido por Cigüeña</div>
               </div>
             </section>
-
             <div class="code">Registro auditable · ${ethicsAcceptance.id || 'sin-id'}</div>
           </main>
-
           <script>window.onload = () => window.print();</script>
         </body>
       </html>
@@ -297,7 +279,6 @@ export default function WorkerCertificates() {
           <main class="certificate">
             <div class="brand">CIGÜEÑA</div>
             <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
-
             <h1>Certificado de capacitación</h1>
             <p class="lead">Se certifica que</p>
             <div class="name">${user?.full_name ?? 'Trabajador'}</div>
@@ -319,7 +300,6 @@ export default function WorkerCertificates() {
                 ${workerSignatureBlock}
                 <div class="line">Firma electrónica del trabajador</div>
               </div>
-
               <div>
                 <div class="signature-slot">Firma responsable de capacitaciones</div>
                 <div class="line">Responsable de capacitaciones · ${issuerName}</div>
@@ -410,15 +390,11 @@ export default function WorkerCertificates() {
                 <div className="text-base font-semibold text-steel-100">
                   Código de Ética
                 </div>
-
                 <div className="text-xs text-steel-400 mt-1">
                   Firmado el {formatDateTime(ethicsAcceptance.accepted_at)}
                 </div>
-
                 <div className="mt-2">
-                  <span className="badge badge-success">
-                    Firmado
-                  </span>
+                  <span className="badge badge-success">Firmado</span>
                 </div>
               </div>
             </div>
@@ -499,23 +475,17 @@ export default function WorkerCertificates() {
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-steel-400">Empresa</span>
-                    <span className="text-steel-300">
-                      {cert.tenant?.name || 'Sin empresa'}
-                    </span>
+                    <span className="text-steel-300">{cert.tenant?.name || 'Sin empresa'}</span>
                   </div>
 
                   <div className="flex justify-between text-sm">
                     <span className="text-steel-400">Código</span>
-                    <span className="font-mono text-xs text-steel-300">
-                      {cert.certificate_code}
-                    </span>
+                    <span className="font-mono text-xs text-steel-300">{cert.certificate_code}</span>
                   </div>
 
                   <div className="flex justify-between text-sm">
                     <span className="text-steel-400">Emitido</span>
-                    <span className="text-steel-300">
-                      {formatDate(cert.issued_at)}
-                    </span>
+                    <span className="text-steel-300">{formatDate(cert.issued_at)}</span>
                   </div>
 
                   <div className="flex justify-between text-sm">
@@ -535,16 +505,12 @@ export default function WorkerCertificates() {
 
                   <div className="flex justify-between text-sm">
                     <span className="text-steel-400">Puntaje</span>
-                    <span className="text-steel-300">
-                      {cert.test_score ?? '-'}%
-                    </span>
+                    <span className="text-steel-300">{cert.test_score ?? '-'}%</span>
                   </div>
 
                   <div className="flex justify-between text-sm">
                     <span className="text-steel-400">Intentos</span>
-                    <span className="text-steel-300">
-                      {cert.test_attempts_count ?? '-'}
-                    </span>
+                    <span className="text-steel-300">{cert.test_attempts_count ?? '-'}</span>
                   </div>
                 </div>
 
@@ -560,15 +526,177 @@ export default function WorkerCertificates() {
                   </div>
                 )}
 
-                <button
-                  onClick={() => printCertificate(cert)}
-                  className="btn-secondary w-full justify-center text-xs py-2"
-                >
-                  <Download size={13} /> Descargar certificado PDF
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setSelectedCertificate(cert)}
+                    className="btn-secondary w-full justify-center text-xs py-2"
+                  >
+                    <FileText size={13} /> Ver certificado
+                  </button>
+
+                  <button
+                    onClick={() => printCertificate(cert)}
+                    className="btn-secondary w-full justify-center text-xs py-2"
+                  >
+                    <Download size={13} /> Descargar PDF
+                  </button>
+                </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {selectedCertificate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-steel-950 border border-steel-700 shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-steel-800 bg-steel-950 px-5 py-4">
+              <div>
+                <div className="text-sm font-semibold text-steel-100">
+                  Certificado firmado
+                </div>
+                <div className="text-xs text-steel-500">
+                  {selectedCertificate.training?.title} · {selectedCertificate.certificate_code}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedCertificate(null)}
+                className="rounded-lg p-2 text-steel-400 hover:bg-steel-800 hover:text-steel-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4 border-amber-500">
+                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
+                  CIGÜEÑA
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  by BondiApps · Plataforma de capacitaciones y certificaciones
+                </div>
+
+                <h1 className="mt-12 text-center text-4xl font-bold text-slate-900">
+                  Certificado de capacitación
+                </h1>
+
+                <p className="mt-5 text-center text-base text-slate-600">
+                  Se certifica que
+                </p>
+
+                <div className="mt-5 text-center text-3xl font-extrabold text-slate-900">
+                  {user?.full_name ?? 'Trabajador'}
+                </div>
+
+                <p className="mt-5 text-center text-base text-slate-600">
+                  aprobó satisfactoriamente la capacitación
+                </p>
+
+                <div className="mt-4 text-center text-2xl font-bold text-slate-900">
+                  {selectedCertificate.training?.title ?? selectedCertificate.training_id}
+                </div>
+
+                <div className="mt-3 text-center text-sm text-slate-600">
+                  Emitido por:{' '}
+                  <strong>{selectedCertificate.tenant?.name || 'Empresa / Tenant'}</strong>
+                </div>
+
+                <div className="mt-10 grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Código
+                    </div>
+                    <div className="font-mono text-xs">{selectedCertificate.certificate_code}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Estado
+                    </div>
+                    <div>{getCertificateStatus(selectedCertificate)}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Emitido
+                    </div>
+                    <div>{formatDate(selectedCertificate.issued_at)}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Vencimiento
+                    </div>
+                    <div>{formatDate(selectedCertificate.expires_at)}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Puntaje
+                    </div>
+                    <div>{selectedCertificate.test_score ?? '-'}%</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Intentos utilizados
+                    </div>
+                    <div>{selectedCertificate.test_attempts_count ?? '-'}</div>
+                  </div>
+                </div>
+
+                <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
+                  <div>
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
+                      {(selectedCertificate.worker_signature_url || ethicsAcceptance?.signature_image_url) ? (
+                        <img
+                          src={selectedCertificate.worker_signature_url || ethicsAcceptance?.signature_image_url || ''}
+                          alt="Firma trabajador"
+                          className="max-h-24 max-w-full object-contain"
+                          style={{ filter: 'invert(1) contrast(1.4)' }}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">Firma no disponible</span>
+                      )}
+                    </div>
+                    <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
+                      Firma electrónica del trabajador
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-dashed border-slate-300 p-3 text-xs text-slate-400">
+                      Firma responsable de capacitaciones
+                    </div>
+                    <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
+                      Responsable de capacitaciones · {selectedCertificate.tenant?.name || 'Empresa / Tenant'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-10 border-t border-slate-200 pt-4 font-mono text-xs leading-6 text-slate-500">
+                  Registro auditable · Certificate ID: {selectedCertificate.id}<br />
+                  Assignment ID: {selectedCertificate.assignment_id}<br />
+                  User ID: {selectedCertificate.user_id}<br />
+                  Tenant ID: {selectedCertificate.tenant_id || 'sin tenant'}<br />
+                  Training ID: {selectedCertificate.training_id}<br />
+                  Created at: {formatDateTime(selectedCertificate.created_at || selectedCertificate.issued_at)}
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => printCertificate(selectedCertificate)}
+                  className="btn-secondary text-xs py-2"
+                >
+                  <Download size={13} /> Descargar PDF
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
