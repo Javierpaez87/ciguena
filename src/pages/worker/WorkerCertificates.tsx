@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Award, Download, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Award, Download, AlertTriangle, CheckCircle, XCircle, FileText, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCertificatesByUser } from '../../lib/mockData';
 import { supabase } from '../../lib/supabase';
@@ -11,6 +11,7 @@ export default function WorkerCertificates() {
   const { user } = useAuth();
   const certificates = getCertificatesByUser(user?.id ?? 'u1');
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
+  const [isEthicsModalOpen, setIsEthicsModalOpen] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -19,12 +20,12 @@ export default function WorkerCertificates() {
       if (!user?.id) return;
 
       const { data, error } = await supabase
-  .from('ethics_acceptances')
-  .select('*')
-  .eq('user_id', user.id)
-  .order('accepted_at', { ascending: false })
-  .limit(1)
-  .maybeSingle();
+        .from('ethics_acceptances')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('accepted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error) {
         console.error('Error cargando Código de Ética firmado:', error);
@@ -45,6 +46,98 @@ export default function WorkerCertificates() {
   const valid = certificates.filter(c => c.status === 'valid').length;
   const expiringSoon = certificates.filter(c => c.status === 'expiring_soon').length;
   const expired = certificates.filter(c => c.status === 'expired').length;
+
+  const formatDateTime = (date?: string | null) => {
+    if (!date) return 'Sin fecha';
+    return new Date(date).toLocaleString('es-AR');
+  };
+
+  const printEthicsDocument = () => {
+    if (!ethicsAcceptance) return;
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Codigo de Etica firmado</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; background: #f8fafc; }
+            .document { background: white; max-width: 820px; margin: 0 auto; padding: 54px; border: 1px solid #cbd5e1; min-height: 900px; }
+            .brand { color: #f59e0b; font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+            .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
+            h1 { margin: 42px 0 18px; font-size: 30px; color: #0f172a; }
+            h2 { margin-top: 28px; font-size: 16px; color: #0f172a; }
+            p { font-size: 14px; line-height: 1.7; color: #334155; }
+            .box { border: 1px solid #cbd5e1; border-radius: 10px; padding: 16px; margin-top: 22px; font-size: 14px; }
+            .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+            .signature { margin-top: 52px; display: grid; grid-template-columns: 1fr 1fr; gap: 46px; align-items: end; }
+            .signature-box { min-height: 90px; display: flex; align-items: center; justify-content: center; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+            .signature-box img { max-height: 80px; max-width: 260px; object-fit: contain; }
+            .line { border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #334155; margin-top: 10px; }
+            .code { margin-top: 34px; font-family: monospace; color: #64748b; font-size: 12px; }
+            @media print {
+              body { background: white; padding: 0; }
+              .document { border: none; max-width: none; min-height: calc(100vh - 108px); }
+            }
+          </style>
+        </head>
+        <body>
+          <main class="document">
+            <div class="brand">CIGÜEÑA</div>
+            <div class="subtitle">by BondiApps · Registro de aceptación electrónica</div>
+
+            <h1>Código de Ética BondiApps</h1>
+
+            <p>
+              Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable
+              al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.
+            </p>
+
+            <h2>Declaración de aceptación</h2>
+            <p>
+              ${ethicsAcceptance.acceptance_text || 'Declaro haber leído y aceptado el Código de Ética BondiApps.'}
+            </p>
+
+            <section class="box">
+              <div class="label">Firmante</div>
+              <div><strong>Nombre:</strong> ${ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}</div>
+              <div><strong>Documento:</strong> ${ethicsAcceptance.accepted_document_number || 'Sin documento'}</div>
+              <div><strong>Fecha de aceptación:</strong> ${formatDateTime(ethicsAcceptance.accepted_at)}</div>
+            </section>
+
+            <section class="signature">
+              <div>
+                <div class="signature-box">
+                  ${
+                    ethicsAcceptance.signature_image_url
+                      ? `<img src="${ethicsAcceptance.signature_image_url}" alt="Firma registrada" />`
+                      : '<span style="color:#64748b;font-size:12px;">Firma no disponible</span>'
+                  }
+                </div>
+                <div class="line">Firma electrónica del trabajador</div>
+              </div>
+
+              <div>
+                <div style="height:90px;display:flex;align-items:center;font-weight:800;color:#f59e0b;">BondiApps</div>
+                <div class="line">Registro emitido por Cigüeña</div>
+              </div>
+            </section>
+
+            <div class="code">Registro auditable · ${ethicsAcceptance.id || 'sin-id'}</div>
+          </main>
+
+          <script>window.onload = () => window.print();</script>
+        </body>
+      </html>
+    `;
+
+    const popup = window.open('', '_blank', 'width=900,height=700');
+    if (!popup) return;
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+  };
 
   const printCertificate = (cert: Certificate) => {
     const signatureBlock = ethicsAcceptance?.signature_image_url
@@ -145,66 +238,45 @@ export default function WorkerCertificates() {
 
       {ethicsAcceptance && (
         <div className="card border-emerald-500/20">
-          <div className="flex items-center justify-between gap-4 mb-4">
-            <div>
-              <div className="text-base font-semibold text-steel-100">
-                Código de Ética firmado
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <FileText size={22} className="text-emerald-400" />
               </div>
 
-              <div className="text-xs text-steel-400 mt-1">
-                Registro de aceptación y firma electrónica asociada al trabajador.
+              <div>
+                <div className="text-base font-semibold text-steel-100">
+                  Código de Ética
+                </div>
+
+                <div className="text-xs text-steel-400 mt-1">
+                  Firmado el {formatDateTime(ethicsAcceptance.accepted_at)}
+                </div>
+
+                <div className="mt-2">
+                  <span className="badge badge-success">
+                    Firmado
+                  </span>
+                </div>
               </div>
             </div>
 
-            <span className="badge badge-success">
-              Firmado
-            </span>
-          </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEthicsModalOpen(true)}
+                className="btn-secondary justify-center text-xs py-2"
+              >
+                <FileText size={13} /> Ver documento firmado
+              </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2 text-xs">
-              <div>
-                <span className="text-steel-500">Nombre:</span>{' '}
-                <span className="text-steel-200">
-                  {ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-steel-500">Documento:</span>{' '}
-                <span className="text-steel-200">
-                  {ethicsAcceptance.accepted_document_number || 'Sin documento'}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-steel-500">Fecha de aceptación:</span>{' '}
-                <span className="text-steel-200">
-                  {ethicsAcceptance.accepted_at
-                    ? new Date(ethicsAcceptance.accepted_at).toLocaleString('es-AR')
-                    : 'Sin fecha'}
-                </span>
-              </div>
-
-              {ethicsAcceptance.acceptance_text && (
-                <div className="pt-2 text-steel-400 leading-relaxed">
-                  {ethicsAcceptance.acceptance_text}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border border-steel-700 bg-white p-4 flex items-center justify-center min-h-[120px]">
-              {ethicsAcceptance.signature_image_url ? (
-                <img
-                  src={ethicsAcceptance.signature_image_url}
-                  alt="Firma registrada"
-                  className="max-h-24 max-w-full object-contain"
-                />
-              ) : (
-                <div className="text-xs text-steel-500">
-                  Firma no disponible
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={printEthicsDocument}
+                className="btn-secondary justify-center text-xs py-2"
+              >
+                <Download size={13} /> Descargar PDF
+              </button>
             </div>
           </div>
         </div>
@@ -312,6 +384,125 @@ export default function WorkerCertificates() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {isEthicsModalOpen && ethicsAcceptance && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-steel-950 border border-steel-700 shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-steel-800 bg-steel-950 px-5 py-4">
+              <div>
+                <div className="text-sm font-semibold text-steel-100">
+                  Documento firmado
+                </div>
+                <div className="text-xs text-steel-500">
+                  Código de Ética · Registro electrónico
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsEthicsModalOpen(false)}
+                className="rounded-lg p-2 text-steel-400 hover:bg-steel-800 hover:text-steel-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="mx-auto min-h-[900px] max-w-[760px] rounded-xl bg-white p-10 text-slate-900 shadow-xl">
+                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
+                  CIGÜEÑA
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  by BondiApps · Registro de aceptación electrónica
+                </div>
+
+                <h1 className="mt-10 text-3xl font-bold text-slate-900">
+                  Código de Ética BondiApps
+                </h1>
+
+                <p className="mt-5 text-sm leading-7 text-slate-700">
+                  Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable
+                  al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.
+                </p>
+
+                <h2 className="mt-8 text-base font-bold text-slate-900">
+                  Declaración de aceptación
+                </h2>
+
+                <p className="mt-3 text-sm leading-7 text-slate-700">
+                  {ethicsAcceptance.acceptance_text ||
+                    'Declaro haber leído y aceptado el Código de Ética BondiApps.'}
+                </p>
+
+                <div className="mt-8 rounded-xl border border-slate-300 p-4 text-sm text-slate-700">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Firmante
+                  </div>
+
+                  <div>
+                    <strong>Nombre:</strong>{' '}
+                    {ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}
+                  </div>
+
+                  <div>
+                    <strong>Documento:</strong>{' '}
+                    {ethicsAcceptance.accepted_document_number || 'Sin documento'}
+                  </div>
+
+                  <div>
+                    <strong>Fecha de aceptación:</strong>{' '}
+                    {formatDateTime(ethicsAcceptance.accepted_at)}
+                  </div>
+                </div>
+
+                <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
+                  <div>
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-200 p-3">
+                      {ethicsAcceptance.signature_image_url ? (
+                        <img
+                          src={ethicsAcceptance.signature_image_url}
+                          alt="Firma registrada"
+                          className="max-h-24 max-w-full object-contain"
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          Firma no disponible
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
+                      Firma electrónica del trabajador
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex min-h-[110px] items-center font-extrabold text-amber-500">
+                      BondiApps
+                    </div>
+                    <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
+                      Registro emitido por Cigüeña
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-10 font-mono text-xs text-slate-500">
+                  Registro auditable · {ethicsAcceptance.id || 'sin-id'}
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={printEthicsDocument}
+                  className="btn-secondary text-xs py-2"
+                >
+                  <Download size={13} /> Descargar PDF
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
