@@ -84,15 +84,51 @@ export default function AdminTrainings() {
     t.title.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleAssign = () => {
-    const targets = assignAll ? users.map(u => u.id) : Array.from(selectedUsers);
+ const handleAssign = async () => {
+  if (!showAssign || !tenantId || !user?.id) {
+    alert('No pudimos asignar el training. Falta información del usuario o empresa.');
+    return;
+  }
 
-    alert(`Training "${showAssign?.title}" asignado a ${targets.length} usuario(s). (Simulado)`);
+  const targets = assignAll ? users.map(u => u.id) : Array.from(selectedUsers);
 
-    setShowAssign(null);
-    setSelectedUsers(new Set());
-    setAssignAll(false);
-  };
+  if (targets.length === 0) {
+    alert('Seleccioná al menos un usuario.');
+    return;
+  }
+
+  const assignments = targets.map(userId => ({
+    tenant_id: tenantId,
+    training_id: showAssign.id,
+    user_id: userId,
+    assigned_by: user.id,
+    status: 'not_started',
+    progress_percentage: 0,
+    assigned_at: new Date().toISOString(),
+    due_date: null,
+    started_at: null,
+    completed_at: null,
+    expires_at: null,
+  }));
+
+  const { error } = await supabase
+    .from('training_assignments')
+    .upsert(assignments, {
+      onConflict: 'tenant_id,training_id,user_id',
+    });
+
+  if (error) {
+    console.error('Error asignando training:', error);
+    alert(`No pudimos asignar el training: ${error.message}`);
+    return;
+  }
+
+  alert(`Training "${showAssign.title}" asignado a ${targets.length} usuario(s).`);
+
+  setShowAssign(null);
+  setSelectedUsers(new Set());
+  setAssignAll(false);
+};
 
   const getContentLabel = (training: Training) => {
     if (training.content_type === 'local_video') return 'Video local';
