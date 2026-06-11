@@ -29,6 +29,9 @@ import WorkerPlayer from './pages/worker/WorkerPlayer';
 import WorkerTest from './pages/worker/WorkerTest';
 import WorkerCertificates from './pages/worker/WorkerCertificates';
 import WorkerFeedback from './pages/worker/WorkerFeedback';
+import EthicsSignaturePage from './pages/worker/EthicsSignaturePage';
+import { getEthicsRequirement } from './lib/ethics';
+import type { EthicsAcceptance, EthicsCode } from './types';
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-dashboard': { title: 'Dashboard Global', subtitle: 'Visión general de todos los tenants y métricas de uso' },
@@ -65,14 +68,50 @@ function AppContent() {
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [activeView, setActiveView] = useState(() => DEFAULT_VIEW[user?.role ?? 'worker'] ?? 'worker-dashboard');
   const [viewData, setViewData] = useState<unknown>(null);
+  const [isCheckingEthics, setIsCheckingEthics] = useState(false);
+  const [ethicsGate, setEthicsGate] = useState<{
+    mustSign: boolean;
+    tenant: { id: string; name: string; logo_url: string | null } | null;
+    ethicsCode: EthicsCode | null;
+    acceptance: EthicsAcceptance | null;
+    error: string | null;
+  }>({ mustSign: false, tenant: null, ethicsCode: null, acceptance: null, error: null });
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setEthicsGate({ mustSign: false, tenant: null, ethicsCode: null, acceptance: null, error: null });
+      return;
+    }
 
     const defaultView = DEFAULT_VIEW[user.role] ?? 'worker-dashboard';
     setActiveView(defaultView);
     setViewData(null);
   }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function checkEthicsGate() {
+      if (!user || user.role !== 'worker') {
+        setEthicsGate({ mustSign: false, tenant: null, ethicsCode: null, acceptance: null, error: null });
+        return;
+      }
+
+      setIsCheckingEthics(true);
+      const result = await getEthicsRequirement(user);
+
+      if (!ignore) {
+        setEthicsGate(result);
+        setIsCheckingEthics(false);
+      }
+    }
+
+    checkEthicsGate();
+
+    return () => {
+      ignore = true;
+    };
+  }, [user?.id, user?.role, user?.tenant_id]);
 
   const navigate = (view: string, data?: unknown) => {
     setActiveView(view);
@@ -93,6 +132,30 @@ function AppContent() {
       <LoginPage
         onRegister={() => setAuthScreen('register')}
         onForgotPassword={() => setAuthScreen('forgot-password')}
+      />
+    );
+  }
+
+  if (user?.role === 'worker' && isCheckingEthics) {
+    return (
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
+        Verificando onboarding...
+      </div>
+    );
+  }
+
+  if (
+    user?.role === 'worker' &&
+    ethicsGate.mustSign &&
+    ethicsGate.tenant &&
+    ethicsGate.ethicsCode
+  ) {
+    return (
+      <EthicsSignaturePage
+        user={user}
+        tenant={ethicsGate.tenant}
+        ethicsCode={ethicsGate.ethicsCode}
+        onSigned={() => setEthicsGate(current => ({ ...current, mustSign: false }))}
       />
     );
   }
