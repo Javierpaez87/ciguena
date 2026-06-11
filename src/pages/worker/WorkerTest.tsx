@@ -24,12 +24,14 @@ interface WorkerTestProps {
 
 type TestState = 'intro' | 'taking' | 'result';
 
-type TestOption = string | {
-  key?: string;
-  text?: string;
-  label?: string;
-  option_text?: string;
-};
+type TestOption =
+  | string
+  | {
+      key?: string;
+      text?: string;
+      label?: string;
+      option_text?: string;
+    };
 
 const getOptionText = (option: TestOption) => {
   if (typeof option === 'string') return option;
@@ -80,12 +82,10 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     return test.questions.slice(startIndex, endIndex);
   }, [test, attempt]);
 
-  const maxAttempts = test
-    ? Math.ceil(test.questions.length / test.questionsPerAttempt)
-    : 0;
+  const maxAttempts = test ? Math.ceil(test.questions.length / test.questionsPerAttempt) : 0;
 
   const selectAnswer = (questionId: string, optionKey: string) => {
-    setAnswers(prev => ({ ...prev, [questionId]: optionKey }));
+    setAnswers((prev) => ({ ...prev, [questionId]: optionKey }));
   };
 
   const getCertificateContext = async () => {
@@ -96,20 +96,24 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       };
     }
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: profiles, error: profileError } = await supabase
       .from('profiles')
-      .select('id, tenant_id')
-      .eq('id', assignment.user_id)
-      .maybeSingle();
+      .select('id, auth_user_id, tenant_id')
+      .or(`id.eq.${assignment.user_id},auth_user_id.eq.${assignment.user_id}`)
+      .limit(1);
 
     if (profileError) {
       console.error('Error obteniendo perfil para certificado:', profileError);
     }
 
+    const profile = profiles?.[0];
+
+    const profileIdForSignature = profile?.id ?? assignment.user_id;
+
     const { data: ethicsAcceptance, error: ethicsError } = await supabase
       .from('ethics_acceptances')
       .select('signature_image_url')
-      .eq('user_id', assignment.user_id)
+      .or(`user_id.eq.${assignment.user_id},profile_id.eq.${profileIdForSignature}`)
       .order('accepted_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -147,21 +151,24 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     const { tenantId, workerSignatureUrl } = await getCertificateContext();
 
-    const { error } = await supabase
-      .from('certificates')
-      .insert({
-        assignment_id: assignment.id,
-        user_id: assignment.user_id,
-        training_id: assignment.training_id,
-        tenant_id: tenantId,
-        certificate_code: generateCertificateCode(assignment.training_id),
-        worker_signature_url: workerSignatureUrl,
-        issued_at: new Date().toISOString(),
-        expires_at: getDefaultExpirationDate(),
-        status: 'valid',
-        test_score: score,
-        test_attempts_count: attemptNumber,
-      });
+    if (!tenantId) {
+      console.error('No se pudo emitir certificado: tenant_id no encontrado para el usuario.');
+      return;
+    }
+
+    const { error } = await supabase.from('certificates').insert({
+      assignment_id: assignment.id,
+      user_id: assignment.user_id,
+      training_id: assignment.training_id,
+      tenant_id: tenantId,
+      certificate_code: generateCertificateCode(assignment.training_id),
+      worker_signature_url: workerSignatureUrl,
+      issued_at: new Date().toISOString(),
+      expires_at: getDefaultExpirationDate(),
+      status: 'valid',
+      test_score: score,
+      test_attempts_count: attemptNumber,
+    });
 
     if (error) {
       console.error('Error emitiendo certificado:', error);
@@ -230,7 +237,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     if (!attemptId) return;
 
-    const answersPayload = questionsForAttempt.map(question => {
+    const answersPayload = questionsForAttempt.map((question) => {
       const selectedOption = answers[question.id] ?? '';
 
       return {
@@ -256,7 +263,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     let correct = 0;
 
-    questionsForAttempt.forEach(question => {
+    questionsForAttempt.forEach((question) => {
       const selectedOptionKey = answers[question.id];
 
       if (selectedOptionKey === question.correctOption) {
@@ -310,7 +317,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
   const q = questionsForAttempt[currentQ];
 
-  const answeredAll = questionsForAttempt.every(question => {
+  const answeredAll = questionsForAttempt.every((question) => {
     return answers[question.id] !== undefined;
   });
 
@@ -335,9 +342,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     return (
       <div className="text-center py-16">
         <ClipboardList size={32} className="mx-auto mb-3 text-steel-600" />
-        <p className="text-steel-500">
-          No quedan más preguntas disponibles para este examen.
-        </p>
+        <p className="text-steel-500">No quedan más preguntas disponibles para este examen.</p>
         <button
           onClick={() => onNavigate('worker-trainings')}
           className="btn-secondary mt-4 mx-auto"
@@ -350,10 +355,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
-      <button
-        onClick={() => onNavigate('worker-trainings')}
-        className="btn-ghost text-xs"
-      >
+      <button onClick={() => onNavigate('worker-trainings')} className="btn-ghost text-xs">
         <ChevronLeft size={14} /> Volver a mis trainings
       </button>
 
@@ -363,9 +365,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             <ClipboardList size={28} className="text-amber-400" />
           </div>
 
-          <h2 className="text-xl font-bold text-steel-100 mb-2">
-            {test.title}
-          </h2>
+          <h2 className="text-xl font-bold text-steel-100 mb-2">{test.title}</h2>
 
           <p className="text-steel-400 text-sm mb-6">
             Evaluación final · {assignment?.training?.title ?? 'Training'}
@@ -380,9 +380,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             </div>
 
             <div className="bg-steel-900 rounded-xl p-3">
-              <div className="text-2xl font-bold text-amber-400">
-                {test.passingScore}%
-              </div>
+              <div className="text-2xl font-bold text-amber-400">{test.passingScore}%</div>
               <div className="text-xs text-steel-400">Para aprobar</div>
             </div>
 
@@ -400,10 +398,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             </p>
           )}
 
-          <button
-            onClick={() => setState('taking')}
-            className="btn-primary mx-auto px-8 py-3 text-base"
-          >
+          <button onClick={() => setState('taking')} className="btn-primary mx-auto px-8 py-3 text-base">
             <Play size={18} /> Comenzar evaluación
           </button>
         </div>
@@ -422,11 +417,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                   <div
                     key={i}
                     className={`w-2 h-2 rounded-full transition-colors ${
-                      i < currentQ
-                        ? 'bg-emerald-500'
-                        : i === currentQ
-                          ? 'bg-amber-500'
-                          : 'bg-steel-600'
+                      i < currentQ ? 'bg-emerald-500' : i === currentQ ? 'bg-amber-500' : 'bg-steel-600'
                     }`}
                   />
                 ))}
@@ -464,14 +455,10 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                   >
                     <div
                       className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-colors ${
-                        selected
-                          ? 'bg-amber-500 border-amber-500'
-                          : 'border-steel-600'
+                        selected ? 'bg-amber-500 border-amber-500' : 'border-steel-600'
                       }`}
                     >
-                      {selected && (
-                        <div className="w-2 h-2 bg-petroleum-950 rounded-full" />
-                      )}
+                      {selected && <div className="w-2 h-2 bg-petroleum-950 rounded-full" />}
                     </div>
 
                     <span className="text-sm">{optionText}</span>
@@ -483,7 +470,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
           <div className="flex items-center justify-between">
             <button
-              onClick={() => setCurrentQ(questionIndex => Math.max(0, questionIndex - 1))}
+              onClick={() => setCurrentQ((questionIndex) => Math.max(0, questionIndex - 1))}
               disabled={currentQ === 0 || isSaving}
               className="btn-secondary disabled:opacity-40"
             >
@@ -492,7 +479,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
             {currentQ < questionsForAttempt.length - 1 ? (
               <button
-                onClick={() => setCurrentQ(questionIndex => questionIndex + 1)}
+                onClick={() => setCurrentQ((questionIndex) => questionIndex + 1)}
                 disabled={answers[q.id] === undefined || isSaving}
                 className="btn-primary disabled:opacity-40"
               >
@@ -570,18 +557,12 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             )}
 
             {result.passed && (
-              <button
-                onClick={() => onNavigate('worker-certificates')}
-                className="btn-primary"
-              >
+              <button onClick={() => onNavigate('worker-certificates')} className="btn-primary">
                 <Award size={14} /> Ver mi certificado
               </button>
             )}
 
-            <button
-              onClick={() => onNavigate('worker-trainings')}
-              className="btn-ghost"
-            >
+            <button onClick={() => onNavigate('worker-trainings')} className="btn-ghost">
               <ChevronLeft size={14} /> Mis trainings
             </button>
           </div>
