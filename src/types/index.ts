@@ -7,8 +7,9 @@ export type AssignmentStatus = 'not_started' | 'in_progress' | 'pending_test' | 
 export type CertificateStatus = 'valid' | 'expiring_soon' | 'expired';
 export type FeedbackType = 'platform' | 'training';
 export type ReminderType = 'invitation' | 'training_pending' | 'training_in_progress' | 'certificate_expiring' | 'certificate_expired' | 'certificate_issued';
-export type VideoProvider = 'bunny' | 'cloudflare' | 'vimeo' | 'external';
+export type VideoProvider = 'bunny' | 'cloudflare' | 'vimeo' | 'youtube' | 'local' | 'external';
 export type LessonType = 'video' | 'pdf' | 'text' | 'image' | 'link';
+export type TrainingContentType = 'video' | 'youtube' | 'document' | 'external' | 'local_video' | null;
 
 export interface Tenant {
   id: string;
