@@ -277,13 +277,13 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
   const getActionLabel = (assignment: WorkerTrainingAssignment) => {
     if (assignment.status === 'not_started') return 'Comenzar';
-    if (assignment.status === 'pending_test') return 'Examen no disponible';
+    if (assignment.status === 'pending_test') return 'Rendir examen';
     if (assignment.status === 'certificate_issued') return 'Ver certificado';
     return 'Continuar';
   };
 
   const getActionView = (assignment: WorkerTrainingAssignment) => {
-    if (assignment.status === 'pending_test') return 'worker-trainings';
+    if (assignment.status === 'pending_test') return 'worker-test';
     if (assignment.status === 'certificate_issued') return 'worker-certificates';
     return 'worker-player';
   };
@@ -362,7 +362,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
           title="Pendientes de examen"
           value={pendingExam}
           icon={<AlertTriangle size={20} />}
-          subtitle={pendingExam > 0 ? 'Exámenes aún no cargados' : undefined}
+          subtitle={pendingExam > 0 ? 'Listos para rendir' : undefined}
         />
 
         <SimpleMetricCard
@@ -467,7 +467,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
                     {isPendingExam && (
                       <div className="text-xs text-amber-300 mb-2">
-                        Ya completaste el contenido. El examen todavía no está disponible.
+                        Ya completaste el contenido. Podés rendir el examen.
                       </div>
                     )}
 
@@ -502,17 +502,9 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                     <StatusBadge status={assignment.status} />
 
                     <button
-                      className={`text-xs py-1 px-3 ${
-                        isPendingExam
-                          ? 'rounded-lg border border-amber-500/30 text-amber-300 cursor-not-allowed'
-                          : 'btn-primary'
-                      }`}
-                      disabled={isPendingExam}
+                      className="btn-primary text-xs py-1 px-3"
                       onClick={event => {
                         event.stopPropagation();
-
-                        if (isPendingExam) return;
-
                         onNavigate(getActionView(assignment), { assignment });
                       }}
                     >
