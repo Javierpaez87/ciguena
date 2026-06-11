@@ -43,6 +43,17 @@ const getOptionKey = (option: TestOption, optionIndex: number) => {
   return option.key || String(optionIndex);
 };
 
+const generateCertificateCode = (trainingId: string) => {
+  const cleanTrainingId = trainingId.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
+  return `CIG-${cleanTrainingId}-${Date.now()}`;
+};
+
+const getDefaultExpirationDate = () => {
+  const expirationDate = new Date();
+  expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+  return expirationDate.toISOString();
+};
+
 export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) {
   const trainingId = assignment?.training_id ?? '';
   const test = getTrainingTestByTrainingId(trainingId);
@@ -75,6 +86,86 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
   const selectAnswer = (questionId: string, optionKey: string) => {
     setAnswers(prev => ({ ...prev, [questionId]: optionKey }));
+  };
+
+  const getCertificateContext = async () => {
+    if (!assignment?.user_id) {
+      return {
+        tenantId: null as string | null,
+        workerSignatureUrl: null as string | null,
+      };
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, tenant_id')
+      .eq('id', assignment.user_id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error('Error obteniendo perfil para certificado:', profileError);
+    }
+
+    const { data: ethicsAcceptance, error: ethicsError } = await supabase
+      .from('ethics_acceptances')
+      .select('signature_image_url')
+      .eq('user_id', assignment.user_id)
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (ethicsError) {
+      console.error('Error obteniendo firma del worker para certificado:', ethicsError);
+    }
+
+    return {
+      tenantId: profile?.tenant_id ?? null,
+      workerSignatureUrl: ethicsAcceptance?.signature_image_url ?? null,
+    };
+  };
+
+  const issueCertificate = async ({
+    score,
+    attemptNumber,
+  }: {
+    score: number;
+    attemptNumber: number;
+  }) => {
+    if (!assignment?.id || !assignment?.user_id || !assignment?.training_id) return;
+
+    const { data: existingCertificate, error: existingError } = await supabase
+      .from('certificates')
+      .select('id')
+      .eq('assignment_id', assignment.id)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Error verificando certificado existente:', existingError);
+    }
+
+    if (existingCertificate?.id) return;
+
+    const { tenantId, workerSignatureUrl } = await getCertificateContext();
+
+    const { error } = await supabase
+      .from('certificates')
+      .insert({
+        assignment_id: assignment.id,
+        user_id: assignment.user_id,
+        training_id: assignment.training_id,
+        tenant_id: tenantId,
+        certificate_code: generateCertificateCode(assignment.training_id),
+        worker_signature_url: workerSignatureUrl,
+        issued_at: new Date().toISOString(),
+        expires_at: getDefaultExpirationDate(),
+        status: 'valid',
+        test_score: score,
+        test_attempts_count: attemptNumber,
+      });
+
+    if (error) {
+      console.error('Error emitiendo certificado:', error);
+    }
   };
 
   const markAssignmentAsCertificateIssued = async ({
@@ -193,6 +284,11 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     if (passed) {
       await markAssignmentAsCertificateIssued({
+        score,
+        attemptNumber: attempt,
+      });
+
+      await issueCertificate({
         score,
         attemptNumber: attempt,
       });
@@ -442,7 +538,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
           <p className="text-steel-400 text-sm mb-6">
             {result.passed
-              ? 'Felicitaciones, superaste la evaluación. Tu certificado será emitido en breve.'
+              ? 'Felicitaciones, superaste la evaluación. Tu certificado fue emitido correctamente.'
               : hasMoreAttempts
                 ? 'No alcanzaste el puntaje mínimo requerido. Podés volver a intentarlo con otras preguntas.'
                 : 'No alcanzaste el puntaje mínimo requerido y ya no quedan más intentos disponibles.'}
