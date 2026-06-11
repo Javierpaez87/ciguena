@@ -18,25 +18,13 @@ export default function WorkerCertificates() {
     async function loadLatestSignature() {
       if (!user?.id) return;
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('auth_user_id', user.id)
-        .single();
-
-      if (profileError || !profile) {
-        console.error('Error cargando perfil para firma:', profileError);
-        if (!ignore) setEthicsAcceptance(null);
-        return;
-      }
-
       const { data, error } = await supabase
-        .from('ethics_acceptances')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('accepted_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+  .from('ethics_acceptances')
+  .select('*')
+  .eq('user_id', user.id)
+  .order('accepted_at', { ascending: false })
+  .limit(1)
+  .maybeSingle();
 
       if (error) {
         console.error('Error cargando Código de Ética firmado:', error);
