@@ -24,6 +24,7 @@ const STATUS_FILTERS = [
 
 interface Profile {
   id: string;
+  auth_user_id?: string | null;
   tenant_id?: string | null;
   full_name?: string | null;
   first_name?: string | null;
@@ -139,6 +140,7 @@ function getComputedStatus(certificate: Certificate) {
   if (explicitStatus === 'valid' || explicitStatus === 'vigente') return 'valid';
   if (explicitStatus === 'expiring_soon' || explicitStatus === 'por_vencer') return 'expiring_soon';
   if (explicitStatus === 'expired' || explicitStatus === 'vencido') return 'expired';
+  if (explicitStatus === 'issued' || explicitStatus === 'emitido') return 'valid';
 
   if (!certificate.expires_at) return explicitStatus || 'valid';
 
@@ -169,6 +171,12 @@ function csvEscape(value: string | number | null | undefined) {
   return `"${safeValue.replace(/"/g, '""')}"`;
 }
 
+function uniqueById<T extends { id: string }>(items: T[]) {
+  const map = new Map<string, T>();
+  items.forEach((item) => map.set(item.id, item));
+  return Array.from(map.values());
+}
+
 export default function AdminCertificates() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id;
@@ -194,26 +202,58 @@ export default function AdminCertificates() {
     setSuccessMessage(null);
 
     try {
-      const [certificatesResult, usersResult, trainingsResult] = await Promise.all([
-        supabase.from('certificates').select('*').eq('tenant_id', tenantId),
+      const [usersResult, trainingsResult] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
       ]);
 
-      if (certificatesResult.error) throw certificatesResult.error;
       if (usersResult.error) throw usersResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
 
-      const loadedCertificatesRaw = (certificatesResult.data ?? []) as Certificate[];
       const loadedUsers = (usersResult.data ?? []) as Profile[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
 
+      const profileIds = loadedUsers.map((profile) => profile.id).filter(Boolean);
+      const authUserIds = loadedUsers
+        .map((profile) => profile.auth_user_id)
+        .filter(Boolean) as string[];
+
+      const userIdsToMatch = Array.from(new Set([...profileIds, ...authUserIds]));
+
+      const certificatesByTenantResult = await supabase
+        .from('certificates')
+        .select('*')
+        .eq('tenant_id', tenantId);
+
+      if (certificatesByTenantResult.error) throw certificatesByTenantResult.error;
+
+      let certificatesByUserResultData: Certificate[] = [];
+
+      if (userIdsToMatch.length > 0) {
+        const certificatesByUserResult = await supabase
+          .from('certificates')
+          .select('*')
+          .in('user_id', userIdsToMatch);
+
+        if (certificatesByUserResult.error) throw certificatesByUserResult.error;
+
+        certificatesByUserResultData = (certificatesByUserResult.data ?? []) as Certificate[];
+      }
+
+      const loadedCertificatesRaw = uniqueById([
+        ...((certificatesByTenantResult.data ?? []) as Certificate[]),
+        ...certificatesByUserResultData,
+      ]);
+
       const usersById = new Map<string, Profile>();
+
       loadedUsers.forEach((profile) => {
         if (profile.id) usersById.set(profile.id, profile);
+        if (profile.auth_user_id) usersById.set(profile.auth_user_id, profile);
       });
 
       const trainingsByAnyId = new Map<string, TenantTraining>();
+
       loadedTrainings.forEach((training) => {
         if (training.id) trainingsByAnyId.set(training.id, training);
         if (training.training_id) trainingsByAnyId.set(training.training_id, training);
@@ -602,7 +642,8 @@ export default function AdminCertificates() {
       <div className="text-xs text-steel-600 flex items-start gap-2">
         <FileText size={14} className="mt-0.5" />
         <div>
-          Vista conectada a Supabase. La descarga usa la URL guardada en el certificado si existe.
+          Vista conectada a Supabase. Si no aparecen certificados, revisá que la tabla certificates
+          tenga tenant_id o que user_id coincida con profiles.id/auth_user_id.
         </div>
       </div>
     </div>
