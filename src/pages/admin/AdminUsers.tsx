@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   Search,
@@ -9,6 +9,9 @@ import {
   Users,
   RefreshCw,
   AlertCircle,
+  Upload,
+  FileText,
+  CheckCircle,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,6 +22,9 @@ import Modal from '../../components/ui/Modal';
 interface Profile {
   id: string;
   tenant_id?: string | null;
+  auth_user_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   full_name?: string | null;
   email?: string | null;
   role?: string | null;
@@ -26,7 +32,11 @@ interface Profile {
   area?: string | null;
   contractor_company?: string | null;
   employee_code?: string | null;
+  dni?: string | null;
+  phone?: string | null;
   status?: string | null;
+  preapproved?: boolean | null;
+  source?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: any;
@@ -43,7 +53,6 @@ interface Assignment {
   progress?: number | null;
   created_at?: string | null;
   assigned_at?: string | null;
-  completed_at?: string | null;
   training?: TenantTraining | null;
   [key: string]: any;
 }
@@ -59,25 +68,56 @@ interface TenantTraining {
 }
 
 type FormState = {
+  first_name: string;
+  last_name: string;
   full_name: string;
   email: string;
+  dni: string;
+  phone: string;
   position: string;
   area: string;
   contractor_company: string;
   employee_code: string;
+  status: string;
+};
+
+type CsvPreviewRow = {
+  rowNumber: number;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  email: string;
+  dni: string;
+  phone: string;
+  position: string;
+  area: string;
+  contractor_company: string;
+  employee_code: string;
+  status: string;
+  errors: string[];
 };
 
 const emptyForm: FormState = {
+  first_name: '',
+  last_name: '',
   full_name: '',
   email: '',
+  dni: '',
+  phone: '',
   position: '',
   area: '',
   contractor_company: '',
   employee_code: '',
+  status: 'active',
 };
 
 function normalize(value?: string | null) {
   return (value || '').trim().toLowerCase();
+}
+
+function clean(value?: string | null) {
+  const trimmed = (value || '').trim();
+  return trimmed || null;
 }
 
 function isAdminUser(profile: Profile) {
@@ -94,8 +134,17 @@ function getDisplayStatus(profile: Profile) {
   return profile.status || 'active';
 }
 
-function getInitials(name?: string | null, email?: string | null) {
-  const source = name || email || 'U';
+function getFullName(profile: Profile) {
+  return (
+    profile.full_name ||
+    [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
+    profile.email ||
+    'Sin nombre'
+  );
+}
+
+function getInitials(profile: Profile) {
+  const source = getFullName(profile);
   return source.trim().charAt(0).toUpperCase();
 }
 
@@ -130,6 +179,137 @@ function getAssignmentProgress(assignment: Assignment) {
   return 0;
 }
 
+function parseCsvLine(line: string) {
+  const result: string[] = [];
+  let current = '';
+  let insideQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"' && insideQuotes && nextChar === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuotes = !insideQuotes;
+      continue;
+    }
+
+    if (char === ',' && !insideQuotes) {
+      result.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+  return result;
+}
+
+function normalizeHeader(header: string) {
+  return header
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_');
+}
+
+function getColumnValue(row: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && value.trim() !== '') {
+      return value.trim();
+    }
+  }
+
+  return '';
+}
+
+function mapStatus(value: string) {
+  const status = normalize(value);
+
+  if (!status) return 'pending';
+  if (['activo', 'active', 'habilitado'].includes(status)) return 'active';
+  if (['inactivo', 'inactive', 'deshabilitado'].includes(status)) return 'inactive';
+  if (['pendiente', 'pending'].includes(status)) return 'pending';
+
+  return status;
+}
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
+  const cleanedText = text.replace(/\r/g, '').trim();
+
+  if (!cleanedText) return [];
+
+  const lines = cleanedText.split('\n').filter((line) => line.trim());
+
+  if (lines.length <= 1) return [];
+
+  const headers = parseCsvLine(lines[0]).map(normalizeHeader);
+
+  return lines.slice(1).map((line, index) => {
+    const values = parseCsvLine(line);
+    const row: Record<string, string> = {};
+
+    headers.forEach((header, headerIndex) => {
+      row[header] = values[headerIndex] || '';
+    });
+
+    const firstName = getColumnValue(row, ['nombre', 'first_name', 'firstname']);
+    const lastName = getColumnValue(row, ['apellido', 'last_name', 'lastname']);
+    const email = getColumnValue(row, ['email', 'mail', 'correo', 'correo_electronico']).toLowerCase();
+    const dni = getColumnValue(row, ['dni', 'documento', 'documento_nacional']);
+    const phone = getColumnValue(row, ['telefono', 'phone', 'celular', 'mobile']);
+    const position = getColumnValue(row, ['puesto', 'position', 'cargo', 'rol_operativo']);
+    const area = getColumnValue(row, ['area', 'sector', 'departamento', 'department']);
+    const employeeCode = getColumnValue(row, ['legajo', 'employee_code', 'codigo_empleado']);
+    const contractorCompany = getColumnValue(row, [
+      'empresa_contratista',
+      'contratista',
+      'contractor_company',
+      'empresa',
+    ]);
+    const status = mapStatus(getColumnValue(row, ['estado', 'status']));
+
+    const fullNameFromCsv = getColumnValue(row, ['nombre_completo', 'full_name']);
+    const fullName = fullNameFromCsv || [firstName, lastName].filter(Boolean).join(' ');
+
+    const errors: string[] = [];
+
+    if (!email) errors.push('Falta email');
+    if (email && !isValidEmail(email)) errors.push('Email inválido');
+    if (email && existingEmails.has(email)) errors.push('Email ya existe');
+    if (!fullName) errors.push('Falta nombre');
+
+    return {
+      rowNumber: index + 2,
+      first_name: firstName,
+      last_name: lastName,
+      full_name: fullName,
+      email,
+      dni,
+      phone,
+      position,
+      area,
+      contractor_company: contractorCompany,
+      employee_code: employeeCode,
+      status,
+      errors,
+    };
+  });
+}
+
 function sortByCreatedAtDesc<T extends { created_at?: string | null; assigned_at?: string | null }>(
   items: T[]
 ) {
@@ -144,6 +324,8 @@ export default function AdminUsers() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id;
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [users, setUsers] = useState<Profile[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTraining[]>([]);
@@ -154,9 +336,11 @@ export default function AdminUsers() {
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Profile | null>(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [showCsvModal, setShowCsvModal] = useState(false);
 
   const [inviteEmails, setInviteEmails] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [csvRows, setCsvRows] = useState<CsvPreviewRow[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -187,11 +371,7 @@ export default function AdminUsers() {
 
       const loadedUsers = ((usersResult.data ?? []) as Profile[])
         .filter((profile) => !isAdminUser(profile))
-        .sort((a, b) => {
-          const nameA = (a.full_name || a.email || '').toLowerCase();
-          const nameB = (b.full_name || b.email || '').toLowerCase();
-          return nameA.localeCompare(nameB);
-        });
+        .sort((a, b) => getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase()));
 
       const loadedTenantTrainings = (tenantTrainingsResult.data ?? []) as TenantTraining[];
       const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
@@ -239,17 +419,23 @@ export default function AdminUsers() {
     const searchValue = normalize(search);
 
     return users.filter((profile) => {
-      const profileStatus = isActive(profile) ? 'active' : 'inactive';
+      const profileStatus = normalize(profile.status || 'active');
+      const normalizedStatus = profileStatus === 'activo' ? 'active' : profileStatus;
 
-      const matchesStatus = statusFilter === 'all' || profileStatus === statusFilter;
+      const matchesStatus =
+        statusFilter === 'all' ||
+        normalizedStatus === statusFilter ||
+        (statusFilter === 'active' && isActive(profile));
 
       const matchesSearch =
         !searchValue ||
-        normalize(profile.full_name).includes(searchValue) ||
+        normalize(getFullName(profile)).includes(searchValue) ||
         normalize(profile.email).includes(searchValue) ||
         normalize(profile.position).includes(searchValue) ||
         normalize(profile.area).includes(searchValue) ||
         normalize(profile.employee_code).includes(searchValue) ||
+        normalize(profile.dni).includes(searchValue) ||
+        normalize(profile.phone).includes(searchValue) ||
         normalize(profile.contractor_company).includes(searchValue);
 
       return matchesStatus && matchesSearch;
@@ -257,7 +443,8 @@ export default function AdminUsers() {
   }, [users, search, statusFilter]);
 
   const activeCount = users.filter(isActive).length;
-  const inactiveCount = users.length - activeCount;
+  const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
+  const pendingCount = users.filter((profile) => normalize(profile.status) === 'pending').length;
 
   const assignmentsByUser = useMemo(() => {
     return assignments.reduce<Record<string, Assignment[]>>((acc, assignment) => {
@@ -314,8 +501,16 @@ export default function AdminUsers() {
       return;
     }
 
-    if (!form.full_name.trim() || !form.email.trim()) {
-      setErrorMessage('Nombre completo y email son obligatorios.');
+    if (!form.email.trim()) {
+      setErrorMessage('El email es obligatorio.');
+      return;
+    }
+
+    const fullName =
+      form.full_name.trim() || [form.first_name.trim(), form.last_name.trim()].filter(Boolean).join(' ');
+
+    if (!fullName) {
+      setErrorMessage('El nombre es obligatorio.');
       return;
     }
 
@@ -326,6 +521,10 @@ export default function AdminUsers() {
     try {
       const cleanEmail = form.email.trim().toLowerCase();
 
+      if (!isValidEmail(cleanEmail)) {
+        throw new Error('El email no tiene un formato válido.');
+      }
+
       const existing = users.find((profile) => normalize(profile.email) === cleanEmail);
 
       if (existing) {
@@ -335,14 +534,21 @@ export default function AdminUsers() {
       const newUser = {
         id: crypto.randomUUID(),
         tenant_id: tenantId,
-        full_name: form.full_name.trim(),
+        auth_user_id: null,
+        first_name: clean(form.first_name),
+        last_name: clean(form.last_name),
+        full_name: fullName,
         email: cleanEmail,
+        dni: clean(form.dni),
+        phone: clean(form.phone),
         role: 'worker',
-        position: form.position.trim() || null,
-        area: form.area.trim() || null,
-        contractor_company: form.contractor_company.trim() || null,
-        employee_code: form.employee_code.trim() || null,
-        status: 'active',
+        position: clean(form.position),
+        area: clean(form.area),
+        contractor_company: clean(form.contractor_company),
+        employee_code: clean(form.employee_code),
+        status: form.status || 'pending',
+        preapproved: true,
+        source: 'manual',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -352,16 +558,14 @@ export default function AdminUsers() {
       if (error) throw error;
 
       setUsers((currentUsers) =>
-        [...currentUsers, data as Profile].sort((a, b) => {
-          const nameA = (a.full_name || a.email || '').toLowerCase();
-          const nameB = (b.full_name || b.email || '').toLowerCase();
-          return nameA.localeCompare(nameB);
-        })
+        [...currentUsers, data as Profile].sort((a, b) =>
+          getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
+        )
       );
 
       setForm(emptyForm);
       setShowCreate(false);
-      setSuccessMessage('Usuario creado correctamente.');
+      setSuccessMessage('Trabajador creado y preaprobado correctamente.');
     } catch (error) {
       console.error('Error creating user:', error);
       setErrorMessage(
@@ -402,6 +606,9 @@ export default function AdminUsers() {
         .map((email) => ({
           id: crypto.randomUUID(),
           tenant_id: tenantId,
+          auth_user_id: null,
+          first_name: null,
+          last_name: null,
           full_name: email.split('@')[0],
           email,
           role: 'worker',
@@ -409,7 +616,11 @@ export default function AdminUsers() {
           area: null,
           contractor_company: null,
           employee_code: null,
+          dni: null,
+          phone: null,
           status: 'pending',
+          preapproved: true,
+          source: 'email_invite',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }));
@@ -426,22 +637,111 @@ export default function AdminUsers() {
       if (error) throw error;
 
       setUsers((currentUsers) =>
-        [...currentUsers, ...((data ?? []) as Profile[])].sort((a, b) => {
-          const nameA = (a.full_name || a.email || '').toLowerCase();
-          const nameB = (b.full_name || b.email || '').toLowerCase();
-          return nameA.localeCompare(nameB);
-        })
+        [...currentUsers, ...((data ?? []) as Profile[])].sort((a, b) =>
+          getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
+        )
       );
 
       setShowInvite(false);
       setInviteEmails('');
       setSuccessMessage(
-        `${newProfiles.length} usuario(s) cargado(s) como pendiente(s). El envío real de email queda para una función backend.`
+        `${newProfiles.length} trabajador(es) cargado(s) como preaprobado(s).`
       );
     } catch (error) {
       console.error('Error inviting users:', error);
       setErrorMessage(
         error instanceof Error ? error.message : 'No se pudieron cargar las invitaciones.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCsvFile(file: File) {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const text = await file.text();
+      const existingEmails = new Set(users.map((profile) => normalize(profile.email)));
+      const parsedRows = parseCsv(text, existingEmails);
+
+      if (parsedRows.length === 0) {
+        throw new Error('El CSV no tiene filas válidas o está vacío.');
+      }
+
+      setCsvRows(parsedRows);
+      setShowCsvModal(true);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'No se pudo leer el archivo CSV.'
+      );
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }
+
+  async function importCsvRows() {
+    if (!tenantId) {
+      setErrorMessage('No se encontró tenant_id para importar usuarios.');
+      return;
+    }
+
+    const validRows = csvRows.filter((row) => row.errors.length === 0);
+
+    if (validRows.length === 0) {
+      setErrorMessage('No hay filas válidas para importar.');
+      return;
+    }
+
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const now = new Date().toISOString();
+
+      const profilesToInsert = validRows.map((row) => ({
+        id: crypto.randomUUID(),
+        tenant_id: tenantId,
+        auth_user_id: null,
+        first_name: clean(row.first_name),
+        last_name: clean(row.last_name),
+        full_name: row.full_name,
+        email: row.email,
+        dni: clean(row.dni),
+        phone: clean(row.phone),
+        role: 'worker',
+        position: clean(row.position),
+        area: clean(row.area),
+        contractor_company: clean(row.contractor_company),
+        employee_code: clean(row.employee_code),
+        status: row.status || 'pending',
+        preapproved: true,
+        source: 'csv',
+        created_at: now,
+        updated_at: now,
+      }));
+
+      const { data, error } = await supabase.from('profiles').insert(profilesToInsert).select('*');
+
+      if (error) throw error;
+
+      setUsers((currentUsers) =>
+        [...currentUsers, ...((data ?? []) as Profile[])].sort((a, b) =>
+          getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
+        )
+      );
+
+      setCsvRows([]);
+      setShowCsvModal(false);
+      setSuccessMessage(`${profilesToInsert.length} trabajador(es) importado(s) desde CSV.`);
+    } catch (error) {
+      console.error('Error importing CSV:', error);
+      setErrorMessage(
+        error instanceof Error ? error.message : 'No se pudo importar el CSV.'
       );
     } finally {
       setSaving(false);
@@ -479,6 +779,9 @@ export default function AdminUsers() {
     );
   }
 
+  const validCsvRows = csvRows.filter((row) => row.errors.length === 0);
+  const invalidCsvRows = csvRows.filter((row) => row.errors.length > 0);
+
   return (
     <div className="space-y-4">
       {(errorMessage || successMessage) && (
@@ -492,6 +795,17 @@ export default function AdminUsers() {
           {errorMessage || successMessage}
         </div>
       )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) handleCsvFile(file);
+        }}
+      />
 
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2 flex-1 max-w-lg">
@@ -515,14 +829,20 @@ export default function AdminUsers() {
           >
             <option value="all">Todos</option>
             <option value="active">Activos</option>
+            <option value="pending">Pendientes</option>
             <option value="inactive">Inactivos</option>
           </select>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={loadUsersData} className="btn-secondary text-xs">
             <RefreshCw size={14} />
             Actualizar
+          </button>
+
+          <button onClick={() => fileInputRef.current?.click()} className="btn-secondary text-xs">
+            <Upload size={14} />
+            Cargar CSV
           </button>
 
           <button onClick={() => setShowInvite(true)} className="btn-secondary text-xs">
@@ -547,6 +867,10 @@ export default function AdminUsers() {
           <span className="text-xs text-emerald-400">{activeCount} activos</span>
         </div>
 
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
+          <span className="text-xs text-amber-400">{pendingCount} pendientes</span>
+        </div>
+
         <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
           <span className="text-xs text-steel-400">{inactiveCount} inactivos</span>
         </div>
@@ -567,6 +891,7 @@ export default function AdminUsers() {
                 <th className="table-header hidden md:table-cell">Puesto</th>
                 <th className="table-header hidden lg:table-cell">Área</th>
                 <th className="table-header hidden lg:table-cell">Legajo</th>
+                <th className="table-header hidden xl:table-cell">DNI</th>
                 <th className="table-header hidden xl:table-cell">Asignaciones</th>
                 <th className="table-header">Estado</th>
                 <th className="table-header text-right">Acciones</th>
@@ -587,12 +912,12 @@ export default function AdminUsers() {
                     <td className="table-cell">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-petroleum-700 rounded-full flex items-center justify-center text-sm font-bold text-petroleum-200 flex-shrink-0">
-                          {getInitials(profile.full_name, profile.email)}
+                          {getInitials(profile)}
                         </div>
 
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-steel-100 truncate">
-                            {profile.full_name || 'Sin nombre'}
+                            {getFullName(profile)}
                           </div>
                           <div className="text-xs text-steel-400 truncate">
                             {profile.email || 'Sin email'}
@@ -613,6 +938,10 @@ export default function AdminUsers() {
                       {profile.employee_code || '—'}
                     </td>
 
+                    <td className="table-cell hidden xl:table-cell font-mono text-xs text-steel-400">
+                      {profile.dni || '—'}
+                    </td>
+
                     <td className="table-cell hidden xl:table-cell text-steel-300">
                       <div className="text-sm">
                         {completedAssignments}/{userAssignments.length}
@@ -621,7 +950,15 @@ export default function AdminUsers() {
                     </td>
 
                     <td className="table-cell">
-                      <StatusBadge status={getDisplayStatus(profile)} />
+                      <div className="space-y-1">
+                        <StatusBadge status={getDisplayStatus(profile)} />
+                        {profile.preapproved && (
+                          <div className="text-[10px] text-emerald-400 flex items-center gap-1">
+                            <CheckCircle size={10} />
+                            preaprobado
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     <td className="table-cell text-right">
@@ -674,50 +1011,111 @@ export default function AdminUsers() {
             </button>
             <button
               onClick={handleCreate}
-              disabled={saving || !form.full_name.trim() || !form.email.trim()}
+              disabled={saving || !form.email.trim()}
               className="btn-primary"
             >
               <Plus size={15} />
-              {saving ? 'Creando...' : 'Crear usuario'}
+              {saving ? 'Creando...' : 'Crear trabajador'}
             </button>
           </>
         }
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
-            Esto crea el perfil del trabajador en Supabase dentro de la empresa actual. El login real
-            por email se puede conectar después con invitaciones de Supabase Auth.
+            Esto crea el trabajador como preaprobado. Cuando se registre con este email, podremos
+            validarlo automáticamente contra esta base.
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="label">Nombre completo *</label>
+              <label className="label">Nombre</label>
               <input
-                value={form.full_name}
+                value={form.first_name}
                 onChange={(event) =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
-                    full_name: event.target.value,
-                  }))
+                  setForm((currentForm) => ({ ...currentForm, first_name: event.target.value }))
                 }
                 className="input"
-                placeholder="Juan Pérez"
+                placeholder="Juan"
               />
             </div>
 
+            <div>
+              <label className="label">Apellido</label>
+              <input
+                value={form.last_name}
+                onChange={(event) =>
+                  setForm((currentForm) => ({ ...currentForm, last_name: event.target.value }))
+                }
+                className="input"
+                placeholder="Pérez"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Nombre completo</label>
+            <input
+              value={form.full_name}
+              onChange={(event) =>
+                setForm((currentForm) => ({ ...currentForm, full_name: event.target.value }))
+              }
+              className="input"
+              placeholder="Opcional si cargás nombre y apellido"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Email *</label>
               <input
                 type="email"
                 value={form.email}
                 onChange={(event) =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
-                    email: event.target.value,
-                  }))
+                  setForm((currentForm) => ({ ...currentForm, email: event.target.value }))
                 }
                 className="input"
                 placeholder="juan@empresa.com"
+              />
+            </div>
+
+            <div>
+              <label className="label">Estado</label>
+              <select
+                value={form.status}
+                onChange={(event) =>
+                  setForm((currentForm) => ({ ...currentForm, status: event.target.value }))
+                }
+                className="select"
+              >
+                <option value="pending">Pendiente</option>
+                <option value="active">Activo</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">DNI</label>
+              <input
+                value={form.dni}
+                onChange={(event) =>
+                  setForm((currentForm) => ({ ...currentForm, dni: event.target.value }))
+                }
+                className="input"
+                placeholder="30111222"
+              />
+            </div>
+
+            <div>
+              <label className="label">Teléfono</label>
+              <input
+                value={form.phone}
+                onChange={(event) =>
+                  setForm((currentForm) => ({ ...currentForm, phone: event.target.value }))
+                }
+                className="input"
+                placeholder="+54 9 11..."
               />
             </div>
           </div>
@@ -728,10 +1126,7 @@ export default function AdminUsers() {
               <input
                 value={form.position}
                 onChange={(event) =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
-                    position: event.target.value,
-                  }))
+                  setForm((currentForm) => ({ ...currentForm, position: event.target.value }))
                 }
                 className="input"
                 placeholder="Ej: Operador de campo"
@@ -743,10 +1138,7 @@ export default function AdminUsers() {
               <input
                 value={form.area}
                 onChange={(event) =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
-                    area: event.target.value,
-                  }))
+                  setForm((currentForm) => ({ ...currentForm, area: event.target.value }))
                 }
                 className="input"
                 placeholder="Ej: Operaciones"
@@ -771,7 +1163,7 @@ export default function AdminUsers() {
             </div>
 
             <div>
-              <label className="label">Legajo / DNI</label>
+              <label className="label">Legajo</label>
               <input
                 value={form.employee_code}
                 onChange={(event) =>
@@ -783,6 +1175,108 @@ export default function AdminUsers() {
                 className="input"
                 placeholder="EMP001"
               />
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={showCsvModal}
+        onClose={() => {
+          setShowCsvModal(false);
+          setCsvRows([]);
+        }}
+        title="Importar trabajadores desde CSV"
+        size="xl"
+        footer={
+          <>
+            <button
+              onClick={() => {
+                setShowCsvModal(false);
+                setCsvRows([]);
+              }}
+              className="btn-ghost"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={importCsvRows}
+              disabled={saving || validCsvRows.length === 0}
+              className="btn-primary"
+            >
+              <Upload size={15} />
+              {saving ? 'Importando...' : `Importar ${validCsvRows.length}`}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-steel-900 rounded-lg p-3">
+              <div className="text-xs text-steel-500">Filas detectadas</div>
+              <div className="text-xl font-bold text-steel-100">{csvRows.length}</div>
+            </div>
+
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+              <div className="text-xs text-emerald-500">Válidas</div>
+              <div className="text-xl font-bold text-emerald-300">{validCsvRows.length}</div>
+            </div>
+
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <div className="text-xs text-red-400">Con errores</div>
+              <div className="text-xl font-bold text-red-300">{invalidCsvRows.length}</div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-steel-700 overflow-hidden max-h-[420px] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-steel-900 sticky top-0">
+                <tr>
+                  <th className="table-header">Fila</th>
+                  <th className="table-header">Nombre</th>
+                  <th className="table-header">Email</th>
+                  <th className="table-header">DNI</th>
+                  <th className="table-header">Puesto</th>
+                  <th className="table-header">Área</th>
+                  <th className="table-header">Legajo</th>
+                  <th className="table-header">Estado</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {csvRows.map((row) => (
+                  <tr
+                    key={row.rowNumber}
+                    className={`border-b border-steel-800 ${
+                      row.errors.length > 0 ? 'bg-red-500/5' : ''
+                    }`}
+                  >
+                    <td className="table-cell text-steel-500">{row.rowNumber}</td>
+                    <td className="table-cell text-steel-200">
+                      <div>{row.full_name || '—'}</div>
+                      {row.errors.length > 0 && (
+                        <div className="text-xs text-red-400 mt-1">{row.errors.join(' · ')}</div>
+                      )}
+                    </td>
+                    <td className="table-cell text-steel-300">{row.email || '—'}</td>
+                    <td className="table-cell text-steel-300">{row.dni || '—'}</td>
+                    <td className="table-cell text-steel-300">{row.position || '—'}</td>
+                    <td className="table-cell text-steel-300">{row.area || '—'}</td>
+                    <td className="table-cell text-steel-300">{row.employee_code || '—'}</td>
+                    <td className="table-cell">
+                      <StatusBadge status={row.status || 'pending'} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="text-xs text-steel-500 flex items-start gap-2">
+            <FileText size={14} className="mt-0.5" />
+            <div>
+              Columnas aceptadas: nombre, apellido, nombre_completo, email, mail, dni, telefono,
+              puesto, area, legajo, empresa_contratista, estado.
             </div>
           </div>
         </div>
@@ -806,8 +1300,8 @@ export default function AdminUsers() {
       >
         <div className="space-y-3">
           <p className="text-sm text-steel-400">
-            Ingresá uno o más emails, uno por línea. Por ahora se cargan como usuarios pendientes
-            en Supabase. El envío real del email lo conectamos después con backend.
+            Ingresá uno o más emails, uno por línea. Se cargan como trabajadores pendientes y
+            preaprobados.
           </p>
 
           <textarea
@@ -834,32 +1328,40 @@ export default function AdminUsers() {
         <Modal
           open={!!showDetail}
           onClose={() => setShowDetail(null)}
-          title={showDetail.full_name || showDetail.email || 'Usuario'}
+          title={getFullName(showDetail)}
           size="lg"
         >
           <div className="space-y-4">
             <div className="flex items-center gap-4 p-4 bg-steel-900 rounded-xl">
               <div className="w-14 h-14 bg-petroleum-600 rounded-xl flex items-center justify-center text-xl font-bold text-petroleum-100">
-                {getInitials(showDetail.full_name, showDetail.email)}
+                {getInitials(showDetail)}
               </div>
 
               <div>
                 <div className="text-lg font-semibold text-steel-100">
-                  {showDetail.full_name || 'Sin nombre'}
+                  {getFullName(showDetail)}
                 </div>
                 <div className="text-sm text-steel-400">{showDetail.email || 'Sin email'}</div>
-                <div className="mt-2">
+                <div className="mt-2 flex items-center gap-2">
                   <StatusBadge status={getDisplayStatus(showDetail)} />
+                  {showDetail.preapproved && (
+                    <span className="text-xs text-emerald-400">Preaprobado</span>
+                  )}
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
+                { label: 'Nombre', value: showDetail.first_name },
+                { label: 'Apellido', value: showDetail.last_name },
+                { label: 'DNI', value: showDetail.dni },
+                { label: 'Teléfono', value: showDetail.phone },
                 { label: 'Puesto', value: showDetail.position },
                 { label: 'Área', value: showDetail.area },
                 { label: 'Legajo', value: showDetail.employee_code },
                 { label: 'Contratista', value: showDetail.contractor_company },
+                { label: 'Origen', value: showDetail.source },
               ].map((item) => (
                 <div key={item.label} className="bg-steel-900 rounded-lg p-3">
                   <div className="text-xs text-steel-500 mb-1">{item.label}</div>
