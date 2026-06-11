@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
-import { Play, BookOpen, Clock, Award, ChevronRight } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Play, BookOpen, Clock, Award, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getAssignmentsByUser } from '../../lib/mockData';
-import type { TrainingAssignment } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { baseTrainings } from '../../data/baseTrainings';
+import type { Training, TrainingAssignment } from '../../types';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 
 interface WorkerTrainingsProps {
   onNavigate: (view: string, data?: unknown) => void;
 }
+
+type WorkerTrainingAssignment = TrainingAssignment & {
+  training?: Training;
+};
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'Todos' },
@@ -20,21 +25,66 @@ const STATUS_FILTERS = [
 
 export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
   const { user } = useAuth();
-  const assignments = getAssignmentsByUser(user?.id ?? 'u1');
+
+  const [assignments, setAssignments] = useState<WorkerTrainingAssignment[]>([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadAssignments = async () => {
+    if (!user?.id) {
+      setAssignments([]);
+      setIsLoading(false);
+      setLoadError('No pudimos identificar tu usuario.');
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadError(null);
+
+    const { data, error } = await supabase
+      .from('training_assignments')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('assigned_at', { ascending: false });
+
+    if (error) {
+      console.error('Error cargando trainings asignados:', error);
+      setAssignments([]);
+      setLoadError(`No pudimos cargar tus trainings asignados: ${error.message}`);
+      setIsLoading(false);
+      return;
+    }
+
+    const trainingById = new Map(baseTrainings.map(training => [training.id, training]));
+
+    const hydratedAssignments = (data ?? [])
+      .map(row => ({
+        ...(row as TrainingAssignment),
+        training: trainingById.get(row.training_id as string),
+      }))
+      .filter(a => Boolean(a.training)) as WorkerTrainingAssignment[];
+
+    setAssignments(hydratedAssignments);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadAssignments();
+  }, [user?.id]);
 
   const filtered = assignments.filter(a =>
     statusFilter === 'all' || a.status === statusFilter
   );
 
-  const getActionLabel = (a: TrainingAssignment) => {
+  const getActionLabel = (a: WorkerTrainingAssignment) => {
     if (a.status === 'not_started') return 'Comenzar';
     if (a.status === 'pending_test') return 'Rendir test';
     if (a.status === 'certificate_issued') return 'Ver certificado';
     return 'Continuar';
   };
 
-  const getActionView = (a: TrainingAssignment) => {
+  const getActionView = (a: WorkerTrainingAssignment) => {
     if (a.status === 'pending_test') return 'worker-test';
     if (a.status === 'certificate_issued') return 'worker-certificates';
     return 'worker-player';
@@ -42,67 +92,151 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        {STATUS_FILTERS.map(sf => (
-          <button
-            key={sf.value}
-            onClick={() => setStatusFilter(sf.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === sf.value ? 'bg-amber-500 text-petroleum-950' : 'bg-steel-800 text-steel-300 hover:bg-steel-700'}`}
-          >
-            {sf.label} ({sf.value === 'all' ? assignments.length : assignments.filter(a => a.status === sf.value).length})
-          </button>
-        ))}
+      <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+        <div className="text-sm font-semibold text-steel-100">
+          Mis trainings asignados
+        </div>
+        <div className="text-xs text-steel-500">
+          Acá vas a ver los cursos que tu empresa te asignó para completar.
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState icon={<BookOpen size={28} />} title="Sin trainings" description="No tenés trainings con ese estado." />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filtered.map(a => (
-            <div key={a.id} className="card hover:border-steel-600 transition-all">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-12 h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={20} className="text-petroleum-200" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-base font-semibold text-steel-100 mb-1">{a.training?.title}</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="badge badge-neutral flex items-center gap-1">
-                      <Clock size={9} /> {a.training?.duration_minutes} min
-                    </span>
-                    {a.training?.certificate_enabled && (
-                      <span className="badge badge-warning flex items-center gap-1"><Award size={9} /> Certifica</span>
+      {isLoading && (
+        <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4 text-sm text-steel-300">
+          Cargando tus trainings asignados...
+        </div>
+      )}
+
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+          <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
+          <div>
+            <div className="font-semibold">No pudimos cargar tus trainings</div>
+            <div className="text-red-200/90">{loadError}</div>
+
+            <button
+              onClick={loadAssignments}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-500/10"
+            >
+              <RefreshCw size={13} />
+              Reintentar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isLoading && !loadError && (
+        <>
+          <div className="flex gap-2 flex-wrap">
+            {STATUS_FILTERS.map(sf => (
+              <button
+                key={sf.value}
+                onClick={() => setStatusFilter(sf.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  statusFilter === sf.value
+                    ? 'bg-amber-500 text-petroleum-950'
+                    : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
+                }`}
+              >
+                {sf.label} (
+                {sf.value === 'all'
+                  ? assignments.length
+                  : assignments.filter(a => a.status === sf.value).length}
+                )
+              </button>
+            ))}
+          </div>
+
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon={<BookOpen size={28} />}
+              title="Sin trainings"
+              description={
+                assignments.length === 0
+                  ? 'Todavía no tenés trainings asignados.'
+                  : 'No tenés trainings con ese estado.'
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filtered.map(a => (
+                <div key={a.id} className="card hover:border-steel-600 transition-all">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="w-12 h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <BookOpen size={20} className="text-petroleum-200" />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="text-base font-semibold text-steel-100 mb-1">
+                        {a.training?.title}
+                      </div>
+
+                      <p className="text-xs text-steel-400 line-clamp-2 mb-2">
+                        {a.training?.description}
+                      </p>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="badge badge-neutral flex items-center gap-1">
+                          <Clock size={9} /> {a.training?.duration_minutes} min
+                        </span>
+
+                        {a.training?.category && (
+                          <span className="badge badge-info">
+                            {a.training.category}
+                          </span>
+                        )}
+
+                        {a.training?.certificate_enabled && (
+                          <span className="badge badge-warning flex items-center gap-1">
+                            <Award size={9} /> Certifica
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <StatusBadge status={a.status} />
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="flex justify-between text-xs text-steel-400 mb-1.5">
+                      <span>Progreso</span>
+                      <span>{a.progress_percentage ?? 0}%</span>
+                    </div>
+
+                    <div className="progress-bar h-2">
+                      <div
+                        className="progress-fill h-full"
+                        style={{ width: `${a.progress_percentage ?? 0}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 mb-4">
+                    <div className="text-xs text-steel-500">
+                      Asignado:{' '}
+                      {a.assigned_at
+                        ? new Date(a.assigned_at).toLocaleDateString('es-AR')
+                        : 'Sin fecha'}
+                    </div>
+
+                    {a.due_date && (
+                      <div className="text-xs text-amber-300">
+                        Fecha límite: {new Date(a.due_date).toLocaleDateString('es-AR')}
+                      </div>
                     )}
                   </div>
-                </div>
-                <StatusBadge status={a.status} />
-              </div>
 
-              <div className="mb-4">
-                <div className="flex justify-between text-xs text-steel-400 mb-1.5">
-                  <span>Progreso</span>
-                  <span>{a.progress_percentage}%</span>
+                  <button
+                    onClick={() => onNavigate(getActionView(a), { assignment: a })}
+                    className="btn-primary w-full justify-center py-2.5"
+                  >
+                    <Play size={14} /> {getActionLabel(a)}
+                  </button>
                 </div>
-                <div className="progress-bar h-2">
-                  <div className="progress-fill h-full" style={{ width: `${a.progress_percentage}%` }} />
-                </div>
-              </div>
-
-              {a.due_date && (
-                <div className="text-xs text-steel-500 mb-3">
-                  Fecha límite: {new Date(a.due_date).toLocaleDateString('es-AR')}
-                </div>
-              )}
-
-              <button
-                onClick={() => onNavigate(getActionView(a), { assignment: a })}
-                className="btn-primary w-full justify-center py-2.5"
-              >
-                <Play size={14} /> {getActionLabel(a)}
-              </button>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
