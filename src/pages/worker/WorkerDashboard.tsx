@@ -111,6 +111,16 @@ const isCompletedStatus = (status?: string | null) => {
   );
 };
 
+const getDueDateTimestamp = (dueDate?: string | null) => {
+  if (!dueDate) return Number.POSITIVE_INFINITY;
+
+  const [year, month, day] = dueDate.split('-').map(Number);
+
+  if (!year || !month || !day) return Number.POSITIVE_INFINITY;
+
+  return new Date(year, month - 1, day).getTime();
+};
+
 const getUrgencyScore = (assignment: WorkerTrainingAssignment) => {
   if (isCompletedStatus(assignment.status)) return 999;
 
@@ -239,6 +249,12 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     return dueInfo.isDueSoon && !dueInfo.isOverdue;
   }).length;
 
+  const nextDeadlineAssignment = activeAssignments
+    .filter(assignment => Boolean(assignment.due_date))
+    .sort((a, b) => {
+      return getDueDateTimestamp(a.due_date) - getDueDateTimestamp(b.due_date);
+    })[0];
+
   const now = new Date();
   const inThirtyDays = new Date();
   inThirtyDays.setDate(now.getDate() + 30);
@@ -319,7 +335,9 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
             <p className="text-xs text-steel-400 mt-1">
               {overdueCount > 0 && `${overdueCount} vencido(s). `}
               {dueSoonCount > 0 && `${dueSoonCount} con deadline próximo. `}
-              {pendingExam > 0 && `${pendingExam} pendiente(s) de examen.`}
+              {pendingExam > 0 && `${pendingExam} pendiente(s) de examen. `}
+              {nextDeadlineAssignment?.due_date &&
+                `Próximo deadline: ${formatDateAR(nextDeadlineAssignment.due_date)}.`}
             </p>
           </div>
         </div>
@@ -454,26 +472,9 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                     )}
 
                     <div className="flex items-center gap-2 text-xs mb-2">
-                      <CalendarDays
-                        size={13}
-                        className={
-                          dueInfo.isOverdue
-                            ? 'text-red-300'
-                            : dueInfo.isDueSoon
-                              ? 'text-amber-300'
-                              : 'text-steel-500'
-                        }
-                      />
+                      <CalendarDays size={13} className="text-red-300" />
 
-                      <span
-                        className={
-                          dueInfo.isOverdue
-                            ? 'text-red-300'
-                            : dueInfo.isDueSoon
-                              ? 'text-amber-300'
-                              : 'text-steel-500'
-                        }
-                      >
+                      <span className="text-red-300">
                         Fecha límite: {formatDateAR(assignment.due_date)}
                         {dueInfo.daysRemaining === 0
                           ? ' · vence hoy'
