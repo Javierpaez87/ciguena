@@ -72,8 +72,8 @@ export default function WorkerCertificates() {
             .box { border: 1px solid #cbd5e1; border-radius: 10px; padding: 16px; margin-top: 22px; font-size: 14px; }
             .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
             .signature { margin-top: 52px; display: grid; grid-template-columns: 1fr 1fr; gap: 46px; align-items: end; }
-            .signature-box { min-height: 90px; display: flex; align-items: center; justify-content: center; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
-            .signature-box img { max-height: 80px; max-width: 260px; object-fit: contain; }
+            .signature-box { min-height: 90px; display: flex; align-items: center; justify-content: center; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; background: #f1f5f9; }
+            .signature-box img { max-height: 80px; max-width: 260px; object-fit: contain; filter: invert(1) contrast(1.4); }
             .line { border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #334155; margin-top: 10px; }
             .code { margin-top: 34px; font-family: monospace; color: #64748b; font-size: 12px; }
             @media print {
@@ -141,7 +141,7 @@ export default function WorkerCertificates() {
 
   const printCertificate = (cert: Certificate) => {
     const signatureBlock = ethicsAcceptance?.signature_image_url
-      ? `<img src="${ethicsAcceptance.signature_image_url}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;" />`
+      ? `<img src="${ethicsAcceptance.signature_image_url}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
       : '<div style="height:70px;color:#64748b;font-size:12px;display:flex;align-items:center;">Firma no disponible</div>';
 
     const html = `
@@ -459,12 +459,13 @@ export default function WorkerCertificates() {
 
                 <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
                   <div>
-                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-200 p-3">
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
                       {ethicsAcceptance.signature_image_url ? (
                         <img
                           src={ethicsAcceptance.signature_image_url}
                           alt="Firma registrada"
                           className="max-h-24 max-w-full object-contain"
+                          style={{ filter: 'invert(1) contrast(1.4)' }}
                         />
                       ) : (
                         <span className="text-xs text-slate-500">
