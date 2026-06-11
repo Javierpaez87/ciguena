@@ -24,6 +24,18 @@ interface WorkerTestProps {
 
 type TestState = 'intro' | 'taking' | 'result';
 
+type TestOption = string | {
+  text?: string;
+  label?: string;
+  option_text?: string;
+};
+
+const getOptionText = (option: TestOption) => {
+  if (typeof option === 'string') return option;
+
+  return option.option_text || option.text || option.label || '';
+};
+
 export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) {
   const trainingId = assignment?.training_id ?? '';
   const test = getTrainingTestByTrainingId(trainingId);
@@ -118,6 +130,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   };
 
   const q = questionsForAttempt[currentQ];
+
   const answeredAll = questionsForAttempt.every(question => {
     return answers[question.id] !== undefined;
   });
@@ -255,8 +268,9 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             </h3>
 
             <div className="space-y-2.5">
-              {q.options.map((option, optionIndex) => {
+              {q.options.map((option: TestOption, optionIndex: number) => {
                 const selected = answers[q.id] === optionIndex;
+                const optionText = getOptionText(option);
 
                 return (
                   <button
@@ -280,7 +294,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                       )}
                     </div>
 
-                    <span className="text-sm">{option}</span>
+                    <span className="text-sm">{optionText}</span>
                   </button>
                 );
               })}
