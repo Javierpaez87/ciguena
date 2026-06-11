@@ -7,6 +7,7 @@ export type AssignmentStatus = 'not_started' | 'in_progress' | 'pending_test' | 
 export type CertificateStatus = 'valid' | 'expiring_soon' | 'expired';
 export type FeedbackType = 'platform' | 'training';
 export type ReminderType = 'invitation' | 'training_pending' | 'training_in_progress' | 'certificate_expiring' | 'certificate_expired' | 'certificate_issued';
+
 export type VideoProvider = 'bunny' | 'cloudflare' | 'vimeo' | 'youtube' | 'local' | 'external';
 export type LessonType = 'video' | 'pdf' | 'text' | 'image' | 'link';
 export type TrainingContentType = 'video' | 'youtube' | 'document' | 'external' | 'local_video' | null;
@@ -49,6 +50,15 @@ export interface Training {
   created_at: string;
   module_count?: number;
   tenant_count?: number;
+
+  /**
+   * Campos opcionales para mostrar o previsualizar el contenido principal
+   * desde el catálogo. Más adelante, el consumo real del training puede
+   * seguir usando TrainingModule + TrainingLesson.
+   */
+  content_type?: TrainingContentType;
+  content_url?: string | null;
+  thumbnail_url?: string | null;
 }
 
 export interface TenantTraining {
