@@ -77,7 +77,13 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     setAnswers(prev => ({ ...prev, [questionId]: optionKey }));
   };
 
-  const markAssignmentAsCertificateIssued = async () => {
+  const markAssignmentAsCertificateIssued = async ({
+    score,
+    attemptNumber,
+  }: {
+    score: number;
+    attemptNumber: number;
+  }) => {
     if (!assignment?.id) return;
 
     const { error } = await supabase
@@ -86,11 +92,71 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
         status: 'certificate_issued',
         completed_at: new Date().toISOString(),
         progress_percentage: 100,
+        test_score: score,
+        test_attempts_count: attemptNumber,
+        test_passed_at: new Date().toISOString(),
       })
       .eq('id', assignment.id);
 
     if (error) {
       console.error('Error actualizando assignment al aprobar examen:', error);
+    }
+  };
+
+  const registerTestAttempt = async ({
+    score,
+    passed,
+    correct,
+  }: {
+    score: number;
+    passed: boolean;
+    correct: number;
+  }) => {
+    if (!assignment?.id || !assignment?.user_id || !test) return;
+
+    const { data: attemptData, error: attemptError } = await supabase
+      .from('training_test_attempts')
+      .insert({
+        assignment_id: assignment.id,
+        user_id: assignment.user_id,
+        training_id: assignment.training_id,
+        test_id: test.id,
+        attempt_number: attempt,
+        score,
+        correct_answers: correct,
+        total_questions: questionsForAttempt.length,
+        passed,
+      })
+      .select('id')
+      .single();
+
+    if (attemptError) {
+      console.error('Error registrando intento de examen:', attemptError);
+      return;
+    }
+
+    const attemptId = attemptData?.id;
+
+    if (!attemptId) return;
+
+    const answersPayload = questionsForAttempt.map(question => {
+      const selectedOption = answers[question.id] ?? '';
+
+      return {
+        attempt_id: attemptId,
+        question_id: question.id,
+        selected_option: selectedOption,
+        correct_option: question.correctOption,
+        is_correct: selectedOption === question.correctOption,
+      };
+    });
+
+    const { error: answersError } = await supabase
+      .from('training_test_attempt_answers')
+      .insert(answersPayload);
+
+    if (answersError) {
+      console.error('Error registrando respuestas del examen:', answersError);
     }
   };
 
@@ -117,12 +183,22 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       total: questionsForAttempt.length,
     });
 
+    setIsSaving(true);
+
+    await registerTestAttempt({
+      score,
+      passed,
+      correct,
+    });
+
     if (passed) {
-      setIsSaving(true);
-      await markAssignmentAsCertificateIssued();
-      setIsSaving(false);
+      await markAssignmentAsCertificateIssued({
+        score,
+        attemptNumber: attempt,
+      });
     }
 
+    setIsSaving(false);
     setState('result');
   };
 
@@ -312,7 +388,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
           <div className="flex items-center justify-between">
             <button
               onClick={() => setCurrentQ(questionIndex => Math.max(0, questionIndex - 1))}
-              disabled={currentQ === 0}
+              disabled={currentQ === 0 || isSaving}
               className="btn-secondary disabled:opacity-40"
             >
               <ChevronLeft size={14} /> Anterior
@@ -321,7 +397,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             {currentQ < questionsForAttempt.length - 1 ? (
               <button
                 onClick={() => setCurrentQ(questionIndex => questionIndex + 1)}
-                disabled={answers[q.id] === undefined}
+                disabled={answers[q.id] === undefined || isSaving}
                 className="btn-primary disabled:opacity-40"
               >
                 Siguiente <ChevronRight size={14} />
