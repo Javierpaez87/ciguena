@@ -25,6 +25,7 @@ interface WorkerTestProps {
 type TestState = 'intro' | 'taking' | 'result';
 
 type TestOption = string | {
+  key?: string;
   text?: string;
   label?: string;
   option_text?: string;
@@ -33,7 +34,13 @@ type TestOption = string | {
 const getOptionText = (option: TestOption) => {
   if (typeof option === 'string') return option;
 
-  return option.option_text || option.text || option.label || '';
+  return option.text || option.option_text || option.label || '';
+};
+
+const getOptionKey = (option: TestOption, optionIndex: number) => {
+  if (typeof option === 'string') return String(optionIndex);
+
+  return option.key || String(optionIndex);
 };
 
 export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) {
@@ -41,7 +48,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   const test = getTrainingTestByTrainingId(trainingId);
 
   const [state, setState] = useState<TestState>('intro');
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentQ, setCurrentQ] = useState(0);
   const [result, setResult] = useState<{
     score: number;
@@ -66,8 +73,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     ? Math.ceil(test.questions.length / test.questionsPerAttempt)
     : 0;
 
-  const selectAnswer = (questionId: string, optionIndex: number) => {
-    setAnswers(prev => ({ ...prev, [questionId]: optionIndex }));
+  const selectAnswer = (questionId: string, optionKey: string) => {
+    setAnswers(prev => ({ ...prev, [questionId]: optionKey }));
   };
 
   const markAssignmentAsCertificateIssued = async () => {
@@ -93,9 +100,9 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     let correct = 0;
 
     questionsForAttempt.forEach(question => {
-      const selectedOptionIndex = answers[question.id];
+      const selectedOptionKey = answers[question.id];
 
-      if (selectedOptionIndex === question.correctAnswer) {
+      if (selectedOptionKey === question.correctOption) {
         correct++;
       }
     });
@@ -269,13 +276,14 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
             <div className="space-y-2.5">
               {q.options.map((option: TestOption, optionIndex: number) => {
-                const selected = answers[q.id] === optionIndex;
+                const optionKey = getOptionKey(option, optionIndex);
                 const optionText = getOptionText(option);
+                const selected = answers[q.id] === optionKey;
 
                 return (
                   <button
-                    key={optionIndex}
-                    onClick={() => selectAnswer(q.id, optionIndex)}
+                    key={optionKey}
+                    onClick={() => selectAnswer(q.id, optionKey)}
                     className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
                       selected
                         ? 'bg-amber-500/15 border-amber-500/60 text-amber-200'
