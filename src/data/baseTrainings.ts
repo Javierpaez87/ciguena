@@ -17,6 +17,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'local_video',
+    content_url: '/videos/cuidado-de-manos.mp4',
+    thumbnail_url: null,
   },
   {
     id: 'tr_working_at_heights',
@@ -32,6 +35,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'youtube',
+    content_url: null,
+    thumbnail_url: null,
   },
   {
     id: 'tr_confined_spaces',
@@ -47,6 +53,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'youtube',
+    content_url: null,
+    thumbnail_url: null,
   },
   {
     id: 'tr_energy_isolation',
@@ -62,6 +71,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'youtube',
+    content_url: null,
+    thumbnail_url: null,
   },
   {
     id: 'tr_line_of_fire',
@@ -77,6 +89,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'youtube',
+    content_url: null,
+    thumbnail_url: null,
   },
   {
     id: 'tr_mechanical_lifting',
@@ -92,6 +107,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'youtube',
+    content_url: null,
+    thumbnail_url: null,
   },
   {
     id: 'tr_hot_work',
@@ -107,6 +125,9 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'youtube',
+    content_url: null,
+    thumbnail_url: null,
   },
   {
     id: 'tr_code_of_ethics',
@@ -122,5 +143,8 @@ export const baseTrainings: Training[] = [
     created_at: new Date().toISOString(),
     module_count: 1,
     tenant_count: 0,
+    content_type: 'document',
+    content_url: null,
+    thumbnail_url: null,
   },
 ];
