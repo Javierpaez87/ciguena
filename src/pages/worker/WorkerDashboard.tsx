@@ -9,6 +9,7 @@ import {
   Play,
   AlertCircle,
   RefreshCw,
+  CalendarDays,
 } from 'lucide-react';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAuth } from '../../contexts/AuthContext';
@@ -53,6 +54,73 @@ function SimpleMetricCard({
     </div>
   );
 }
+
+const formatDateAR = (date?: string | null) => {
+  if (!date) return 'Sin fecha';
+
+  const [year, month, day] = date.split('-').map(Number);
+
+  if (!year || !month || !day) {
+    return new Date(date).toLocaleDateString('es-AR');
+  }
+
+  return new Date(year, month - 1, day).toLocaleDateString('es-AR');
+};
+
+const getDueDateInfo = (dueDate?: string | null) => {
+  if (!dueDate) {
+    return {
+      isOverdue: false,
+      isDueSoon: false,
+      daysRemaining: null as number | null,
+    };
+  }
+
+  const [year, month, day] = dueDate.split('-').map(Number);
+
+  if (!year || !month || !day) {
+    return {
+      isOverdue: false,
+      isDueSoon: false,
+      daysRemaining: null as number | null,
+    };
+  }
+
+  const today = new Date();
+  const todayOnly = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  );
+
+  const dueDateOnly = new Date(year, month - 1, day);
+  const diffMs = dueDateOnly.getTime() - todayOnly.getTime();
+  const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  return {
+    isOverdue: daysRemaining < 0,
+    isDueSoon: daysRemaining >= 0 && daysRemaining <= 3,
+    daysRemaining,
+  };
+};
+
+const getUrgencyScore = (assignment: WorkerTrainingAssignment) => {
+  if (
+    assignment.status === 'certificate_issued' ||
+    assignment.status === 'completed' ||
+    assignment.status === 'passed'
+  ) {
+    return 999;
+  }
+
+  const dueInfo = getDueDateInfo(assignment.due_date);
+
+  if (dueInfo.isOverdue) return -100;
+  if (dueInfo.isDueSoon) return -50;
+  if (dueInfo.daysRemaining !== null) return dueInfo.daysRemaining;
+
+  return 500;
+};
 
 export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   const { user } = useAuth();
@@ -118,7 +186,18 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
       })
       .filter(assignment => Boolean(assignment.training)) as WorkerTrainingAssignment[];
 
-    setAssignments(hydratedAssignments);
+    const sortedAssignments = hydratedAssignments.sort((a, b) => {
+      const urgencyDiff = getUrgencyScore(a) - getUrgencyScore(b);
+
+      if (urgencyDiff !== 0) return urgencyDiff;
+
+      const aAssigned = a.assigned_at ? new Date(a.assigned_at).getTime() : 0;
+      const bAssigned = b.assigned_at ? new Date(b.assigned_at).getTime() : 0;
+
+      return bAssigned - aAssigned;
+    });
+
+    setAssignments(sortedAssignments);
     setIsLoading(false);
   };
 
@@ -141,6 +220,27 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     return assignment.status === 'certificate_issued';
   });
 
+  const activeAssignments = assignments.filter(assignment => {
+    return (
+      assignment.status !== 'certificate_issued' &&
+      assignment.status !== 'completed' &&
+      assignment.status !== 'passed'
+    );
+  });
+
+  const overdueCount = activeAssignments.filter(assignment => {
+    return getDueDateInfo(assignment.due_date).isOverdue;
+  }).length;
+
+  const dueSoonCount = activeAssignments.filter(assignment => {
+    const dueInfo = getDueDateInfo(assignment.due_date);
+    return dueInfo.isDueSoon && !dueInfo.isOverdue;
+  }).length;
+
+  const pendingTestCount = assignments.filter(assignment => {
+    return assignment.status === 'pending_test';
+  }).length;
+
   const now = new Date();
   const inThirtyDays = new Date();
   inThirtyDays.setDate(now.getDate() + 30);
@@ -160,10 +260,6 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
         }, 0) / assignments.length
       )
     : 0;
-
-  const activeAssignments = assignments.filter(assignment => {
-    return assignment.status !== 'certificate_issued' && assignment.status !== 'completed';
-  });
 
   const getActionLabel = (assignment: WorkerTrainingAssignment) => {
     if (assignment.status === 'not_started') return 'Comenzar';
@@ -213,23 +309,43 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
   return (
     <div className="space-y-6">
+      {(overdueCount > 0 || dueSoonCount > 0 || pendingTestCount > 0) && (
+        <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <AlertTriangle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+
+          <div>
+            <div className="text-sm font-semibold text-amber-300">
+              Tenés trainings que requieren atención
+            </div>
+
+            <p className="text-xs text-steel-400 mt-1">
+              {overdueCount > 0 && `${overdueCount} vencido(s). `}
+              {dueSoonCount > 0 && `${dueSoonCount} vence(n) pronto. `}
+              {pendingTestCount > 0 && `${pendingTestCount} pendiente(s) de test.`}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SimpleMetricCard
           title="Pendientes"
           value={pending}
           icon={<Clock size={20} />}
+          subtitle={overdueCount > 0 ? `${overdueCount} vencido(s)` : undefined}
         />
 
         <SimpleMetricCard
           title="En curso"
           value={inProgress}
           icon={<Play size={20} />}
+          subtitle={dueSoonCount > 0 ? `${dueSoonCount} vence(n) pronto` : undefined}
         />
 
         <SimpleMetricCard
-          title="Completados"
-          value={completed}
-          icon={<CheckCircle size={20} />}
+          title="Para rendir"
+          value={pendingTestCount}
+          icon={<AlertTriangle size={20} />}
         />
 
         <SimpleMetricCard
@@ -279,59 +395,113 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
       {activeAssignments.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-steel-300">
-            Continuar donde lo dejaste
+            Trainings pendientes y en curso
           </h3>
 
-          {activeAssignments.map(assignment => (
-            <div
-              key={assignment.id}
-              className="card hover:border-amber-500/40 transition-all cursor-pointer"
-              onClick={() => onNavigate(getActionView(assignment), { assignment })}
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={20} className="text-petroleum-200" />
-                </div>
+          {activeAssignments.map(assignment => {
+            const dueInfo = getDueDateInfo(assignment.due_date);
 
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-steel-100 mb-1">
-                    {assignment.training?.title}
+            return (
+              <div
+                key={assignment.id}
+                className={`card hover:border-amber-500/40 transition-all cursor-pointer ${
+                  dueInfo.isOverdue
+                    ? 'border-red-500/40'
+                    : dueInfo.isDueSoon
+                      ? 'border-amber-500/40'
+                      : ''
+                }`}
+                onClick={() => onNavigate(getActionView(assignment), { assignment })}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={20} className="text-petroleum-200" />
                   </div>
 
-                  <p className="text-xs text-steel-500 line-clamp-1 mb-2">
-                    {assignment.training?.description}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="text-sm font-semibold text-steel-100 truncate">
+                        {assignment.training?.title}
+                      </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="progress-bar flex-1">
-                      <div
-                        className="progress-fill"
-                        style={{ width: (assignment.progress_percentage ?? 0) + '%' }}
-                      />
+                      {dueInfo.isOverdue && (
+                        <span className="badge bg-red-500/15 text-red-300 border border-red-500/30">
+                          Vencido
+                        </span>
+                      )}
+
+                      {dueInfo.isDueSoon && !dueInfo.isOverdue && (
+                        <span className="badge bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          Vence pronto
+                        </span>
+                      )}
                     </div>
 
-                    <span className="text-xs text-steel-400 flex-shrink-0">
-                      {assignment.progress_percentage ?? 0}%
-                    </span>
+                    <p className="text-xs text-steel-500 line-clamp-1 mb-2">
+                      {assignment.training?.description}
+                    </p>
+
+                    <div className="flex items-center gap-2 text-xs mb-2">
+                      <CalendarDays
+                        size={13}
+                        className={
+                          dueInfo.isOverdue
+                            ? 'text-red-300'
+                            : dueInfo.isDueSoon
+                              ? 'text-amber-300'
+                              : 'text-steel-500'
+                        }
+                      />
+
+                      <span
+                        className={
+                          dueInfo.isOverdue
+                            ? 'text-red-300'
+                            : dueInfo.isDueSoon
+                              ? 'text-amber-300'
+                              : 'text-steel-500'
+                        }
+                      >
+                        Fecha límite: {formatDateAR(assignment.due_date)}
+                        {dueInfo.daysRemaining === 0
+                          ? ' · vence hoy'
+                          : dueInfo.daysRemaining && dueInfo.daysRemaining > 0
+                            ? ` · faltan ${dueInfo.daysRemaining} días`
+                            : ''}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="progress-bar flex-1">
+                        <div
+                          className="progress-fill"
+                          style={{ width: (assignment.progress_percentage ?? 0) + '%' }}
+                        />
+                      </div>
+
+                      <span className="text-xs text-steel-400 flex-shrink-0">
+                        {assignment.progress_percentage ?? 0}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2">
+                    <StatusBadge status={assignment.status} />
+
+                    <button
+                      className="btn-primary text-xs py-1 px-3"
+                      onClick={event => {
+                        event.stopPropagation();
+                        onNavigate(getActionView(assignment), { assignment });
+                      }}
+                    >
+                      {getActionLabel(assignment)}
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex flex-col items-end gap-2">
-                  <StatusBadge status={assignment.status} />
-
-                  <button
-                    className="btn-primary text-xs py-1 px-3"
-                    onClick={event => {
-                      event.stopPropagation();
-                      onNavigate(getActionView(assignment), { assignment });
-                    }}
-                  >
-                    {getActionLabel(assignment)}
-                  </button>
-                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
