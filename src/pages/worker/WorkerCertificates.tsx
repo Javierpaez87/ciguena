@@ -131,11 +131,13 @@ export default function WorkerCertificates() {
           <div className="text-2xl font-bold text-emerald-400">{valid}</div>
           <div className="text-xs text-steel-400 mt-1">Vigentes</div>
         </div>
+
         <div className="metric-card text-center">
           <AlertTriangle size={20} className="text-amber-400 mx-auto mb-2" />
           <div className="text-2xl font-bold text-amber-400">{expiringSoon}</div>
           <div className="text-xs text-steel-400 mt-1">Próx. a vencer</div>
         </div>
+
         <div className="metric-card text-center">
           <XCircle size={20} className="text-red-400 mx-auto mb-2" />
           <div className="text-2xl font-bold text-red-400">{expired}</div>
@@ -144,26 +146,110 @@ export default function WorkerCertificates() {
       </div>
 
       {ethicsAcceptance && (
-        <div className="card flex flex-col sm:flex-row sm:items-center gap-4 justify-between border-emerald-500/20">
-          <div>
-            <div className="text-sm font-semibold text-steel-100">Firma electrónica registrada</div>
-            <div className="text-xs text-steel-400 mt-1">
-              Código de Ética aceptado el {new Date(ethicsAcceptance.accepted_at).toLocaleString('es-AR')}. Esta firma se imprimirá en los certificados.
+        <div className="card border-emerald-500/20">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <div className="text-base font-semibold text-steel-100">
+                Código de Ética firmado
+              </div>
+
+              <div className="text-xs text-steel-400 mt-1">
+                Registro de aceptación y firma electrónica asociada al trabajador.
+              </div>
+            </div>
+
+            <span className="badge badge-success">
+              Firmado
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2 text-xs">
+              <div>
+                <span className="text-steel-500">Nombre:</span>{' '}
+                <span className="text-steel-200">
+                  {ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-steel-500">Documento:</span>{' '}
+                <span className="text-steel-200">
+                  {ethicsAcceptance.accepted_document_number || 'Sin documento'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-steel-500">Fecha de aceptación:</span>{' '}
+                <span className="text-steel-200">
+                  {ethicsAcceptance.accepted_at
+                    ? new Date(ethicsAcceptance.accepted_at).toLocaleString('es-AR')
+                    : 'Sin fecha'}
+                </span>
+              </div>
+
+              {ethicsAcceptance.acceptance_text && (
+                <div className="pt-2 text-steel-400 leading-relaxed">
+                  {ethicsAcceptance.acceptance_text}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-steel-700 bg-white p-4 flex items-center justify-center min-h-[120px]">
+              {ethicsAcceptance.signature_image_url ? (
+                <img
+                  src={ethicsAcceptance.signature_image_url}
+                  alt="Firma registrada"
+                  className="max-h-24 max-w-full object-contain"
+                />
+              ) : (
+                <div className="text-xs text-steel-500">
+                  Firma no disponible
+                </div>
+              )}
             </div>
           </div>
-          <img src={ethicsAcceptance.signature_image_url} alt="Firma registrada" className="h-12 max-w-[180px] object-contain rounded bg-steel-950 border border-steel-700 px-3 py-1" />
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {certificates.map(cert => (
-          <div key={cert.id} className={`card hover:border-steel-600 transition-all ${cert.status === 'expiring_soon' ? 'border-amber-500/30' : cert.status === 'expired' ? 'border-red-500/20' : ''}`}>
+          <div
+            key={cert.id}
+            className={`card hover:border-steel-600 transition-all ${
+              cert.status === 'expiring_soon'
+                ? 'border-amber-500/30'
+                : cert.status === 'expired'
+                  ? 'border-red-500/20'
+                  : ''
+            }`}
+          >
             <div className="flex items-start gap-3 mb-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${cert.status === 'valid' ? 'bg-emerald-500/20' : cert.status === 'expiring_soon' ? 'bg-amber-500/20' : 'bg-red-500/20'}`}>
-                <Award size={22} className={cert.status === 'valid' ? 'text-emerald-400' : cert.status === 'expiring_soon' ? 'text-amber-400' : 'text-red-400'} />
+              <div
+                className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  cert.status === 'valid'
+                    ? 'bg-emerald-500/20'
+                    : cert.status === 'expiring_soon'
+                      ? 'bg-amber-500/20'
+                      : 'bg-red-500/20'
+                }`}
+              >
+                <Award
+                  size={22}
+                  className={
+                    cert.status === 'valid'
+                      ? 'text-emerald-400'
+                      : cert.status === 'expiring_soon'
+                        ? 'text-amber-400'
+                        : 'text-red-400'
+                  }
+                />
               </div>
+
               <div className="flex-1 min-w-0">
-                <div className="text-base font-semibold text-steel-100 mb-1">{cert.training?.title}</div>
+                <div className="text-base font-semibold text-steel-100 mb-1">
+                  {cert.training?.title}
+                </div>
                 <StatusBadge status={cert.status} />
               </div>
             </div>
@@ -171,16 +257,30 @@ export default function WorkerCertificates() {
             <div className="space-y-2 mb-4">
               <div className="flex justify-between text-sm">
                 <span className="text-steel-400">Código</span>
-                <span className="font-mono text-xs text-steel-300">{cert.certificate_code}</span>
+                <span className="font-mono text-xs text-steel-300">
+                  {cert.certificate_code}
+                </span>
               </div>
+
               <div className="flex justify-between text-sm">
                 <span className="text-steel-400">Emitido</span>
-                <span className="text-steel-300">{new Date(cert.issued_at).toLocaleDateString('es-AR')}</span>
+                <span className="text-steel-300">
+                  {new Date(cert.issued_at).toLocaleDateString('es-AR')}
+                </span>
               </div>
+
               {cert.expires_at && (
                 <div className="flex justify-between text-sm">
                   <span className="text-steel-400">Vence</span>
-                  <span className={cert.status === 'expired' ? 'text-red-400' : cert.status === 'expiring_soon' ? 'text-amber-400' : 'text-steel-300'}>
+                  <span
+                    className={
+                      cert.status === 'expired'
+                        ? 'text-red-400'
+                        : cert.status === 'expiring_soon'
+                          ? 'text-amber-400'
+                          : 'text-steel-300'
+                    }
+                  >
                     {new Date(cert.expires_at).toLocaleDateString('es-AR')}
                   </span>
                 </div>
@@ -192,13 +292,17 @@ export default function WorkerCertificates() {
                 <AlertTriangle size={13} /> Este certificado vence pronto. Renovalo a tiempo.
               </div>
             )}
+
             {cert.status === 'expired' && (
               <div className="flex items-center gap-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg mb-3 text-xs text-red-300">
                 <XCircle size={13} /> Certificado vencido. Debés renovarlo.
               </div>
             )}
 
-            <button onClick={() => printCertificate(cert)} className="btn-secondary w-full justify-center text-xs py-2">
+            <button
+              onClick={() => printCertificate(cert)}
+              className="btn-secondary w-full justify-center text-xs py-2"
+            >
               <Download size={13} /> Descargar certificado PDF
             </button>
           </div>
