@@ -1,56 +1,177 @@
 import React, { useEffect, useState } from 'react';
-import { Award, Download, AlertTriangle, CheckCircle, XCircle, FileText, X } from 'lucide-react';
+import {
+  Award,
+  Download,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  FileText,
+  X,
+  RefreshCw,
+} from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCertificatesByUser } from '../../lib/mockData';
 import { supabase } from '../../lib/supabase';
-import type { Certificate, EthicsAcceptance } from '../../types';
+import { baseTrainings } from '../../data/baseTrainings';
+import type { EthicsAcceptance } from '../../types';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 
+type SupabaseCertificate = {
+  id: string;
+  assignment_id: string;
+  user_id: string;
+  training_id: string;
+  tenant_id?: string | null;
+  certificate_code: string;
+  worker_signature_url?: string | null;
+  issued_at: string;
+  expires_at?: string | null;
+  status: string;
+  test_score?: number | null;
+  test_attempts_count?: number | null;
+  created_at?: string | null;
+  training?: {
+    title: string;
+    description?: string;
+  };
+  tenant?: {
+    name?: string;
+  } | null;
+};
+
+const getCertificateStatus = (cert: SupabaseCertificate) => {
+  if (cert.status === 'expired') return 'expired';
+
+  if (!cert.expires_at) return cert.status || 'valid';
+
+  const now = new Date();
+  const expiresAt = new Date(cert.expires_at);
+  const inThirtyDays = new Date();
+  inThirtyDays.setDate(now.getDate() + 30);
+
+  if (expiresAt < now) return 'expired';
+  if (expiresAt <= inThirtyDays) return 'expiring_soon';
+
+  return cert.status || 'valid';
+};
+
 export default function WorkerCertificates() {
   const { user } = useAuth();
-  const certificates = getCertificatesByUser(user?.id ?? 'u1');
+
+  const [certificates, setCertificates] = useState<SupabaseCertificate[]>([]);
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
   const [isEthicsModalOpen, setIsEthicsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadLatestSignature() {
-      if (!user?.id) return;
-
-      const { data, error } = await supabase
-        .from('ethics_acceptances')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('accepted_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error cargando Código de Ética firmado:', error);
-        if (!ignore) setEthicsAcceptance(null);
-        return;
-      }
-
-      if (!ignore) setEthicsAcceptance((data as EthicsAcceptance | null) ?? null);
-    }
-
-    loadLatestSignature();
-
-    return () => {
-      ignore = true;
-    };
-  }, [user?.id]);
-
-  const valid = certificates.filter(c => c.status === 'valid').length;
-  const expiringSoon = certificates.filter(c => c.status === 'expiring_soon').length;
-  const expired = certificates.filter(c => c.status === 'expired').length;
+  const formatDate = (date?: string | null) => {
+    if (!date) return 'Sin fecha';
+    return new Date(date).toLocaleDateString('es-AR');
+  };
 
   const formatDateTime = (date?: string | null) => {
     if (!date) return 'Sin fecha';
     return new Date(date).toLocaleString('es-AR');
   };
+
+  const loadCertificatesData = async () => {
+    if (!user?.id) {
+      setCertificates([]);
+      setEthicsAcceptance(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadError(null);
+
+    const { data: ethicsData, error: ethicsError } = await supabase
+      .from('ethics_acceptances')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (ethicsError) {
+      console.error('Error cargando Código de Ética firmado:', ethicsError);
+    }
+
+    setEthicsAcceptance((ethicsData as EthicsAcceptance | null) ?? null);
+
+    const { data: certificatesData, error: certificatesError } = await supabase
+      .from('certificates')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('issued_at', { ascending: false });
+
+    if (certificatesError) {
+      console.error('Error cargando certificados:', certificatesError);
+      setLoadError('No pudimos cargar tus certificados.');
+      setCertificates([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const tenantIds = Array.from(
+      new Set(
+        (certificatesData ?? [])
+          .map(cert => cert.tenant_id)
+          .filter(Boolean)
+      )
+    );
+
+    let tenantsById = new Map<string, { name?: string }>();
+
+    if (tenantIds.length > 0) {
+      const { data: tenantsData, error: tenantsError } = await supabase
+        .from('tenants')
+        .select('id, name')
+        .in('id', tenantIds);
+
+      if (tenantsError) {
+        console.error('Error cargando tenants para certificados:', tenantsError);
+      }
+
+      tenantsById = new Map(
+        (tenantsData ?? []).map(tenant => [
+          tenant.id as string,
+          { name: tenant.name as string },
+        ])
+      );
+    }
+
+    const trainingById = new Map(baseTrainings.map(training => [training.id, training]));
+
+    const hydratedCertificates = (certificatesData ?? []).map(cert => {
+      const training = trainingById.get(cert.training_id as string);
+      const tenant = cert.tenant_id ? tenantsById.get(cert.tenant_id as string) ?? null : null;
+
+      return {
+        ...(cert as SupabaseCertificate),
+        training: training
+          ? {
+              title: training.title,
+              description: training.description,
+            }
+          : {
+              title: cert.training_id as string,
+            },
+        tenant,
+      };
+    });
+
+    setCertificates(hydratedCertificates);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadCertificatesData();
+  }, [user?.id]);
+
+  const valid = certificates.filter(c => getCertificateStatus(c) === 'valid').length;
+  const expiringSoon = certificates.filter(c => getCertificateStatus(c) === 'expiring_soon').length;
+  const expired = certificates.filter(c => getCertificateStatus(c) === 'expired').length;
 
   const printEthicsDocument = () => {
     if (!ethicsAcceptance) return;
@@ -76,10 +197,7 @@ export default function WorkerCertificates() {
             .signature-box img { max-height: 80px; max-width: 260px; object-fit: contain; filter: invert(1) contrast(1.4); }
             .line { border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #334155; margin-top: 10px; }
             .code { margin-top: 34px; font-family: monospace; color: #64748b; font-size: 12px; }
-            @media print {
-              body { background: white; padding: 0; }
-              .document { border: none; max-width: none; min-height: calc(100vh - 108px); }
-            }
+            @media print { body { background: white; padding: 0; } .document { border: none; max-width: none; min-height: calc(100vh - 108px); } }
           </style>
         </head>
         <body>
@@ -139,10 +257,15 @@ export default function WorkerCertificates() {
     popup.document.close();
   };
 
-  const printCertificate = (cert: Certificate) => {
-    const signatureBlock = ethicsAcceptance?.signature_image_url
-      ? `<img src="${ethicsAcceptance.signature_image_url}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
+  const printCertificate = (cert: SupabaseCertificate) => {
+    const workerSignatureUrl = cert.worker_signature_url || ethicsAcceptance?.signature_image_url;
+
+    const workerSignatureBlock = workerSignatureUrl
+      ? `<img src="${workerSignatureUrl}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
       : '<div style="height:70px;color:#64748b;font-size:12px;display:flex;align-items:center;">Firma no disponible</div>';
+
+    const issuerName = cert.tenant?.name || 'Empresa / Tenant';
+    const status = getCertificateStatus(cert);
 
     const html = `
       <!doctype html>
@@ -152,19 +275,21 @@ export default function WorkerCertificates() {
           <title>${cert.certificate_code}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
-            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 620px; }
+            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
             .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
             .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
-            h1 { margin: 52px 0 12px; font-size: 36px; text-align: center; }
+            h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
             .lead { text-align: center; color: #475569; font-size: 16px; }
-            .name { text-align: center; font-size: 30px; font-weight: 800; margin: 26px 0; }
+            .name { text-align: center; font-size: 30px; font-weight: 800; margin: 24px 0; }
             .training { text-align: center; font-size: 22px; font-weight: 700; color: #0f172a; }
-            .meta { margin-top: 46px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 14px; }
+            .issuer { text-align: center; color: #475569; font-size: 14px; margin-top: 12px; }
+            .meta { margin-top: 42px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 14px; }
             .box { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; }
             .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
             .signatures { margin-top: 54px; display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: end; }
-            .line { border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #334155; }
-            .code { margin-top: 34px; font-family: monospace; color: #475569; font-size: 12px; }
+            .signature-slot { height:70px; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-size:12px; border:1px dashed #cbd5e1; border-radius:10px; }
+            .line { border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #334155; margin-top:8px; }
+            .audit { margin-top: 34px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-family: monospace; color: #64748b; font-size: 11px; line-height: 1.6; }
             @media print { body { padding: 0; } .certificate { border-width: 2px; min-height: calc(100vh - 88px); } }
           </style>
         </head>
@@ -175,30 +300,40 @@ export default function WorkerCertificates() {
 
             <h1>Certificado de capacitación</h1>
             <p class="lead">Se certifica que</p>
-            <div class="name">${user?.full_name ?? cert.user?.full_name ?? 'Trabajador'}</div>
+            <div class="name">${user?.full_name ?? 'Trabajador'}</div>
             <p class="lead">aprobó satisfactoriamente la capacitación</p>
-            <div class="training">${cert.training?.title ?? 'Training'}</div>
+            <div class="training">${cert.training?.title ?? cert.training_id}</div>
+            <div class="issuer">Emitido por: <strong>${issuerName}</strong></div>
 
             <section class="meta">
               <div class="box"><div class="label">Código</div>${cert.certificate_code}</div>
-              <div class="box"><div class="label">Emitido</div>${new Date(cert.issued_at).toLocaleDateString('es-AR')}</div>
-              <div class="box"><div class="label">Vencimiento</div>${cert.expires_at ? new Date(cert.expires_at).toLocaleDateString('es-AR') : 'Sin vencimiento'}</div>
-              <div class="box"><div class="label">Estado</div>${cert.status}</div>
+              <div class="box"><div class="label">Estado</div>${status}</div>
+              <div class="box"><div class="label">Emitido</div>${formatDate(cert.issued_at)}</div>
+              <div class="box"><div class="label">Vencimiento</div>${formatDate(cert.expires_at)}</div>
+              <div class="box"><div class="label">Puntaje</div>${cert.test_score ?? '-'}%</div>
+              <div class="box"><div class="label">Intentos utilizados</div>${cert.test_attempts_count ?? '-'}</div>
             </section>
 
             <section class="signatures">
               <div>
-                ${signatureBlock}
+                ${workerSignatureBlock}
                 <div class="line">Firma electrónica del trabajador</div>
-                <div style="font-size:11px;color:#64748b;margin-top:4px;">${ethicsAcceptance ? `Aceptación registrada: ${new Date(ethicsAcceptance.accepted_at).toLocaleString('es-AR')}` : ''}</div>
               </div>
+
               <div>
-                <div style="height:70px;display:flex;align-items:center;font-weight:800;color:#f59e0b;">BondiApps</div>
-                <div class="line">Emitido por Cigüeña</div>
+                <div class="signature-slot">Firma responsable de capacitaciones</div>
+                <div class="line">Responsable de capacitaciones · ${issuerName}</div>
               </div>
             </section>
 
-            <div class="code">Registro auditable · ${cert.certificate_code}</div>
+            <div class="audit">
+              Registro auditable · Certificate ID: ${cert.id}<br/>
+              Assignment ID: ${cert.assignment_id}<br/>
+              User ID: ${cert.user_id}<br/>
+              Tenant ID: ${cert.tenant_id || 'sin tenant'}<br/>
+              Training ID: ${cert.training_id}<br/>
+              Created at: ${formatDateTime(cert.created_at || cert.issued_at)}
+            </div>
           </main>
           <script>window.onload = () => window.print();</script>
         </body>
@@ -211,6 +346,33 @@ export default function WorkerCertificates() {
     popup.document.write(html);
     popup.document.close();
   };
+
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4 text-sm text-steel-300">
+        Cargando certificados...
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+        <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
+        <div>
+          <div className="font-semibold">No pudimos cargar tus certificados</div>
+          <div className="text-red-200/90">{loadError}</div>
+          <button
+            onClick={loadCertificatesData}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-500/10"
+          >
+            <RefreshCw size={13} />
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -290,100 +452,123 @@ export default function WorkerCertificates() {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {certificates.map(cert => (
-            <div
-              key={cert.id}
-              className={`card hover:border-steel-600 transition-all ${
-                cert.status === 'expiring_soon'
-                  ? 'border-amber-500/30'
-                  : cert.status === 'expired'
-                    ? 'border-red-500/20'
-                    : ''
-              }`}
-            >
-              <div className="flex items-start gap-3 mb-4">
-                <div
-                  className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    cert.status === 'valid'
-                      ? 'bg-emerald-500/20'
-                      : cert.status === 'expiring_soon'
-                        ? 'bg-amber-500/20'
-                        : 'bg-red-500/20'
-                  }`}
-                >
-                  <Award
-                    size={22}
-                    className={
-                      cert.status === 'valid'
-                        ? 'text-emerald-400'
-                        : cert.status === 'expiring_soon'
-                          ? 'text-amber-400'
-                          : 'text-red-400'
-                    }
-                  />
-                </div>
+          {certificates.map(cert => {
+            const status = getCertificateStatus(cert);
 
-                <div className="flex-1 min-w-0">
-                  <div className="text-base font-semibold text-steel-100 mb-1">
-                    {cert.training?.title}
+            return (
+              <div
+                key={cert.id}
+                className={`card hover:border-steel-600 transition-all ${
+                  status === 'expiring_soon'
+                    ? 'border-amber-500/30'
+                    : status === 'expired'
+                      ? 'border-red-500/20'
+                      : ''
+                }`}
+              >
+                <div className="flex items-start gap-3 mb-4">
+                  <div
+                    className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                      status === 'valid'
+                        ? 'bg-emerald-500/20'
+                        : status === 'expiring_soon'
+                          ? 'bg-amber-500/20'
+                          : 'bg-red-500/20'
+                    }`}
+                  >
+                    <Award
+                      size={22}
+                      className={
+                        status === 'valid'
+                          ? 'text-emerald-400'
+                          : status === 'expiring_soon'
+                            ? 'text-amber-400'
+                            : 'text-red-400'
+                      }
+                    />
                   </div>
-                  <StatusBadge status={cert.status} />
-                </div>
-              </div>
 
-              <div className="space-y-2 mb-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-steel-400">Código</span>
-                  <span className="font-mono text-xs text-steel-300">
-                    {cert.certificate_code}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-base font-semibold text-steel-100 mb-1">
+                      {cert.training?.title}
+                    </div>
+                    <StatusBadge status={status} />
+                  </div>
                 </div>
 
-                <div className="flex justify-between text-sm">
-                  <span className="text-steel-400">Emitido</span>
-                  <span className="text-steel-300">
-                    {new Date(cert.issued_at).toLocaleDateString('es-AR')}
-                  </span>
-                </div>
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-steel-400">Empresa</span>
+                    <span className="text-steel-300">
+                      {cert.tenant?.name || 'Sin empresa'}
+                    </span>
+                  </div>
 
-                {cert.expires_at && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-steel-400">Código</span>
+                    <span className="font-mono text-xs text-steel-300">
+                      {cert.certificate_code}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between text-sm">
+                    <span className="text-steel-400">Emitido</span>
+                    <span className="text-steel-300">
+                      {formatDate(cert.issued_at)}
+                    </span>
+                  </div>
+
                   <div className="flex justify-between text-sm">
                     <span className="text-steel-400">Vence</span>
                     <span
                       className={
-                        cert.status === 'expired'
+                        status === 'expired'
                           ? 'text-red-400'
-                          : cert.status === 'expiring_soon'
+                          : status === 'expiring_soon'
                             ? 'text-amber-400'
                             : 'text-steel-300'
                       }
                     >
-                      {new Date(cert.expires_at).toLocaleDateString('es-AR')}
+                      {formatDate(cert.expires_at)}
                     </span>
                   </div>
+
+                  <div className="flex justify-between text-sm">
+                    <span className="text-steel-400">Puntaje</span>
+                    <span className="text-steel-300">
+                      {cert.test_score ?? '-'}%
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between text-sm">
+                    <span className="text-steel-400">Intentos</span>
+                    <span className="text-steel-300">
+                      {cert.test_attempts_count ?? '-'}
+                    </span>
+                  </div>
+                </div>
+
+                {status === 'expiring_soon' && (
+                  <div className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg mb-3 text-xs text-amber-300">
+                    <AlertTriangle size={13} /> Este certificado vence pronto. Renovalo a tiempo.
+                  </div>
                 )}
+
+                {status === 'expired' && (
+                  <div className="flex items-center gap-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg mb-3 text-xs text-red-300">
+                    <XCircle size={13} /> Certificado vencido. Debés renovarlo.
+                  </div>
+                )}
+
+                <button
+                  onClick={() => printCertificate(cert)}
+                  className="btn-secondary w-full justify-center text-xs py-2"
+                >
+                  <Download size={13} /> Descargar certificado PDF
+                </button>
               </div>
-
-              {cert.status === 'expiring_soon' && (
-                <div className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg mb-3 text-xs text-amber-300">
-                  <AlertTriangle size={13} /> Este certificado vence pronto. Renovalo a tiempo.
-                </div>
-              )}
-
-              {cert.status === 'expired' && (
-                <div className="flex items-center gap-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg mb-3 text-xs text-red-300">
-                  <XCircle size={13} /> Certificado vencido. Debés renovarlo.
-                </div>
-              )}
-
-              <button
-                onClick={() => printCertificate(cert)}
-                className="btn-secondary w-full justify-center text-xs py-2"
-              >
-                <Download size={13} /> Descargar certificado PDF
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
