@@ -5,7 +5,6 @@ import {
   TrendingUp,
   Clock,
   AlertTriangle,
-  CheckCircle,
   Play,
   AlertCircle,
   RefreshCw,
@@ -104,14 +103,16 @@ const getDueDateInfo = (dueDate?: string | null) => {
   };
 };
 
+const isCompletedStatus = (status?: string | null) => {
+  return (
+    status === 'completed' ||
+    status === 'passed' ||
+    status === 'certificate_issued'
+  );
+};
+
 const getUrgencyScore = (assignment: WorkerTrainingAssignment) => {
-  if (
-    assignment.status === 'certificate_issued' ||
-    assignment.status === 'completed' ||
-    assignment.status === 'passed'
-  ) {
-    return 999;
-  }
+  if (isCompletedStatus(assignment.status)) return 999;
 
   const dueInfo = getDueDateInfo(assignment.due_date);
 
@@ -205,15 +206,20 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     loadDashboardData();
   }, [user?.id]);
 
-  const pending = assignments.filter(assignment => assignment.status === 'not_started').length;
-  const inProgress = assignments.filter(assignment => assignment.status === 'in_progress').length;
+  const pendingCourse = assignments.filter(assignment => {
+    return assignment.status === 'not_started';
+  }).length;
+
+  const inProgress = assignments.filter(assignment => {
+    return assignment.status === 'in_progress';
+  }).length;
+
+  const pendingExam = assignments.filter(assignment => {
+    return assignment.status === 'pending_test';
+  }).length;
 
   const completed = assignments.filter(assignment => {
-    return (
-      assignment.status === 'completed' ||
-      assignment.status === 'passed' ||
-      assignment.status === 'certificate_issued'
-    );
+    return isCompletedStatus(assignment.status);
   }).length;
 
   const certificates = assignments.filter(assignment => {
@@ -221,11 +227,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   });
 
   const activeAssignments = assignments.filter(assignment => {
-    return (
-      assignment.status !== 'certificate_issued' &&
-      assignment.status !== 'completed' &&
-      assignment.status !== 'passed'
-    );
+    return !isCompletedStatus(assignment.status);
   });
 
   const overdueCount = activeAssignments.filter(assignment => {
@@ -235,10 +237,6 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   const dueSoonCount = activeAssignments.filter(assignment => {
     const dueInfo = getDueDateInfo(assignment.due_date);
     return dueInfo.isDueSoon && !dueInfo.isOverdue;
-  }).length;
-
-  const pendingTestCount = assignments.filter(assignment => {
-    return assignment.status === 'pending_test';
   }).length;
 
   const now = new Date();
@@ -263,13 +261,13 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
   const getActionLabel = (assignment: WorkerTrainingAssignment) => {
     if (assignment.status === 'not_started') return 'Comenzar';
-    if (assignment.status === 'pending_test') return 'Rendir test';
+    if (assignment.status === 'pending_test') return 'Examen no disponible';
     if (assignment.status === 'certificate_issued') return 'Ver certificado';
     return 'Continuar';
   };
 
   const getActionView = (assignment: WorkerTrainingAssignment) => {
-    if (assignment.status === 'pending_test') return 'worker-test';
+    if (assignment.status === 'pending_test') return 'worker-trainings';
     if (assignment.status === 'certificate_issued') return 'worker-certificates';
     return 'worker-player';
   };
@@ -309,7 +307,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
   return (
     <div className="space-y-6">
-      {(overdueCount > 0 || dueSoonCount > 0 || pendingTestCount > 0) && (
+      {(overdueCount > 0 || dueSoonCount > 0 || pendingExam > 0) && (
         <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
           <AlertTriangle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
 
@@ -320,8 +318,8 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
             <p className="text-xs text-steel-400 mt-1">
               {overdueCount > 0 && `${overdueCount} vencido(s). `}
-              {dueSoonCount > 0 && `${dueSoonCount} vence(n) pronto. `}
-              {pendingTestCount > 0 && `${pendingTestCount} pendiente(s) de test.`}
+              {dueSoonCount > 0 && `${dueSoonCount} con deadline próximo. `}
+              {pendingExam > 0 && `${pendingExam} pendiente(s) de examen.`}
             </p>
           </div>
         </div>
@@ -329,8 +327,8 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SimpleMetricCard
-          title="Pendientes"
-          value={pending}
+          title="Pendientes de curso"
+          value={pendingCourse}
           icon={<Clock size={20} />}
           subtitle={overdueCount > 0 ? `${overdueCount} vencido(s)` : undefined}
         />
@@ -339,13 +337,14 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
           title="En curso"
           value={inProgress}
           icon={<Play size={20} />}
-          subtitle={dueSoonCount > 0 ? `${dueSoonCount} vence(n) pronto` : undefined}
+          subtitle={dueSoonCount > 0 ? `${dueSoonCount} deadline próximo` : undefined}
         />
 
         <SimpleMetricCard
-          title="Para rendir"
-          value={pendingTestCount}
+          title="Pendientes de examen"
+          value={pendingExam}
           icon={<AlertTriangle size={20} />}
+          subtitle={pendingExam > 0 ? 'Exámenes aún no cargados' : undefined}
         />
 
         <SimpleMetricCard
@@ -400,6 +399,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
           {activeAssignments.map(assignment => {
             const dueInfo = getDueDateInfo(assignment.due_date);
+            const isPendingExam = assignment.status === 'pending_test';
 
             return (
               <div
@@ -424,6 +424,12 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                         {assignment.training?.title}
                       </div>
 
+                      {isPendingExam && (
+                        <span className="badge bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          Pendiente de examen
+                        </span>
+                      )}
+
                       {dueInfo.isOverdue && (
                         <span className="badge bg-red-500/15 text-red-300 border border-red-500/30">
                           Vencido
@@ -432,7 +438,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
                       {dueInfo.isDueSoon && !dueInfo.isOverdue && (
                         <span className="badge bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                          Vence pronto
+                          Deadline próximo
                         </span>
                       )}
                     </div>
@@ -440,6 +446,12 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                     <p className="text-xs text-steel-500 line-clamp-1 mb-2">
                       {assignment.training?.description}
                     </p>
+
+                    {isPendingExam && (
+                      <div className="text-xs text-amber-300 mb-2">
+                        Ya completaste el contenido. El examen todavía no está disponible.
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-2 text-xs mb-2">
                       <CalendarDays
@@ -489,9 +501,17 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                     <StatusBadge status={assignment.status} />
 
                     <button
-                      className="btn-primary text-xs py-1 px-3"
+                      className={`text-xs py-1 px-3 ${
+                        isPendingExam
+                          ? 'rounded-lg border border-amber-500/30 text-amber-300 cursor-not-allowed'
+                          : 'btn-primary'
+                      }`}
+                      disabled={isPendingExam}
                       onClick={event => {
                         event.stopPropagation();
+
+                        if (isPendingExam) return;
+
                         onNavigate(getActionView(assignment), { assignment });
                       }}
                     >
