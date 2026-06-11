@@ -72,7 +72,7 @@ const { data, error } = await supabase
 if (error) {
   console.error('Error cargando dashboard worker:', error);
   setAssignments([]);
-  setLoadError(`No pudimos cargar tus trainings asignados: ${error.message}`);
+  setLoadError('No pudimos cargar tus trainings asignados: ' + error.message);
   setIsLoading(false);
   return;
 }
