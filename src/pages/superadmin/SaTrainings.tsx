@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, Clock, Award, Edit, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Plus, Search, Clock, Award, Edit, ToggleLeft, ToggleRight, Eye } from 'lucide-react';
 import { baseTrainings } from '../../data/baseTrainings';
 import type { Training } from '../../types';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -13,6 +13,7 @@ export default function SaTrainings() {
   const [category, setCategory] = useState('Todos');
   const [showCreate, setShowCreate] = useState(false);
   const [editTarget, setEditTarget] = useState<Training | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<Training | null>(null);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -97,6 +98,9 @@ export default function SaTrainings() {
         created_at: new Date().toISOString(),
         module_count: 0,
         tenant_count: 0,
+        content_type: null,
+        content_url: null,
+        thumbnail_url: null,
       };
 
       setTrainings(ts => [...ts, newTr]);
@@ -104,6 +108,59 @@ export default function SaTrainings() {
     }
 
     resetForm();
+  };
+
+  const renderPreviewContent = (training: Training) => {
+    if (!training.content_url) {
+      return (
+        <div className="rounded-xl border border-steel-700 bg-steel-900 p-6 text-center">
+          <p className="text-sm font-medium text-steel-200 mb-1">Este training todavía no tiene contenido cargado.</p>
+          <p className="text-xs text-steel-500">
+            Podés agregar una URL de video, documento o recurso externo más adelante.
+          </p>
+        </div>
+      );
+    }
+
+    if (training.content_type === 'local_video' || training.content_type === 'video') {
+      return (
+        <video
+          src={training.content_url}
+          controls
+          className="w-full rounded-xl border border-steel-700 bg-black"
+        />
+      );
+    }
+
+    if (training.content_type === 'youtube') {
+      return (
+        <div className="aspect-video w-full overflow-hidden rounded-xl border border-steel-700 bg-black">
+          <iframe
+            src={training.content_url}
+            title={training.title}
+            className="h-full w-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-xl border border-steel-700 bg-steel-900 p-6">
+        <p className="text-sm text-steel-300 mb-4">
+          Este contenido se abre como recurso externo.
+        </p>
+        <a
+          href={training.content_url}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-primary inline-flex"
+        >
+          Abrir contenido
+        </a>
+      </div>
+    );
   };
 
   const TrainingForm = () => (
@@ -296,6 +353,17 @@ export default function SaTrainings() {
                 {tr.validity_months && (
                   <span className="badge badge-neutral">{tr.validity_months} meses</span>
                 )}
+                {tr.content_type && (
+                  <span className="badge badge-neutral">
+                    {tr.content_type === 'local_video'
+                      ? 'Video local'
+                      : tr.content_type === 'youtube'
+                        ? 'YouTube'
+                        : tr.content_type === 'document'
+                          ? 'Documento'
+                          : 'Contenido'}
+                  </span>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-2 mb-4 text-center">
@@ -316,6 +384,13 @@ export default function SaTrainings() {
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPreviewTarget(tr)}
+                  className="btn-ghost text-xs flex-1 justify-center"
+                >
+                  <Eye size={13} /> Ver contenido
+                </button>
+
                 <button
                   onClick={() => openEdit(tr)}
                   className="btn-ghost text-xs flex-1 justify-center"
@@ -371,6 +446,23 @@ export default function SaTrainings() {
       >
         <TrainingForm />
       </Modal>
+
+      {previewTarget && (
+        <Modal
+          open={!!previewTarget}
+          onClose={() => setPreviewTarget(null)}
+          title={`Contenido: ${previewTarget.title}`}
+          size="lg"
+        >
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm text-steel-300">{previewTarget.description}</p>
+            </div>
+
+            {renderPreviewContent(previewTarget)}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
