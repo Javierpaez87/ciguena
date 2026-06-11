@@ -80,11 +80,15 @@ if (error) {
 const trainingById = new Map(baseTrainings.map(training => [training.id, training]));
 
 const hydratedAssignments = (data ?? [])
-  .map(row => ({
-    ...(row as TrainingAssignment),
-    training: trainingById.get(row.training_id as string),
-  }))
-  .filter(a => Boolean(a.training)) as WorkerTrainingAssignment[];
+  .map(row => {
+    const trainingId = row.training_id as string;
+
+    return {
+      ...(row as TrainingAssignment),
+      training: trainingById.get(trainingId),
+    };
+  })
+  .filter(assignment => Boolean(assignment.training)) as WorkerTrainingAssignment[];
 
 setAssignments(hydratedAssignments);
 setIsLoading(false);
@@ -96,29 +100,27 @@ useEffect(() => {
 loadDashboardData();
 }, [user?.id]);
 
-const pending = assignments.filter(a => a.status === 'not_started').length;
+const pending = assignments.filter(assignment => assignment.status === 'not_started').length;
 
-const inProgress = assignments.filter(a =>
-a.status === 'in_progress'
+const inProgress = assignments.filter(assignment => assignment.status === 'in_progress').length;
+
+const completed = assignments.filter(assignment =>
+['completed', 'passed', 'certificate_issued'].includes(assignment.status)
 ).length;
 
-const completed = assignments.filter(a =>
-['completed', 'passed', 'certificate_issued'].includes(a.status)
-).length;
-
-const certificates = assignments.filter(a =>
-a.status === 'certificate_issued'
+const certificates = assignments.filter(assignment =>
+assignment.status === 'certificate_issued'
 );
 
 const now = new Date();
 const inThirtyDays = new Date();
 inThirtyDays.setDate(now.getDate() + 30);
 
-const expiringSoon = certificates.filter(a => {
-if (!a.expires_at) return false;
+const expiringSoon = certificates.filter(assignment => {
+if (!assignment.expires_at) return false;
 
 ```
-const expiresAt = new Date(a.expires_at);
+const expiresAt = new Date(assignment.expires_at);
 
 return expiresAt >= now && expiresAt <= inThirtyDays;
 ```
@@ -133,8 +135,8 @@ return sum + (assignment.progress_percentage ?? 0);
 )
 : 0;
 
-const activeAssignments = assignments.filter(a =>
-!['certificate_issued', 'completed'].includes(a.status)
+const activeAssignments = assignments.filter(assignment =>
+!['certificate_issued', 'completed'].includes(assignment.status)
 );
 
 const getActionLabel = (assignment: WorkerTrainingAssignment) => {
@@ -207,7 +209,7 @@ accent="amber"
       value={certificates.length}
       icon={<Award size={20} />}
       accent="amber"
-      subtitle={expiringSoon > 0 ? `${expiringSoon} próximos a vencer` : undefined}
+      subtitle={expiringSoon > 0 ? expiringSoon + ' próximos a vencer' : undefined}
     />
   </div>
 
@@ -224,7 +226,7 @@ accent="amber"
     </div>
 
     <div className="progress-bar h-2.5">
-      <div className="progress-fill h-full" style={{ width: `${avgProgress}%` }} />
+      <div className="progress-fill h-full" style={{ width: avgProgress + '%' }} />
     </div>
 
     <div className="flex justify-between text-xs text-steel-500 mt-2">
@@ -279,7 +281,7 @@ accent="amber"
                 <div className="progress-bar flex-1">
                   <div
                     className="progress-fill"
-                    style={{ width: `${assignment.progress_percentage ?? 0}%` }}
+                    style={{ width: (assignment.progress_percentage ?? 0) + '%' }}
                   />
                 </div>
 
