@@ -28,6 +28,7 @@ const [showDetail, setShowDetail] = useState<Training | null>(null);
 const [showAssign, setShowAssign] = useState<Training | null>(null);
 const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
 const [assignAll, setAssignAll] = useState(false);
+const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
 const [isAssigning, setIsAssigning] = useState(false);
 const [assignMessage, setAssignMessage] = useState<string | null>(null);
 const [assignError, setAssignError] = useState<string | null>(null);
