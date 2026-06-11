@@ -104,13 +104,17 @@ const pending = assignments.filter(assignment => assignment.status === 'not_star
 
 const inProgress = assignments.filter(assignment => assignment.status === 'in_progress').length;
 
-const completed = assignments.filter(assignment =>
-['completed', 'passed', 'certificate_issued'].includes(assignment.status)
-).length;
-
-const certificates = assignments.filter(assignment =>
+const completed = assignments.filter(assignment => {
+return (
+assignment.status === 'completed' ||
+assignment.status === 'passed' ||
 assignment.status === 'certificate_issued'
 );
+}).length;
+
+const certificates = assignments.filter(assignment => {
+return assignment.status === 'certificate_issued';
+});
 
 const now = new Date();
 const inThirtyDays = new Date();
@@ -135,9 +139,9 @@ return sum + (assignment.progress_percentage ?? 0);
 )
 : 0;
 
-const activeAssignments = assignments.filter(assignment =>
-!['certificate_issued', 'completed'].includes(assignment.status)
-);
+const activeAssignments = assignments.filter(assignment => {
+return assignment.status !== 'certificate_issued' && assignment.status !== 'completed';
+});
 
 const getActionLabel = (assignment: WorkerTrainingAssignment) => {
 if (assignment.status === 'not_started') return 'Comenzar';
@@ -151,6 +155,11 @@ if (assignment.status === 'pending_test') return 'worker-test';
 if (assignment.status === 'certificate_issued') return 'worker-certificates';
 return 'worker-player';
 };
+
+const pendingIcon = React.createElement(Clock, { size: 20 });
+const inProgressIcon = React.createElement(Play, { size: 20 });
+const completedIcon = React.createElement(CheckCircle, { size: 20 });
+const certificatesIcon = React.createElement(Award, { size: 20 });
 
 if (isLoading) {
 return ( <div className="space-y-6"> <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4 text-sm text-steel-300">
@@ -181,33 +190,32 @@ return ( <div className="space-y-6"> <div className="flex items-start gap-3 roun
 
 }
 
-return ( <div className="space-y-6"> <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-<MetricCard
-title="Pendientes"
-value={pending}
-icon={<Clock size={20} />}
-accent="amber"
-/>
+return ( <div className="space-y-6"> <div className="grid grid-cols-2 lg:grid-cols-4 gap-4"> <MetricCard
+       title="Pendientes"
+       value={pending}
+       icon={pendingIcon}
+       accent="amber"
+     />
 
 ```
     <MetricCard
       title="En curso"
       value={inProgress}
-      icon={<Play size={20} />}
+      icon={inProgressIcon}
       accent="blue"
     />
 
     <MetricCard
       title="Completados"
       value={completed}
-      icon={<CheckCircle size={20} />}
+      icon={completedIcon}
       accent="green"
     />
 
     <MetricCard
       title="Certificados"
       value={certificates.length}
-      icon={<Award size={20} />}
+      icon={certificatesIcon}
       accent="amber"
       subtitle={expiringSoon > 0 ? expiringSoon + ' próximos a vencer' : undefined}
     />
