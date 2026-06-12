@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   Award,
@@ -9,8 +9,9 @@ import {
   AlertCircle,
   RefreshCw,
   CalendarDays,
+  CheckCircle2,
+  FileText,
 } from 'lucide-react';
-import StatusBadge from '../../components/ui/StatusBadge';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
@@ -20,8 +21,23 @@ interface WorkerDashboardProps {
   onNavigate: (view: string, data?: unknown) => void;
 }
 
+type WorkerCertificate = {
+  id: string;
+  assignment_id?: string | null;
+  user_id?: string | null;
+  training_id?: string | null;
+  tenant_id?: string | null;
+  certificate_code?: string | null;
+  issued_at?: string | null;
+  expires_at?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
+
 type WorkerTrainingAssignment = TrainingAssignment & {
   training?: Training;
+  certificate?: WorkerCertificate | null;
+  effective_status?: string;
 };
 
 function SimpleMetricCard({
@@ -29,24 +45,47 @@ function SimpleMetricCard({
   value,
   icon,
   subtitle,
+  tone = 'neutral',
 }: {
   title: string;
   value: number;
   icon: React.ReactNode;
   subtitle?: string;
+  tone?: 'neutral' | 'danger' | 'warning' | 'success';
 }) {
+  const toneClass =
+    tone === 'danger'
+      ? 'text-red-300 bg-red-500/10'
+      : tone === 'warning'
+        ? 'text-amber-300 bg-amber-500/10'
+        : tone === 'success'
+          ? 'text-emerald-300 bg-emerald-500/10'
+          : 'text-amber-400 bg-steel-800';
+
   return (
     <div className="card">
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="text-xs text-steel-400 mb-1">{title}</div>
           <div className="text-2xl font-bold text-steel-100">{value}</div>
           {subtitle && (
-            <div className="text-xs text-amber-300 mt-1">{subtitle}</div>
+            <div
+              className={`text-xs mt-1 ${
+                tone === 'danger'
+                  ? 'text-red-300'
+                  : tone === 'warning'
+                    ? 'text-amber-300'
+                    : tone === 'success'
+                      ? 'text-emerald-300'
+                      : 'text-steel-500'
+              }`}
+            >
+              {subtitle}
+            </div>
           )}
         </div>
 
-        <div className="w-10 h-10 rounded-xl bg-steel-800 flex items-center justify-center text-amber-400">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${toneClass}`}>
           {icon}
         </div>
       </div>
@@ -121,22 +160,110 @@ const getDueDateTimestamp = (dueDate?: string | null) => {
   return new Date(year, month - 1, day).getTime();
 };
 
+const hasCertificate = (assignment: WorkerTrainingAssignment) => {
+  return Boolean(assignment.certificate?.id);
+};
+
+const getEffectiveStatus = (assignment: WorkerTrainingAssignment) => {
+  if (hasCertificate(assignment)) return 'certificate_issued';
+  return assignment.status ?? 'not_started';
+};
+
+const isEffectivelyCompleted = (assignment: WorkerTrainingAssignment) => {
+  return hasCertificate(assignment) || isCompletedStatus(assignment.status);
+};
+
+const getEffectiveProgress = (assignment: WorkerTrainingAssignment) => {
+  if (isEffectivelyCompleted(assignment)) return 100;
+  return assignment.progress_percentage ?? 0;
+};
+
 const getUrgencyScore = (assignment: WorkerTrainingAssignment) => {
-  if (isCompletedStatus(assignment.status)) return 999;
+  if (isEffectivelyCompleted(assignment)) return 999;
 
   const dueInfo = getDueDateInfo(assignment.due_date);
+  const status = getEffectiveStatus(assignment);
 
   if (dueInfo.isOverdue) return -100;
+  if (status === 'pending_test') return -80;
   if (dueInfo.isDueSoon) return -50;
+  if (status === 'in_progress') return 10;
   if (dueInfo.daysRemaining !== null) return dueInfo.daysRemaining;
 
   return 500;
+};
+
+const getStatusPill = (assignment: WorkerTrainingAssignment) => {
+  const status = getEffectiveStatus(assignment);
+  const dueInfo = getDueDateInfo(assignment.due_date);
+
+  if (hasCertificate(assignment) || status === 'certificate_issued') {
+    return {
+      label: 'Certificado emitido',
+      className: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+    };
+  }
+
+  if (dueInfo.isOverdue) {
+    return {
+      label: 'Vencido',
+      className: 'bg-red-500/10 text-red-300 border-red-500/30',
+    };
+  }
+
+  if (status === 'pending_test') {
+    return {
+      label: 'Pendiente de examen',
+      className: 'bg-red-500/10 text-red-300 border-red-500/30',
+    };
+  }
+
+  if (status === 'not_started') {
+    return {
+      label: 'Pendiente',
+      className: 'bg-red-500/10 text-red-300 border-red-500/30',
+    };
+  }
+
+  if (status === 'in_progress') {
+    return {
+      label: 'En curso',
+      className: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
+    };
+  }
+
+  return {
+    label: status || 'Pendiente',
+    className: 'bg-steel-800 text-steel-300 border-steel-700',
+  };
+};
+
+const getActionLabel = (assignment: WorkerTrainingAssignment) => {
+  const status = getEffectiveStatus(assignment);
+
+  if (hasCertificate(assignment) || status === 'certificate_issued') return 'Ver certificado';
+  if (status === 'not_started') return 'Comenzar';
+  if (status === 'pending_test') return 'Rendir examen';
+  return 'Continuar';
+};
+
+const getActionView = (assignment: WorkerTrainingAssignment) => {
+  const status = getEffectiveStatus(assignment);
+
+  if (hasCertificate(assignment) || status === 'certificate_issued') {
+    return 'worker-certificates';
+  }
+
+  if (status === 'pending_test') return 'worker-test';
+
+  return 'worker-player';
 };
 
 export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   const { user } = useAuth();
 
   const [assignments, setAssignments] = useState<WorkerTrainingAssignment[]>([]);
+  const [certificates, setCertificates] = useState<WorkerCertificate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -149,6 +276,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     if (authError || !authData.user) {
       console.error('authError:', authError);
       setAssignments([]);
+      setCertificates([]);
       setLoadError('No pudimos identificar tu sesión.');
       setIsLoading(false);
       return;
@@ -165,35 +293,92 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     if (profileError || !profile) {
       console.error('profileError:', profileError);
       setAssignments([]);
+      setCertificates([]);
       setLoadError('No pudimos encontrar tu perfil de trabajador.');
       setIsLoading(false);
       return;
     }
 
-    const { data, error } = await supabase
-      .from('training_assignments')
-      .select('*')
-      .eq('user_id', profile.id)
-      .order('assigned_at', { ascending: false });
+    const profileId = profile.id as string;
+    const tenantId = profile.tenant_id as string | null;
 
-    if (error) {
-      console.error('Error cargando dashboard worker:', error);
+    const userIds = Array.from(new Set([profileId, authUserId].filter(Boolean)));
+
+    const [assignmentsResult, certificatesResult] = await Promise.all([
+      supabase
+        .from('training_assignments')
+        .select('*')
+        .eq('user_id', profileId)
+        .order('assigned_at', { ascending: false }),
+
+      supabase
+        .from('certificates')
+        .select('*')
+        .in('user_id', userIds)
+        .order('issued_at', { ascending: false }),
+    ]);
+
+    if (assignmentsResult.error) {
+      console.error('Error cargando dashboard worker:', assignmentsResult.error);
       setAssignments([]);
-      setLoadError('No pudimos cargar tus trainings asignados: ' + error.message);
+      setCertificates([]);
+      setLoadError('No pudimos cargar tus trainings asignados: ' + assignmentsResult.error.message);
       setIsLoading(false);
       return;
     }
 
+    if (certificatesResult.error) {
+      console.error('Error cargando certificados worker:', certificatesResult.error);
+      setAssignments([]);
+      setCertificates([]);
+      setLoadError('No pudimos cargar tus certificados: ' + certificatesResult.error.message);
+      setIsLoading(false);
+      return;
+    }
+
+    const allCertificates = ((certificatesResult.data ?? []) as WorkerCertificate[])
+      .filter(certificate => {
+        if (!tenantId) return true;
+        return !certificate.tenant_id || certificate.tenant_id === tenantId;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.issued_at || a.created_at || '').getTime();
+        const dateB = new Date(b.issued_at || b.created_at || '').getTime();
+
+        return dateB - dateA;
+      });
+
+    const certificateByAssignmentId = new Map<string, WorkerCertificate>();
+    const certificateByTrainingId = new Map<string, WorkerCertificate>();
+
+    allCertificates.forEach(certificate => {
+      if (certificate.assignment_id && !certificateByAssignmentId.has(certificate.assignment_id)) {
+        certificateByAssignmentId.set(certificate.assignment_id, certificate);
+      }
+
+      if (certificate.training_id && !certificateByTrainingId.has(certificate.training_id)) {
+        certificateByTrainingId.set(certificate.training_id, certificate);
+      }
+    });
+
     const trainingById = new Map(baseTrainings.map(training => [training.id, training]));
 
-    const hydratedAssignments = (data ?? [])
+    const hydratedAssignments = ((assignmentsResult.data ?? []) as TrainingAssignment[])
       .map(row => {
         const trainingId = row.training_id as string;
+        const certificate =
+          certificateByAssignmentId.get(row.id) ||
+          certificateByTrainingId.get(trainingId) ||
+          null;
 
-        return {
-          ...(row as TrainingAssignment),
+        const assignment: WorkerTrainingAssignment = {
+          ...row,
           training: trainingById.get(trainingId),
+          certificate,
+          effective_status: certificate ? 'certificate_issued' : row.status,
         };
+
+        return assignment;
       })
       .filter(assignment => Boolean(assignment.training)) as WorkerTrainingAssignment[];
 
@@ -209,6 +394,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     });
 
     setAssignments(sortedAssignments);
+    setCertificates(allCertificates);
     setIsLoading(false);
   };
 
@@ -216,29 +402,29 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     loadDashboardData();
   }, [user?.id]);
 
-  const pendingCourse = assignments.filter(assignment => {
-    return assignment.status === 'not_started';
+  const activeAssignments = useMemo(() => {
+    return assignments.filter(assignment => !isEffectivelyCompleted(assignment));
+  }, [assignments]);
+
+  const certifiedAssignments = useMemo(() => {
+    return assignments.filter(assignment => isEffectivelyCompleted(assignment));
+  }, [assignments]);
+
+  const pendingCourse = activeAssignments.filter(assignment => {
+    return getEffectiveStatus(assignment) === 'not_started';
   }).length;
 
-  const inProgress = assignments.filter(assignment => {
-    return assignment.status === 'in_progress';
+  const inProgress = activeAssignments.filter(assignment => {
+    return getEffectiveStatus(assignment) === 'in_progress';
   }).length;
 
-  const pendingExam = assignments.filter(assignment => {
-    return assignment.status === 'pending_test';
+  const pendingExam = activeAssignments.filter(assignment => {
+    return getEffectiveStatus(assignment) === 'pending_test';
   }).length;
 
   const completed = assignments.filter(assignment => {
-    return isCompletedStatus(assignment.status);
+    return isEffectivelyCompleted(assignment);
   }).length;
-
-  const certificates = assignments.filter(assignment => {
-    return assignment.status === 'certificate_issued';
-  });
-
-  const activeAssignments = assignments.filter(assignment => {
-    return !isCompletedStatus(assignment.status);
-  });
 
   const overdueCount = activeAssignments.filter(assignment => {
     return getDueDateInfo(assignment.due_date).isOverdue;
@@ -259,10 +445,10 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   const inThirtyDays = new Date();
   inThirtyDays.setDate(now.getDate() + 30);
 
-  const expiringSoon = certificates.filter(assignment => {
-    if (!assignment.expires_at) return false;
+  const expiringSoon = certificates.filter(certificate => {
+    if (!certificate.expires_at) return false;
 
-    const expiresAt = new Date(assignment.expires_at);
+    const expiresAt = new Date(certificate.expires_at);
 
     return expiresAt >= now && expiresAt <= inThirtyDays;
   }).length;
@@ -270,23 +456,12 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
   const avgProgress = assignments.length
     ? Math.round(
         assignments.reduce((sum, assignment) => {
-          return sum + (assignment.progress_percentage ?? 0);
+          return sum + getEffectiveProgress(assignment);
         }, 0) / assignments.length
       )
     : 0;
 
-  const getActionLabel = (assignment: WorkerTrainingAssignment) => {
-    if (assignment.status === 'not_started') return 'Comenzar';
-    if (assignment.status === 'pending_test') return 'Rendir examen';
-    if (assignment.status === 'certificate_issued') return 'Ver certificado';
-    return 'Continuar';
-  };
-
-  const getActionView = (assignment: WorkerTrainingAssignment) => {
-    if (assignment.status === 'pending_test') return 'worker-test';
-    if (assignment.status === 'certificate_issued') return 'worker-certificates';
-    return 'worker-player';
-  };
+  const recentCertifiedAssignments = certifiedAssignments.slice(0, 3);
 
   if (isLoading) {
     return (
@@ -345,10 +520,11 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SimpleMetricCard
-          title="Pendientes de curso"
+          title="Pendientes"
           value={pendingCourse}
           icon={<Clock size={20} />}
           subtitle={overdueCount > 0 ? `${overdueCount} vencido(s)` : undefined}
+          tone={pendingCourse > 0 || overdueCount > 0 ? 'danger' : 'neutral'}
         />
 
         <SimpleMetricCard
@@ -356,6 +532,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
           value={inProgress}
           icon={<Play size={20} />}
           subtitle={dueSoonCount > 0 ? `${dueSoonCount} deadline próximo` : undefined}
+          tone={dueSoonCount > 0 ? 'warning' : 'neutral'}
         />
 
         <SimpleMetricCard
@@ -363,13 +540,15 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
           value={pendingExam}
           icon={<AlertTriangle size={20} />}
           subtitle={pendingExam > 0 ? 'Listos para rendir' : undefined}
+          tone={pendingExam > 0 ? 'danger' : 'neutral'}
         />
 
         <SimpleMetricCard
           title="Certificados"
-          value={certificates.length}
+          value={certificates.length || completed}
           icon={<Award size={20} />}
           subtitle={expiringSoon > 0 ? expiringSoon + ' próximos a vencer' : undefined}
+          tone="success"
         />
       </div>
 
@@ -417,7 +596,10 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
 
           {activeAssignments.map(assignment => {
             const dueInfo = getDueDateInfo(assignment.due_date);
-            const isPendingExam = assignment.status === 'pending_test';
+            const progress = getEffectiveProgress(assignment);
+            const pill = getStatusPill(assignment);
+            const status = getEffectiveStatus(assignment);
+            const isPendingExam = status === 'pending_test';
 
             return (
               <div
@@ -431,78 +613,80 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                 }`}
                 onClick={() => onNavigate(getActionView(assignment), { assignment })}
               >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
                     <BookOpen size={20} className="text-petroleum-200" />
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="text-sm font-semibold text-steel-100 truncate">
+                    <div className="flex flex-col gap-2 mb-2">
+                      <div className="text-sm font-semibold text-steel-100 leading-snug">
                         {assignment.training?.title}
                       </div>
 
-                      {isPendingExam && (
-                        <span className="badge bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                          Pendiente de examen
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${pill.className}`}>
+                          {pill.label}
                         </span>
-                      )}
 
-                      {dueInfo.isOverdue && (
-                        <span className="badge bg-red-500/15 text-red-300 border border-red-500/30">
-                          Vencido
-                        </span>
-                      )}
-
-                      {dueInfo.isDueSoon && !dueInfo.isOverdue && (
-                        <span className="badge bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                          Deadline próximo
-                        </span>
-                      )}
+                        {dueInfo.isDueSoon && !dueInfo.isOverdue && !isPendingExam && (
+                          <span className="inline-flex w-fit items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                            Deadline próximo
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <p className="text-xs text-steel-500 line-clamp-1 mb-2">
+                    <p className="text-xs text-steel-500 line-clamp-2 mb-3">
                       {assignment.training?.description}
                     </p>
 
-                    {isPendingExam && (
-                      <div className="text-xs text-amber-300 mb-2">
-                        Ya completaste el contenido. Podés rendir el examen.
+                    {assignment.due_date && (
+                      <div
+                        className={`flex items-center gap-2 text-xs mb-3 ${
+                          dueInfo.isOverdue || status === 'not_started'
+                            ? 'text-red-300'
+                            : dueInfo.isDueSoon
+                              ? 'text-amber-300'
+                              : 'text-steel-400'
+                        }`}
+                      >
+                        <CalendarDays size={13} className="flex-shrink-0" />
+
+                        <span>
+                          Fecha límite: {formatDateAR(assignment.due_date)}
+                          {dueInfo.daysRemaining === 0
+                            ? ' · vence hoy'
+                            : dueInfo.daysRemaining && dueInfo.daysRemaining > 0
+                              ? ` · faltan ${dueInfo.daysRemaining} días`
+                              : dueInfo.isOverdue
+                                ? ' · vencido'
+                                : ''}
+                        </span>
                       </div>
                     )}
-
-                    <div className="flex items-center gap-2 text-xs mb-2">
-                      <CalendarDays size={13} className="text-red-300" />
-
-                      <span className="text-red-300">
-                        Fecha límite: {formatDateAR(assignment.due_date)}
-                        {dueInfo.daysRemaining === 0
-                          ? ' · vence hoy'
-                          : dueInfo.daysRemaining && dueInfo.daysRemaining > 0
-                            ? ` · faltan ${dueInfo.daysRemaining} días`
-                            : ''}
-                      </span>
-                    </div>
 
                     <div className="flex items-center gap-3">
                       <div className="progress-bar flex-1">
                         <div
                           className="progress-fill"
-                          style={{ width: (assignment.progress_percentage ?? 0) + '%' }}
+                          style={{ width: progress + '%' }}
                         />
                       </div>
 
                       <span className="text-xs text-steel-400 flex-shrink-0">
-                        {assignment.progress_percentage ?? 0}%
+                        {progress}%
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-2">
-                    <StatusBadge status={assignment.status} />
-
+                  <div className="w-full sm:w-auto sm:flex-shrink-0">
                     <button
-                      className="btn-primary text-xs py-1 px-3"
+                      className={`w-full sm:w-auto text-xs py-2 px-3 ${
+                        status === 'pending_test' || status === 'not_started'
+                          ? 'btn-primary'
+                          : 'btn-secondary'
+                      }`}
                       onClick={event => {
                         event.stopPropagation();
                         onNavigate(getActionView(assignment), { assignment });
@@ -515,6 +699,74 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {activeAssignments.length === 0 && assignments.length > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+          <CheckCircle2 size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+
+          <div>
+            <div className="text-sm font-semibold text-emerald-300">
+              No tenés trainings pendientes
+            </div>
+
+            <p className="text-xs text-steel-400 mt-1">
+              Tus trainings asignados figuran como completados o con certificado emitido.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {recentCertifiedAssignments.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-steel-300">
+              Certificados recientes
+            </h3>
+
+            <button
+              onClick={() => onNavigate('worker-certificates')}
+              className="btn-ghost text-xs"
+            >
+              Ver todos
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {recentCertifiedAssignments.map(assignment => (
+              <div
+                key={`certified-${assignment.id}`}
+                className="rounded-xl border border-steel-700 bg-steel-900/60 p-3"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                    <Award size={18} className="text-emerald-300" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-steel-100">
+                      {assignment.training?.title}
+                    </div>
+
+                    <div className="text-xs text-steel-500 mt-0.5">
+                      {assignment.certificate?.certificate_code
+                        ? `Certificado ${assignment.certificate.certificate_code}`
+                        : 'Certificado emitido'}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onNavigate('worker-certificates', { assignment })}
+                    className="btn-secondary text-xs w-full sm:w-auto"
+                  >
+                    <FileText size={13} />
+                    Ver certificado
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
