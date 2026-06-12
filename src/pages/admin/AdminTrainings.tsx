@@ -27,6 +27,26 @@ import Modal from '../../components/ui/Modal';
 
 type AssignMode = 'all' | 'role' | 'individual';
 
+type AssignmentRow = {
+  id: string;
+  user_id: string;
+  status: string | null;
+  progress_percentage: number | null;
+  assigned_at: string | null;
+  due_date: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  expires_at: string | null;
+};
+
+type EmailNotificationRow = {
+  id: string;
+  assignment_id: string | null;
+  status: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+};
+
 function getWorkerRole(profile: Profile) {
   const workerJobRole = (profile as any).job_role as string | null | undefined;
 
@@ -35,6 +55,125 @@ function getWorkerRole(profile: Profile) {
     profile.position?.trim() ||
     'Sin rol definido'
   );
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return 'Sin fecha';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Fecha inválida';
+  }
+
+  return date.toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'Sin registro';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Fecha inválida';
+  }
+
+  return date.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getDaysUntil(value?: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const now = new Date();
+  const diff = date.getTime() - now.getTime();
+
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function isAssignmentCompleted(assignment?: AssignmentRow) {
+  if (!assignment) return false;
+
+  const status = (assignment.status || '').toLowerCase();
+
+  return (
+    Boolean(assignment.completed_at) ||
+    status === 'completed' ||
+    status === 'certificate_issued' ||
+    Number(assignment.progress_percentage ?? 0) >= 100
+  );
+}
+
+function getAssignmentVisualState(assignment?: AssignmentRow) {
+  if (!assignment) {
+    return {
+      label: 'No asignado',
+      shortLabel: 'No asignado',
+      className: 'border-steel-700 bg-steel-900 hover:border-steel-600',
+      badgeClassName: 'badge badge-neutral',
+      dotClassName: 'bg-steel-500',
+      checkboxClassName: 'accent-amber-500',
+    };
+  }
+
+  if (isAssignmentCompleted(assignment)) {
+    return {
+      label: 'Completado',
+      shortLabel: 'Completado',
+      className: 'border-emerald-500/30 bg-emerald-500/10 hover:border-emerald-500/50',
+      badgeClassName: 'badge badge-success',
+      dotClassName: 'bg-emerald-500',
+      checkboxClassName: 'accent-emerald-500',
+    };
+  }
+
+  const daysUntilDeadline = getDaysUntil(assignment.due_date);
+
+  if (daysUntilDeadline !== null && daysUntilDeadline <= 7) {
+    return {
+      label: daysUntilDeadline < 0 ? 'Pendiente · vencido' : 'Pendiente · deadline cercano',
+      shortLabel: daysUntilDeadline < 0 ? 'Vencido' : 'Deadline cercano',
+      className: 'border-red-500/30 bg-red-500/10 hover:border-red-500/50',
+      badgeClassName: 'badge badge-danger',
+      dotClassName: 'bg-red-500',
+      checkboxClassName: 'accent-red-500',
+    };
+  }
+
+  return {
+    label: 'Pendiente',
+    shortLabel: 'Pendiente',
+    className: 'border-amber-500/30 bg-amber-500/10 hover:border-amber-500/50',
+    badgeClassName: 'badge badge-warning',
+    dotClassName: 'bg-amber-500',
+    checkboxClassName: 'accent-amber-500',
+  };
+}
+
+function getStatusLabel(status?: string | null) {
+  const normalized = (status || '').toLowerCase();
+
+  if (normalized === 'not_started') return 'No iniciado';
+  if (normalized === 'in_progress') return 'En progreso';
+  if (normalized === 'completed') return 'Completado';
+  if (normalized === 'certificate_issued') return 'Certificado emitido';
+
+  return status || 'Sin estado';
 }
 
 export default function AdminTrainings() {
@@ -50,6 +189,10 @@ export default function AdminTrainings() {
 
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
+  const [assignmentsByUserId, setAssignmentsByUserId] = useState<Record<string, AssignmentRow>>({});
+  const [emailNotificationsByAssignmentId, setEmailNotificationsByAssignmentId] = useState<Record<string, EmailNotificationRow>>({});
+  const [expandedAssignmentUserIds, setExpandedAssignmentUserIds] = useState<Set<string>>(new Set());
+
   const [assignMode, setAssignMode] = useState<AssignMode>('individual');
   const [selectedRole, setSelectedRole] = useState('');
 
@@ -160,10 +303,21 @@ export default function AdminTrainings() {
     return users.filter(worker => getWorkerRole(worker) === selectedRole);
   }, [users, selectedRole]);
 
+  const getTargetUserIds = () => {
+    if (assignMode === 'all') {
+      return users.map(worker => worker.id);
+    }
+
+    if (assignMode === 'role') {
+      return selectedRoleUsers.map(worker => worker.id);
+    }
+
+    return Array.from(selectedUsers);
+  };
+
   const getAssignTargetCount = () => {
-    if (assignMode === 'all') return users.length;
-    if (assignMode === 'role') return selectedRoleUsers.length;
-    return selectedUsers.size;
+    const targets = getTargetUserIds();
+    return targets.filter(userId => !assignedUserIds.has(userId)).length;
   };
 
   const getQuestionsByAttempt = (test: TrainingTest) => {
@@ -192,16 +346,95 @@ export default function AdminTrainings() {
     setShowAssign(null);
     setSelectedUsers(new Set());
     setAssignedUserIds(new Set());
+    setAssignmentsByUserId({});
+    setEmailNotificationsByAssignmentId({});
+    setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
     setSelectedRole('');
     setAssignMessage(null);
     setAssignError(null);
   };
 
+  const loadAssignmentsForTraining = async (trainingId: string) => {
+    if (!tenantId) {
+      return {
+        assignedIds: new Set<string>(),
+        assignmentsMap: {} as Record<string, AssignmentRow>,
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('training_assignments')
+      .select('id, user_id, status, progress_percentage, assigned_at, due_date, started_at, completed_at, expires_at')
+      .eq('tenant_id', tenantId)
+      .eq('training_id', trainingId);
+
+    if (error) {
+      console.error('Error cargando asignaciones existentes:', error);
+      setAssignError(`No pudimos cargar asignaciones existentes: ${error.message}`);
+
+      return {
+        assignedIds: new Set<string>(),
+        assignmentsMap: {} as Record<string, AssignmentRow>,
+      };
+    }
+
+    const assignments = (data ?? []) as AssignmentRow[];
+
+    const existingAssignedIds = new Set(
+      assignments.map(row => row.user_id as string)
+    );
+
+    const assignmentsMap = assignments.reduce<Record<string, AssignmentRow>>((acc, assignment) => {
+      acc[assignment.user_id] = assignment;
+      return acc;
+    }, {});
+
+    const assignmentIds = assignments.map(assignment => assignment.id).filter(Boolean);
+
+    let notificationsMap: Record<string, EmailNotificationRow> = {};
+
+    if (assignmentIds.length > 0) {
+      const { data: notificationData, error: notificationError } = await supabase
+        .from('email_notifications')
+        .select('id, assignment_id, status, sent_at, created_at')
+        .eq('type', 'training_assignment')
+        .in('assignment_id', assignmentIds)
+        .order('created_at', { ascending: false });
+
+      if (notificationError) {
+        console.warn('No pudimos cargar email_notifications:', notificationError);
+      } else {
+        notificationsMap = ((notificationData ?? []) as EmailNotificationRow[]).reduce<Record<string, EmailNotificationRow>>(
+          (acc, notification) => {
+            if (notification.assignment_id && !acc[notification.assignment_id]) {
+              acc[notification.assignment_id] = notification;
+            }
+
+            return acc;
+          },
+          {}
+        );
+      }
+    }
+
+    setAssignedUserIds(existingAssignedIds);
+    setAssignmentsByUserId(assignmentsMap);
+    setEmailNotificationsByAssignmentId(notificationsMap);
+
+    return {
+      assignedIds: existingAssignedIds,
+      assignmentsMap,
+    };
+  };
+
   const openAssignModal = async (training: Training) => {
     setShowAssign(training);
     setSelectedUsers(new Set());
     setAssignedUserIds(new Set());
+    setAssignmentsByUserId({});
+    setEmailNotificationsByAssignmentId({});
+    setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
     setSelectedRole('');
     setAssignMessage(null);
@@ -212,24 +445,9 @@ export default function AdminTrainings() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('training_assignments')
-      .select('user_id')
-      .eq('tenant_id', tenantId)
-      .eq('training_id', training.id);
+    const { assignedIds } = await loadAssignmentsForTraining(training.id);
 
-    if (error) {
-      console.error('Error cargando asignaciones existentes:', error);
-      setAssignError(`No pudimos cargar asignaciones existentes: ${error.message}`);
-      return;
-    }
-
-    const existingAssignedIds = new Set(
-      (data ?? []).map(row => row.user_id as string)
-    );
-
-    setAssignedUserIds(existingAssignedIds);
-    setSelectedUsers(existingAssignedIds);
+    setSelectedUsers(assignedIds);
     setAssignMode('individual');
     setSelectedRole('');
   };
@@ -380,11 +598,12 @@ export default function AdminTrainings() {
 
     const emailResult = await sendAssignmentEmails(assignmentIds);
 
+    await loadAssignmentsForTraining(showAssign.id);
+
     setIsAssigning(false);
 
-    const updatedAssignedIds = new Set([...Array.from(assignedUserIds), ...newTargets]);
-    setAssignedUserIds(updatedAssignedIds);
-    setSelectedUsers(updatedAssignedIds);
+    const refreshedAssignedIds = new Set([...Array.from(assignedUserIds), ...newTargets]);
+    setSelectedUsers(refreshedAssignedIds);
 
     const modeLabel =
       assignMode === 'all'
@@ -404,7 +623,7 @@ export default function AdminTrainings() {
 
     setTimeout(() => {
       resetAssignModal();
-    }, 1200);
+    }, 1400);
   };
 
   const getContentLabel = (training: Training) => {
@@ -414,6 +633,212 @@ export default function AdminTrainings() {
     if (training.content_type === 'document') return 'Documento';
     if (training.content_type === 'external') return 'Recurso externo';
     return 'No definido';
+  };
+
+  const renderAssignmentDetails = (worker: Profile) => {
+    const assignment = assignmentsByUserId[worker.id];
+
+    if (!assignment) {
+      return (
+        <div className="mt-3 rounded-lg border border-steel-700 bg-steel-950 p-3 text-xs text-steel-400">
+          Este usuario todavía no tiene este training asignado.
+        </div>
+      );
+    }
+
+    const notification = emailNotificationsByAssignmentId[assignment.id];
+
+    return (
+      <div className="mt-3 rounded-lg border border-steel-700 bg-steel-950 p-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div>
+            <div className="text-steel-500">Asignado / enviado</div>
+            <div className="text-steel-200">{formatDateTime(assignment.assigned_at)}</div>
+          </div>
+
+          <div>
+            <div className="text-steel-500">Email de asignación</div>
+            <div className="text-steel-200">
+              {notification?.sent_at
+                ? formatDateTime(notification.sent_at)
+                : notification?.status
+                  ? `Estado: ${notification.status}`
+                  : 'Sin registro'}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-steel-500">Deadline</div>
+            <div className="text-steel-200">{formatDate(assignment.due_date)}</div>
+          </div>
+
+          <div>
+            <div className="text-steel-500">Inicio</div>
+            <div className="text-steel-200">{formatDateTime(assignment.started_at)}</div>
+          </div>
+
+          <div>
+            <div className="text-steel-500">Realizado</div>
+            <div className="text-steel-200">{formatDateTime(assignment.completed_at)}</div>
+          </div>
+
+          <div>
+            <div className="text-steel-500">Vencimiento certificado</div>
+            <div className="text-steel-200">{formatDate(assignment.expires_at)}</div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+          Para administrar deadlines, desasignar, reasignar, reenviar mails o revisar el
+          historial completo de evidencias, ingresá a la sección <strong>Asignaciones</strong>.
+        </div>
+      </div>
+    );
+  };
+
+  const renderWorkerAssignmentRow = (worker: Profile, options?: { withCheckbox?: boolean }) => {
+    const withCheckbox = options?.withCheckbox ?? false;
+    const assignment = assignmentsByUserId[worker.id];
+    const visual = getAssignmentVisualState(assignment);
+    const isAssigned = Boolean(assignment);
+    const isCompleted = isAssignmentCompleted(assignment);
+    const notification = assignment ? emailNotificationsByAssignmentId[assignment.id] : null;
+    const isExpanded = expandedAssignmentUserIds.has(worker.id);
+
+    const statusLine = assignment
+      ? isCompleted
+        ? `Completado · Realizado: ${formatDate(assignment.completed_at)}`
+        : `${visual.label} · Deadline: ${formatDate(assignment.due_date)}`
+      : 'No asignado';
+
+    const assignedLine = assignment
+      ? `Asignado: ${formatDate(assignment.assigned_at)}`
+      : 'Disponible para asignar';
+
+    const emailLine = assignment
+      ? notification?.sent_at
+        ? `Email: ${formatDate(notification.sent_at)}`
+        : 'Email: sin registro'
+      : null;
+
+    return (
+      <div
+        key={worker.id}
+        className={`rounded-xl border p-3 transition-colors ${visual.className}`}
+      >
+        <div className="flex items-start gap-3">
+          {withCheckbox && (
+            <input
+              type="checkbox"
+              checked={selectedUsers.has(worker.id)}
+              disabled={isAssigning || isAssigned}
+              onChange={event => {
+                if (isAssigned) return;
+
+                setSelectedUsers(previousUsers => {
+                  const nextUsers = new Set(previousUsers);
+
+                  if (event.target.checked) {
+                    nextUsers.add(worker.id);
+                  } else {
+                    nextUsers.delete(worker.id);
+                  }
+
+                  return nextUsers;
+                });
+              }}
+              className={`mt-1 w-4 h-4 ${visual.checkboxClassName}`}
+            />
+          )}
+
+          {!withCheckbox && (
+            <div className={`mt-1 w-4 h-4 rounded-full ${visual.dotClassName} flex items-center justify-center flex-shrink-0`}>
+              {isAssigned && <Check size={10} className="text-white" />}
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="text-sm font-medium text-steel-100">
+                    {worker.full_name}
+                  </div>
+
+                  <span className={visual.badgeClassName}>
+                    {visual.shortLabel}
+                  </span>
+
+                  {isAssigned && (
+                    <span className="rounded-full border border-steel-600 bg-steel-950 px-2 py-0.5 text-[10px] font-semibold text-steel-300">
+                      {getStatusLabel(assignment?.status)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-xs text-steel-400 mt-0.5">
+                  {getWorkerRole(worker)} · {worker.email}
+                </div>
+              </div>
+
+              {isAssigned && (
+                <button
+                  type="button"
+                  disabled={isAssigning}
+                  onClick={() => {
+                    setExpandedAssignmentUserIds(previousIds => {
+                      const nextIds = new Set(previousIds);
+
+                      if (nextIds.has(worker.id)) {
+                        nextIds.delete(worker.id);
+                      } else {
+                        nextIds.add(worker.id);
+                      }
+
+                      return nextIds;
+                    });
+                  }}
+                  className="btn-ghost text-xs py-1.5 px-2 self-start"
+                >
+                  <ChevronRight
+                    size={13}
+                    className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                  />
+                  Detalle / opciones
+                </button>
+              )}
+            </div>
+
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div>
+                <div className="text-steel-500">Estado</div>
+                <div className="text-steel-200">{statusLine}</div>
+              </div>
+
+              <div>
+                <div className="text-steel-500">Asignación</div>
+                <div className="text-steel-200">{assignedLine}</div>
+              </div>
+
+              <div>
+                <div className="text-steel-500">Progreso</div>
+                <div className="text-steel-200">
+                  {assignment ? `${assignment.progress_percentage ?? 0}%` : '-'}
+                </div>
+              </div>
+            </div>
+
+            {emailLine && (
+              <div className="mt-2 text-xs text-steel-400">
+                {emailLine}
+              </div>
+            )}
+
+            {isExpanded && renderAssignmentDetails(worker)}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const renderPreviewContent = (training: Training) => {
@@ -925,6 +1350,12 @@ export default function AdminTrainings() {
               </div>
             )}
 
+            <div className="rounded-xl border border-steel-700 bg-steel-900/70 p-3 text-xs text-steel-300">
+              Esta vista permite asignar trainings rápidamente desde el catálogo.
+              Para administrar deadlines, desasignar, reasignar, reenviar mails o revisar
+              evidencias completas, ingresá a la sección <strong className="text-steel-100">Asignaciones</strong>.
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
@@ -942,7 +1373,7 @@ export default function AdminTrainings() {
               >
                 <div className="text-sm font-semibold text-steel-100">Todos</div>
                 <div className="text-xs text-steel-400 mt-1">
-                  {users.length} usuarios activos
+                  {users.length} usuarios activos · {users.filter(worker => !assignedUserIds.has(worker.id)).length} nuevos
                 </div>
               </button>
 
@@ -997,48 +1428,25 @@ export default function AdminTrainings() {
                     disabled={isAssigning}
                   >
                     <option value="">Seleccionar rol...</option>
-                    {roleGroups.map(group => (
-                      <option key={group.role} value={group.role}>
-                        {group.role} · {group.count} usuario(s)
-                      </option>
-                    ))}
+                    {roleGroups.map(group => {
+                      const newCount = group.workers.filter(worker => !assignedUserIds.has(worker.id)).length;
+
+                      return (
+                        <option key={group.role} value={group.role}>
+                          {group.role} · {group.count} usuario(s) · {newCount} nuevos
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
                 {selectedRole && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <p className="text-xs text-steel-400 font-medium">
-                      Usuarios que recibirán este training:
+                      Usuarios incluidos en este rol:
                     </p>
 
-                    {selectedRoleUsers.map(worker => (
-                      <div
-                        key={worker.id}
-                        className="flex items-center gap-3 p-2.5 bg-steel-900 rounded-lg border border-steel-700"
-                      >
-                        <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0">
-                          <Check size={10} className="text-petroleum-950" />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm text-steel-100">
-                              {worker.full_name}
-                            </div>
-
-                            {assignedUserIds.has(worker.id) && (
-                              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-                                Ya asignado
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="text-xs text-steel-400">
-                            {getWorkerRole(worker)} · {worker.email}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                    {selectedRoleUsers.map(worker => renderWorkerAssignmentRow(worker))}
                   </div>
                 )}
 
@@ -1051,7 +1459,7 @@ export default function AdminTrainings() {
             )}
 
             {assignMode === 'individual' && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <p className="text-xs text-steel-400 font-medium">
                   Seleccioná usuarios individuales:
                 </p>
@@ -1062,57 +1470,20 @@ export default function AdminTrainings() {
                   </div>
                 )}
 
-                {users.map(worker => (
-                  <label
-                    key={worker.id}
-                    className="flex items-center gap-3 p-2.5 bg-steel-900 rounded-lg border border-steel-700 hover:border-steel-600 transition-colors cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedUsers.has(worker.id)}
-                      disabled={isAssigning}
-                      onChange={event => {
-                        setSelectedUsers(previousUsers => {
-                          const nextUsers = new Set(previousUsers);
-
-                          if (event.target.checked) {
-                            nextUsers.add(worker.id);
-                          } else {
-                            nextUsers.delete(worker.id);
-                          }
-
-                          return nextUsers;
-                        });
-                      }}
-                      className="w-4 h-4 accent-amber-500"
-                    />
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm text-steel-100">
-                          {worker.full_name}
-                        </div>
-
-                        {assignedUserIds.has(worker.id) && (
-                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-                            Ya asignado
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="text-xs text-steel-400">
-                        {getWorkerRole(worker)} · {worker.email}
-                      </div>
-                    </div>
-                  </label>
-                ))}
+                {users.map(worker => renderWorkerAssignmentRow(worker, { withCheckbox: true }))}
               </div>
             )}
 
             {assignMode === 'all' && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-                Se asignará este training a todos los usuarios activos de la empresa:
-                <span className="font-semibold"> {users.length} usuario(s)</span>.
+              <div className="space-y-3">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                  Se asignará este training a todos los usuarios activos que todavía no lo tengan asignado:
+                  <span className="font-semibold"> {users.filter(worker => !assignedUserIds.has(worker.id)).length} usuario(s) nuevo(s)</span>.
+                </div>
+
+                <div className="space-y-2">
+                  {users.map(worker => renderWorkerAssignmentRow(worker))}
+                </div>
               </div>
             )}
           </div>
