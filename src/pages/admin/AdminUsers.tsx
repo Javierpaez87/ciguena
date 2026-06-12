@@ -549,14 +549,20 @@ export default function AdminUsers() {
       currentUsers.map((item) => (item.id === profile.id ? { ...item, status: nextStatus } : item))
     );
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', profile.id)
-      .eq('tenant_id', tenantId);
+const updatePayload: Record<string, any> = {
+  status: nextStatus,
+  updated_at: new Date().toISOString(),
+};
+
+if (nextStatus === 'active') {
+  updatePayload.preapproved = true;
+}
+
+const { error } = await supabase
+  .from('profiles')
+  .update(updatePayload)
+  .eq('id', profile.id)
+  .eq('tenant_id', tenantId);
 
     if (error) {
       console.error('Error updating user status:', error);
