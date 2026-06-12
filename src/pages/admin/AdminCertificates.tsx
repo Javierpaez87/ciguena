@@ -74,6 +74,10 @@ interface Certificate {
 
   // Fallback opcional si en algún momento guardamos firma dentro del certificado.
   worker_signature_url?: string | null;
+  company_signature_id?: string | null;
+  company_signature_url?: string | null;
+  company_signer_name?: string | null;
+  company_signer_role?: string | null;
 
   // Fuente principal actual: ethics_acceptances.signature_image_url.
   ethics_signature_url?: string | null;
@@ -137,6 +141,14 @@ function getSignatureUrl(certificate?: Certificate | null) {
     certificate.worker_signature_url ||
     null
   );
+}
+
+function getCompanySignerLabel(certificate?: Certificate | null, fallbackTenantName = 'Empresa / Tenant') {
+  if (!certificate) return `Responsable de capacitaciones · ${fallbackTenantName}`;
+
+  const name = certificate.company_signer_name || 'Responsable de capacitaciones';
+  const role = certificate.company_signer_role || fallbackTenantName;
+  return `${name} · ${role}`;
 }
 
 function formatDate(date?: string | null) {
@@ -484,6 +496,12 @@ export default function AdminCertificates() {
       ? `<img src="${workerSignatureUrl}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
       : '<div style="height:70px;color:#64748b;font-size:12px;display:flex;align-items:center;">Firma no disponible</div>';
 
+    const companySignatureBlock = certificate.company_signature_url
+      ? `<img src="${certificate.company_signature_url}" alt="Firma responsable" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
+      : '<div style="height:70px;color:#64748b;font-size:12px;display:flex;align-items:center;">Firma responsable no disponible</div>';
+
+    const companySignerLabel = getCompanySignerLabel(certificate, issuerName);
+
     const html = `
       <!doctype html>
       <html>
@@ -541,8 +559,8 @@ export default function AdminCertificates() {
               </div>
 
               <div>
-                <div class="signature-slot">Firma responsable de capacitaciones</div>
-                <div class="line">Responsable de capacitaciones · ${issuerName}</div>
+                <div class="signature-slot">${companySignatureBlock}</div>
+                <div class="line">${companySignerLabel}</div>
               </div>
             </section>
 
@@ -932,11 +950,20 @@ export default function AdminCertificates() {
                   </div>
 
                   <div>
-                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-dashed border-slate-300 p-3 text-xs text-slate-400">
-                      Firma responsable de capacitaciones
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
+                      {selectedCertificate.company_signature_url ? (
+                        <img
+                          src={selectedCertificate.company_signature_url}
+                          alt="Firma responsable"
+                          className="max-h-24 max-w-full object-contain"
+                          style={{ filter: 'invert(1) contrast(1.4)' }}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">Firma responsable no disponible</span>
+                      )}
                     </div>
                     <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
-                      Responsable de capacitaciones · {tenantName || 'Empresa / Tenant'}
+                      {getCompanySignerLabel(selectedCertificate, tenantName || 'Empresa / Tenant')}
                     </div>
                   </div>
                 </div>

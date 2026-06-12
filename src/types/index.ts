@@ -164,6 +164,11 @@ export interface Certificate {
   assignment_id: string;
   certificate_url: string | null;
   certificate_code: string;
+  worker_signature_url?: string | null;
+  company_signature_id?: string | null;
+  company_signature_url?: string | null;
+  company_signer_name?: string | null;
+  company_signer_role?: string | null;
   issued_at: string;
   expires_at: string | null;
   status: CertificateStatus;
@@ -214,4 +219,31 @@ export interface AuthUser {
   tenant_id: string | null;
   full_name: string;
   profile: Profile;
+}
+
+
+export interface EthicsCode {
+  id: string;
+  tenant_id: string;
+  title: string;
+  version: string;
+  content: string;
+  content_hash?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+}
+
+export interface EthicsAcceptance {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  ethics_code_id?: string | null;
+  accepted_name?: string | null;
+  accepted_document_number?: string | null;
+  signature_image_url?: string | null;
+  signature_hash?: string | null;
+  acceptance_text?: string | null;
+  accepted_at?: string | null;
+  user_agent?: string | null;
+  created_at?: string | null;
 }

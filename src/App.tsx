@@ -21,6 +21,8 @@ import AdminAssignments from './pages/admin/AdminAssignments';
 import AdminCertificates from './pages/admin/AdminCertificates';
 import AdminReports from './pages/admin/AdminReports';
 import AdminFeedback from './pages/admin/AdminFeedback';
+import AdminSignatures from './pages/admin/AdminSignatures';
+import AdminSignatureConsent from './pages/admin/AdminSignatureConsent';
 
 // Worker
 import WorkerDashboard from './pages/worker/WorkerDashboard';
@@ -31,6 +33,7 @@ import WorkerCertificates from './pages/worker/WorkerCertificates';
 import WorkerFeedback from './pages/worker/WorkerFeedback';
 import EthicsSignaturePage from './pages/worker/EthicsSignaturePage';
 import { getEthicsRequirement } from './lib/ethics';
+import { getAdminSignatureRequirement } from './lib/adminSignatures';
 import type { EthicsAcceptance, EthicsCode } from './types';
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
@@ -47,6 +50,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-certificates': { title: 'Certificados', subtitle: 'Certificados emitidos, vigentes y vencidos' },
   'admin-reports': { title: 'Reportes', subtitle: 'Exportaciones y análisis por usuario, training o área' },
   'admin-feedback': { title: 'Feedback', subtitle: 'Opiniones de los trabajadores de tu empresa' },
+  'admin-signatures': { title: 'Signatures', subtitle: 'Firmas autorizadas para certificados de tu empresa' },
   'worker-dashboard': { title: 'Mi Dashboard', subtitle: 'Tu actividad, progreso y certificados' },
   'worker-trainings': { title: 'Mis Trainings', subtitle: 'Todos tus trainings asignados' },
   'worker-player': { title: 'Player de Training', subtitle: 'Visualizá el contenido y marcá lecciones como completadas' },
@@ -69,6 +73,7 @@ function AppContent() {
   const [activeView, setActiveView] = useState(() => DEFAULT_VIEW[user?.role ?? 'worker'] ?? 'worker-dashboard');
   const [viewData, setViewData] = useState<unknown>(null);
   const [isCheckingEthics, setIsCheckingEthics] = useState(false);
+  const [isCheckingAdminSignature, setIsCheckingAdminSignature] = useState(false);
   const [ethicsGate, setEthicsGate] = useState<{
     mustSign: boolean;
     tenant: { id: string; name: string; logo_url: string | null } | null;
@@ -76,10 +81,16 @@ function AppContent() {
     acceptance: EthicsAcceptance | null;
     error: string | null;
   }>({ mustSign: false, tenant: null, ethicsCode: null, acceptance: null, error: null });
+  const [adminSignatureGate, setAdminSignatureGate] = useState<{
+    mustSign: boolean;
+    tenant: { id: string; name: string; logo_url: string | null } | null;
+    error: string | null;
+  }>({ mustSign: false, tenant: null, error: null });
 
   useEffect(() => {
     if (!user) {
       setEthicsGate({ mustSign: false, tenant: null, ethicsCode: null, acceptance: null, error: null });
+      setAdminSignatureGate({ mustSign: false, tenant: null, error: null });
       return;
     }
 
@@ -87,6 +98,36 @@ function AppContent() {
     setActiveView(defaultView);
     setViewData(null);
   }, [user?.id, user?.role]);
+
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function checkAdminSignatureGate() {
+      if (!user || user.role !== 'admin') {
+        setAdminSignatureGate({ mustSign: false, tenant: null, error: null });
+        return;
+      }
+
+      setIsCheckingAdminSignature(true);
+      const result = await getAdminSignatureRequirement(user);
+
+      if (!ignore) {
+        setAdminSignatureGate({
+          mustSign: result.mustSign,
+          tenant: result.tenant,
+          error: result.error,
+        });
+        setIsCheckingAdminSignature(false);
+      }
+    }
+
+    checkAdminSignatureGate();
+
+    return () => {
+      ignore = true;
+    };
+  }, [user?.id, user?.role, user?.tenant_id]);
 
   useEffect(() => {
     let ignore = false;
@@ -136,6 +177,28 @@ function AppContent() {
     );
   }
 
+  if (user?.role === 'admin' && isCheckingAdminSignature) {
+    return (
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
+        Verificando conformidad de firma...
+      </div>
+    );
+  }
+
+  if (
+    user?.role === 'admin' &&
+    adminSignatureGate.mustSign &&
+    adminSignatureGate.tenant
+  ) {
+    return (
+      <AdminSignatureConsent
+        user={user}
+        tenant={adminSignatureGate.tenant}
+        onSigned={() => setAdminSignatureGate(current => ({ ...current, mustSign: false }))}
+      />
+    );
+  }
+
   if (user?.role === 'worker' && isCheckingEthics) {
     return (
       <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
@@ -179,6 +242,7 @@ function AppContent() {
       case 'admin-certificates': return <AdminCertificates />;
       case 'admin-reports': return <AdminReports />;
       case 'admin-feedback': return <AdminFeedback />;
+      case 'admin-signatures': return <AdminSignatures />;
       // Worker
       case 'worker-dashboard': return <WorkerDashboard onNavigate={navigate} />;
       case 'worker-trainings': return <WorkerTrainings onNavigate={navigate} />;

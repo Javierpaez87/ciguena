@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, BookOpen, ClipboardList, Award, BarChart2,
   MessageSquare, Settings, ChevronLeft, ChevronRight, Building2,
   Shield, Menu, X, Bell, GraduationCap, FileText, Play,
-  Wrench, LogOut, ChevronDown
+  Wrench, LogOut, FileSignature
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -36,6 +36,7 @@ const adminNav: NavItem[] = [
   { id: 'admin-certificates', label: 'Certificados', icon: <Award size={18} /> },
   { id: 'admin-reports', label: 'Reportes', icon: <BarChart2 size={18} /> },
   { id: 'admin-feedback', label: 'Feedback', icon: <MessageSquare size={18} /> },
+  { id: 'admin-signatures', label: 'Signatures', icon: <FileSignature size={18} /> },
 ];
 
 const workerNav: NavItem[] = [

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getTrainingTestByTrainingId } from '../../data/trainingTests';
+import { baseTrainings } from '../../data/baseTrainings';
 
 interface WorkerTestProps {
   assignment?: {
@@ -50,9 +51,14 @@ const generateCertificateCode = (trainingId: string) => {
   return `CIG-${cleanTrainingId}-${Date.now()}`;
 };
 
-const getDefaultExpirationDate = () => {
+const getExpirationDate = (trainingId: string) => {
+  const training = baseTrainings.find(item => item.id === trainingId);
+  const validityMonths = training?.validity_months ?? 12;
+
+  if (!validityMonths) return null;
+
   const expirationDate = new Date();
-  expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+  expirationDate.setMonth(expirationDate.getMonth() + validityMonths);
   return expirationDate.toISOString();
 };
 
@@ -93,6 +99,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       return {
         tenantId: null as string | null,
         workerSignatureUrl: null as string | null,
+        companySignature: null as any,
       };
     }
 
@@ -108,23 +115,57 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     const profile = profiles?.[0];
 
-    const profileIdForSignature = profile?.id ?? assignment.user_id;
+    const signatureUserIds = Array.from(
+      new Set([
+        assignment.user_id,
+        profile?.id,
+        profile?.auth_user_id,
+      ].filter(Boolean) as string[])
+    );
 
-    const { data: ethicsAcceptance, error: ethicsError } = await supabase
+    const { data: ethicsAcceptances, error: ethicsError } = await supabase
       .from('ethics_acceptances')
       .select('signature_image_url')
-      .or(`user_id.eq.${assignment.user_id},profile_id.eq.${profileIdForSignature}`)
+      .in('user_id', signatureUserIds)
       .order('accepted_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+
+    const ethicsAcceptance = ethicsAcceptances?.[0] ?? null;
 
     if (ethicsError) {
       console.error('Error obteniendo firma del worker para certificado:', ethicsError);
     }
 
+    const tenantId = profile?.tenant_id ?? null;
+
+    let companySignature = null as null | {
+      id: string;
+      signature_image_url: string;
+      signer_name: string;
+      signer_role?: string | null;
+    };
+
+    if (tenantId) {
+      const { data: signatureData, error: signatureError } = await supabase
+        .from('tenant_signatures')
+        .select('id, signature_image_url, signer_name, signer_role')
+        .eq('tenant_id', tenantId)
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (signatureError) {
+        console.error('Error obteniendo firma de empresa para certificado:', signatureError);
+      }
+
+      companySignature = signatureData as typeof companySignature;
+    }
+
     return {
-      tenantId: profile?.tenant_id ?? null,
+      tenantId,
       workerSignatureUrl: ethicsAcceptance?.signature_image_url ?? null,
+      companySignature,
     };
   };
 
@@ -149,7 +190,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     if (existingCertificate?.id) return;
 
-    const { tenantId, workerSignatureUrl } = await getCertificateContext();
+    const { tenantId, workerSignatureUrl, companySignature } = await getCertificateContext();
 
     if (!tenantId) {
       console.error('No se pudo emitir certificado: tenant_id no encontrado para el usuario.');
@@ -163,8 +204,12 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       tenant_id: tenantId,
       certificate_code: generateCertificateCode(assignment.training_id),
       worker_signature_url: workerSignatureUrl,
+      company_signature_id: companySignature?.id ?? null,
+      company_signature_url: companySignature?.signature_image_url ?? null,
+      company_signer_name: companySignature?.signer_name ?? null,
+      company_signer_role: companySignature?.signer_role ?? null,
       issued_at: new Date().toISOString(),
-      expires_at: getDefaultExpirationDate(),
+      expires_at: getExpirationDate(assignment.training_id),
       status: 'valid',
       test_score: score,
       test_attempts_count: attemptNumber,
