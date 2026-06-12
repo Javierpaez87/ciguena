@@ -48,6 +48,15 @@ interface TenantTraining {
   [key: string]: any;
 }
 
+interface EthicsAcceptance {
+  id: string;
+  user_id: string;
+  signature_image_url?: string | null;
+  accepted_at?: string | null;
+  accepted_name?: string | null;
+  [key: string]: any;
+}
+
 interface Certificate {
   id: string;
   tenant_id?: string | null;
@@ -62,7 +71,13 @@ interface Certificate {
   expires_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+
+  // Fallback opcional si en algún momento guardamos firma dentro del certificado.
   worker_signature_url?: string | null;
+
+  // Fuente principal actual: ethics_acceptances.signature_image_url.
+  ethics_signature_url?: string | null;
+
   test_score?: number | null;
   test_attempts_count?: number | null;
   certificate_url?: string | null;
@@ -111,6 +126,16 @@ function getCertificateCode(certificate: Certificate) {
     certificate.code ||
     certificate.id?.slice(0, 8).toUpperCase() ||
     '—'
+  );
+}
+
+function getSignatureUrl(certificate?: Certificate | null) {
+  if (!certificate) return null;
+
+  return (
+    certificate.ethics_signature_url ||
+    certificate.worker_signature_url ||
+    null
   );
 }
 
@@ -271,6 +296,33 @@ export default function AdminCertificates() {
         if (training.training_id) trainingsByAnyId.set(training.training_id, training);
       });
 
+      let ethicsAcceptancesData: EthicsAcceptance[] = [];
+
+      if (userIdsToMatch.length > 0) {
+        const ethicsAcceptancesResult = await supabase
+          .from('ethics_acceptances')
+          .select('*')
+          .in('user_id', userIdsToMatch)
+          .order('accepted_at', { ascending: false });
+
+        if (ethicsAcceptancesResult.error) {
+          console.error('Error cargando firmas de ética:', ethicsAcceptancesResult.error);
+        } else {
+          ethicsAcceptancesData = (ethicsAcceptancesResult.data ?? []) as EthicsAcceptance[];
+        }
+      }
+
+      const ethicsSignatureByUserId = new Map<string, string>();
+
+      ethicsAcceptancesData.forEach((acceptance) => {
+        if (!acceptance.user_id || !acceptance.signature_image_url) return;
+
+        // Como viene ordenado desc por accepted_at, guardamos la firma más reciente.
+        if (!ethicsSignatureByUserId.has(acceptance.user_id)) {
+          ethicsSignatureByUserId.set(acceptance.user_id, acceptance.signature_image_url);
+        }
+      });
+
       const hydratedCertificates = loadedCertificatesRaw.map((certificate) => {
         const trainingKey =
           certificate.tenant_training_id ||
@@ -278,11 +330,27 @@ export default function AdminCertificates() {
           certificate.training_key ||
           certificate.training_slug;
 
+        const certificateUser = certificate.user_id
+          ? usersById.get(certificate.user_id) ?? null
+          : null;
+
+        const possibleSignatureUserIds = [
+          certificate.user_id,
+          certificateUser?.id,
+          certificateUser?.auth_user_id,
+        ].filter(Boolean) as string[];
+
+        const ethicsSignatureUrl =
+          possibleSignatureUserIds
+            .map((id) => ethicsSignatureByUserId.get(id))
+            .find(Boolean) ?? null;
+
         return {
           ...certificate,
-          user: certificate.user_id ? usersById.get(certificate.user_id) ?? null : null,
+          user: certificateUser,
           training: trainingKey ? trainingsByAnyId.get(trainingKey) ?? null : null,
           status: getComputedStatus(certificate),
+          ethics_signature_url: ethicsSignatureUrl,
         };
       });
 
@@ -348,6 +416,7 @@ export default function AdminCertificates() {
       'Emitido',
       'Vence',
       'Estado',
+      'Tiene firma',
     ];
 
     const rows = filtered.map((certificate) => [
@@ -360,6 +429,7 @@ export default function AdminCertificates() {
       formatDate(getIssuedDate(certificate)),
       formatDate(certificate.expires_at),
       getComputedStatus(certificate),
+      getSignatureUrl(certificate) ? 'Sí' : 'No',
     ]);
 
     const csvContent = [headers, ...rows]
@@ -404,7 +474,7 @@ export default function AdminCertificates() {
 
   function printCertificate(certificate: Certificate) {
     const workerName = getFullName(certificate.user);
-    const workerSignatureUrl = certificate.worker_signature_url;
+    const workerSignatureUrl = getSignatureUrl(certificate);
     const trainingTitle = getTrainingTitle(certificate.training, certificate);
     const certificateCode = getCertificateCode(certificate);
     const status = getComputedStatus(certificate);
@@ -845,9 +915,9 @@ export default function AdminCertificates() {
                 <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
                   <div>
                     <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
-                      {selectedCertificate.worker_signature_url ? (
+                      {getSignatureUrl(selectedCertificate) ? (
                         <img
-                          src={selectedCertificate.worker_signature_url}
+                          src={getSignatureUrl(selectedCertificate) || ''}
                           alt="Firma trabajador"
                           className="max-h-24 max-w-full object-contain"
                           style={{ filter: 'invert(1) contrast(1.4)' }}
