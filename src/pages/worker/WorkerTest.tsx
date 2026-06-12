@@ -36,6 +36,13 @@ type TestOption =
       option_text?: string;
     };
 
+type ShuffledQuestion = {
+  id: string;
+  question: string;
+  options: TestOption[];
+  correctOption: string;
+};
+
 type CertificateContext = {
   tenantId: string | null;
   workerSignatureUrl: string | null;
@@ -75,6 +82,19 @@ const getExpirationDate = (trainingId: string) => {
   return expirationDate.toISOString();
 };
 
+const shuffleArray = <T,>(items: T[]) => {
+  const shuffled = [...items];
+
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    const temporary = shuffled[index];
+    shuffled[index] = shuffled[randomIndex];
+    shuffled[randomIndex] = temporary;
+  }
+
+  return shuffled;
+};
+
 export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) {
   const trainingId = assignment?.training_id ?? '';
   const test = getTrainingTestByTrainingId(trainingId);
@@ -92,14 +112,17 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   const [isSaving, setIsSaving] = useState(false);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
 
-  const questionsForAttempt = useMemo(() => {
+  const questionsForAttempt = useMemo<ShuffledQuestion[]>(() => {
     if (!test) return [];
 
     const questionsPerAttempt = test.questionsPerAttempt;
     const startIndex = (attempt - 1) * questionsPerAttempt;
     const endIndex = startIndex + questionsPerAttempt;
 
-    return test.questions.slice(startIndex, endIndex);
+    return test.questions.slice(startIndex, endIndex).map(question => ({
+      ...question,
+      options: shuffleArray(question.options),
+    }));
   }, [test, attempt]);
 
   const maxAttempts = test ? Math.ceil(test.questions.length / test.questionsPerAttempt) : 0;
@@ -521,6 +544,10 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
               Nuevo intento: se mostrarán otras preguntas del banco.
             </p>
           )}
+
+          <p className="text-xs text-steel-500 mb-5">
+            Las opciones se muestran en orden aleatorio para evitar patrones de respuesta.
+          </p>
 
           <button onClick={() => setState('taking')} className="btn-primary mx-auto px-8 py-3 text-base">
             <Play size={18} /> Comenzar evaluación
