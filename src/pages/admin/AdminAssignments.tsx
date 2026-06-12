@@ -43,6 +43,7 @@ interface Profile {
   last_name?: string | null;
   email?: string | null;
   role?: string | null;
+  job_role?: string | null;
   position?: string | null;
   area?: string | null;
   employee_code?: string | null;
@@ -140,7 +141,11 @@ function getInitial(profile?: Profile | null) {
 }
 
 function getWorkerRole(profile?: Profile | null) {
-  return profile?.position?.trim() || 'Sin rol definido';
+  return (
+    profile?.job_role?.trim() ||
+    profile?.position?.trim() ||
+    'Sin rol definido'
+  );
 }
 
 function getTrainingTitle(training?: TenantTraining | null, assignment?: Assignment | null) {
@@ -276,12 +281,13 @@ export default function AdminAssignments() {
     setSuccessMessage(null);
 
     try {
-      const [assignmentsResult, usersResult, trainingsResult, certificatesResult] = await Promise.all([
-        supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
-        supabase.from('profiles').select('*').eq('tenant_id', tenantId),
-        supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
-        supabase.from('certificates').select('*').eq('tenant_id', tenantId),
-      ]);
+      const [assignmentsResult, usersResult, trainingsResult, certificatesResult] =
+        await Promise.all([
+          supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
+          supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+          supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
+          supabase.from('certificates').select('*').eq('tenant_id', tenantId),
+        ]);
 
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (usersResult.error) throw usersResult.error;
@@ -394,6 +400,7 @@ export default function AdminAssignments() {
       const userName = getFullName(assignment.user);
       const userEmail = assignment.user?.email || '';
       const userArea = assignment.user?.area || '';
+      const userJobRole = assignment.user?.job_role || '';
       const userPosition = assignment.user?.position || '';
       const userRole = getWorkerRole(assignment.user);
       const trainingTitle = getTrainingTitle(assignment.training, assignment);
@@ -405,6 +412,7 @@ export default function AdminAssignments() {
         normalize(userName).includes(searchValue) ||
         normalize(userEmail).includes(searchValue) ||
         normalize(userArea).includes(searchValue) ||
+        normalize(userJobRole).includes(searchValue) ||
         normalize(userPosition).includes(searchValue) ||
         normalize(trainingTitle).includes(searchValue);
 
@@ -455,8 +463,13 @@ export default function AdminAssignments() {
         return;
       }
 
-      const existingDate = new Date(existing.updated_at || existing.assigned_at || existing.created_at || '').getTime();
-      const nextDate = new Date(assignment.updated_at || assignment.assigned_at || assignment.created_at || '').getTime();
+      const existingDate = new Date(
+        existing.updated_at || existing.assigned_at || existing.created_at || ''
+      ).getTime();
+
+      const nextDate = new Date(
+        assignment.updated_at || assignment.assigned_at || assignment.created_at || ''
+      ).getTime();
 
       if (nextDate > existingDate) {
         map.set(key, assignment);
@@ -1542,7 +1555,8 @@ export default function AdminAssignments() {
                 <div className="max-h-48 overflow-y-auto space-y-1">
                   {assignmentReview.slice(0, 14).map((item) => {
                     const isSkipped =
-                      (item.classification === 'completed' || item.classification === 'certified') &&
+                      (item.classification === 'completed' ||
+                        item.classification === 'certified') &&
                       !includeCertifiedUsers;
 
                     return (
