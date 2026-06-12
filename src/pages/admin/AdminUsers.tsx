@@ -546,8 +546,16 @@ export default function AdminUsers() {
     const previousUsers = users;
 
     setUsers((currentUsers) =>
-      currentUsers.map((item) => (item.id === profile.id ? { ...item, status: nextStatus } : item))
-    );
+  currentUsers.map((item) =>
+    item.id === profile.id
+      ? {
+          ...item,
+          status: nextStatus,
+          preapproved: nextStatus === 'active' ? true : item.preapproved,
+        }
+      : item
+  )
+);
 
 const updatePayload: Record<string, any> = {
   status: nextStatus,
