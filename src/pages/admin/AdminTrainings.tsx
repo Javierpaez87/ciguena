@@ -236,14 +236,19 @@ export default function AdminTrainings() {
 
   const sendAssignmentEmails = async (assignmentIds: string[]) => {
     if (assignmentIds.length === 0) {
+      console.warn('No hay assignmentIds para enviar emails.');
       return {
         sent: 0,
         failed: 0,
       };
     }
 
+    console.log('Enviando emails para assignmentIds:', assignmentIds);
+
     const results = await Promise.allSettled(
       assignmentIds.map(async assignmentId => {
+        console.log('Enviando mail de asignación para assignmentId:', assignmentId);
+
         const response = await fetch('/.netlify/functions/send-training-assignment-email', {
           method: 'POST',
           headers: {
@@ -252,12 +257,14 @@ export default function AdminTrainings() {
           body: JSON.stringify({ assignmentId }),
         });
 
+        const responseBody = await response.json().catch(() => null);
+
         if (!response.ok) {
-          const errorBody = await response.json().catch(() => null);
-          throw new Error(errorBody?.error || 'No se pudo enviar el email.');
+          console.error('Falló send-training-assignment-email:', response.status, responseBody);
+          throw new Error(responseBody?.error || 'No se pudo enviar el email.');
         }
 
-        return response.json();
+        return responseBody;
       })
     );
 
@@ -336,12 +343,11 @@ export default function AdminTrainings() {
       expires_at: null,
     }));
 
-    const { data: insertedAssignments, error } = await supabase
+    const { error } = await supabase
       .from('training_assignments')
       .upsert(assignments, {
         onConflict: 'tenant_id,training_id,user_id',
-      })
-      .select('id, user_id');
+      });
 
     if (error) {
       console.error('Error asignando training:', error);
@@ -350,9 +356,27 @@ export default function AdminTrainings() {
       return;
     }
 
-    const assignmentIds = (insertedAssignments ?? [])
+    const { data: createdAssignments, error: createdAssignmentsError } = await supabase
+      .from('training_assignments')
+      .select('id, user_id')
+      .eq('tenant_id', tenantId)
+      .eq('training_id', showAssign.id)
+      .in('user_id', newTargets);
+
+    if (createdAssignmentsError) {
+      console.error('Error buscando asignaciones para enviar emails:', createdAssignmentsError);
+      setIsAssigning(false);
+      setAssignError(
+        `El training fue asignado, pero no pudimos preparar los emails: ${createdAssignmentsError.message}`
+      );
+      return;
+    }
+
+    const assignmentIds = (createdAssignments ?? [])
       .map(row => row.id as string)
       .filter(Boolean);
+
+    console.log('Assignment IDs para enviar mail:', assignmentIds);
 
     const emailResult = await sendAssignmentEmails(assignmentIds);
 
