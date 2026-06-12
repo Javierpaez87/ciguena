@@ -535,7 +535,7 @@ export default function AdminUsers() {
   }, [assignments]);
 
   async function toggleStatus(profile: Profile) {
-    if (!profile.id) return;
+    if (!profile.id || !tenantId) return;
 
     const currentIsActive = isActive(profile);
     const nextStatus = currentIsActive ? 'inactive' : 'active';
@@ -546,44 +546,63 @@ export default function AdminUsers() {
     const previousUsers = users;
 
     setUsers((currentUsers) =>
-  currentUsers.map((item) =>
-    item.id === profile.id
-      ? {
-          ...item,
+      currentUsers.map((item) =>
+        item.id === profile.id
+          ? {
+              ...item,
+              status: nextStatus,
+              preapproved: nextStatus === 'active' ? true : item.preapproved,
+            }
+          : item
+      )
+    );
+
+    try {
+      const response = await fetch('/.netlify/functions/approve-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          profileId: profile.id,
+          tenantId,
           status: nextStatus,
-          preapproved: nextStatus === 'active' ? true : item.preapproved,
-        }
-      : item
-  )
-);
+        }),
+      });
 
-const updatePayload: Record<string, any> = {
-  status: nextStatus,
-  updated_at: new Date().toISOString(),
-};
+      const result = await response.json().catch(() => null);
 
-if (nextStatus === 'active') {
-  updatePayload.preapproved = true;
-}
+      if (!response.ok) {
+        throw new Error(result?.error || 'No pudimos actualizar el usuario.');
+      }
 
-const { error } = await supabase
-  .from('profiles')
-  .update(updatePayload)
-  .eq('id', profile.id)
-  .eq('tenant_id', tenantId);
+      if (result?.profile) {
+        setUsers((currentUsers) =>
+          currentUsers.map((item) =>
+            item.id === profile.id
+              ? {
+                  ...item,
+                  ...result.profile,
+                }
+              : item
+          )
+        );
+      }
 
-    if (error) {
+      setSuccessMessage(
+        nextStatus === 'active'
+          ? result?.email_sent
+            ? 'Usuario activado correctamente. Se envió el mail de aprobación.'
+            : 'Usuario activado correctamente, pero no se pudo confirmar el envío del mail.'
+          : 'Usuario desactivado correctamente.'
+      );
+    } catch (error) {
       console.error('Error updating user status:', error);
       setUsers(previousUsers);
-      setErrorMessage(error.message);
-      return;
+      setErrorMessage(
+        error instanceof Error ? error.message : 'No se pudo actualizar el usuario.'
+      );
     }
-
-    setSuccessMessage(
-      nextStatus === 'active'
-        ? 'Usuario activado correctamente.'
-        : 'Usuario desactivado correctamente.'
-    );
   }
 
   async function handleCreate() {
