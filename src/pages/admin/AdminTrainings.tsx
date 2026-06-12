@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Search,
   BookOpen,
@@ -10,10 +10,19 @@ import {
   ClipboardCheck,
   CheckCircle2,
   AlertCircle,
+  Eye,
+  Check,
+  ClipboardList,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
+import {
+  getTrainingTestByTrainingId,
+  type TrainingTest,
+  type TrainingTestQuestion,
+} from '../../data/trainingTests';
 import type { Profile, Training } from '../../types';
 import Modal from '../../components/ui/Modal';
 
@@ -26,6 +35,7 @@ export default function AdminTrainings() {
   const [search, setSearch] = useState('');
   const [showDetail, setShowDetail] = useState<Training | null>(null);
   const [showAssign, setShowAssign] = useState<Training | null>(null);
+  const [showQuestions, setShowQuestions] = useState<Training | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
   const [assignAll, setAssignAll] = useState(false);
@@ -98,6 +108,38 @@ export default function AdminTrainings() {
   const filtered = trainings.filter(t =>
     t.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  const detailTest = useMemo(() => {
+    if (!showDetail) return null;
+    return getTrainingTestByTrainingId(showDetail.id);
+  }, [showDetail]);
+
+  const questionsTest = useMemo(() => {
+    if (!showQuestions) return null;
+    return getTrainingTestByTrainingId(showQuestions.id);
+  }, [showQuestions]);
+
+  const getQuestionsByAttempt = (test: TrainingTest) => {
+    const attempts: Array<{
+      attemptNumber: number;
+      questions: TrainingTestQuestion[];
+    }> = [];
+
+    for (let index = 0; index < test.maxAttempts; index += 1) {
+      const startIndex = index * test.questionsPerAttempt;
+      const endIndex = startIndex + test.questionsPerAttempt;
+      const questions = test.questions.slice(startIndex, endIndex);
+
+      if (questions.length > 0) {
+        attempts.push({
+          attemptNumber: index + 1,
+          questions,
+        });
+      }
+    }
+
+    return attempts;
+  };
 
   const openAssignModal = async (training: Training) => {
     setShowAssign(training);
@@ -258,6 +300,144 @@ export default function AdminTrainings() {
     );
   };
 
+  const renderQuestionsModalContent = (training: Training, test: TrainingTest | null) => {
+    if (!test) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200 flex items-start gap-3">
+            <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="font-semibold">Este training todavía no tiene test cargado</div>
+              <div className="text-amber-100/80 mt-1">
+                El training está habilitado para tu empresa, pero todavía no existen preguntas
+                cargadas en el repo para esta capacitación.
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-steel-700 bg-steel-900 p-4">
+            <div className="text-xs text-steel-500 mb-1">Training</div>
+            <div className="text-sm font-semibold text-steel-100">{training.title}</div>
+            <div className="text-xs text-steel-400 mt-1">
+              Puntaje mínimo configurado: {training.passing_score}%
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const attempts = getQuestionsByAttempt(test);
+
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              <ClipboardCheck size={18} className="text-emerald-400" />
+            </div>
+
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-steel-100">{test.title}</div>
+              <div className="text-xs text-steel-400 mt-1">
+                {test.description || 'Evaluación cargada desde el repo.'}
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="badge badge-success">Test real cargado</span>
+                <span className="badge badge-info">{test.questions.length} preguntas</span>
+                <span className="badge badge-neutral">
+                  {test.questionsPerAttempt} preguntas por intento
+                </span>
+                <span className="badge badge-neutral">{test.maxAttempts} intentos</span>
+                <span className="badge badge-warning">{test.passingScore}% aprobación</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {attempts.map((attempt) => (
+          <div key={attempt.attemptNumber} className="rounded-xl border border-steel-700 bg-steel-950 p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Layers size={15} className="text-amber-400" />
+              <div className="text-sm font-semibold text-steel-100">
+                Intento {attempt.attemptNumber}
+              </div>
+              <div className="text-xs text-steel-500">
+                {attempt.questions.length} preguntas
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {attempt.questions.map((question, index) => {
+                const globalIndex =
+                  (attempt.attemptNumber - 1) * test.questionsPerAttempt + index;
+
+                return (
+                  <div
+                    key={question.id}
+                    className="rounded-xl border border-steel-700 bg-steel-900 p-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 flex-shrink-0">
+                        {globalIndex + 1}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-3">
+                          <p className="text-sm font-medium text-steel-100">
+                            {question.question}
+                          </p>
+
+                          <span className="text-xs text-steel-500 font-mono flex-shrink-0">
+                            {question.id}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {question.options.map((option) => {
+                            const isCorrect = option.key === question.correctOption;
+
+                            return (
+                              <div
+                                key={option.key}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+                                  isCorrect
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                                    : 'bg-steel-950 border-steel-700 text-steel-300'
+                                }`}
+                              >
+                                <div
+                                  className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold uppercase ${
+                                    isCorrect
+                                      ? 'bg-emerald-500 text-white'
+                                      : 'border border-steel-600 text-steel-400'
+                                  }`}
+                                >
+                                  {isCorrect ? <Check size={11} className="text-white" /> : option.key}
+                                </div>
+
+                                <span>
+                                  <span className="uppercase font-semibold mr-1">
+                                    {option.key}.
+                                  </span>
+                                  {option.text}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="relative max-w-sm">
@@ -294,82 +474,96 @@ export default function AdminTrainings() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filtered.map(tr => (
-              <div key={tr.id} className="card hover:border-steel-600 transition-all">
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="w-10 h-10 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <BookOpen size={18} className="text-petroleum-200" />
-                  </div>
+            {filtered.map(tr => {
+              const test = getTrainingTestByTrainingId(tr.id);
 
-                  <div className="flex-1 min-w-0">
-                    <div className="text-base font-semibold text-steel-100 mb-1">
-                      {tr.title}
+              return (
+                <div key={tr.id} className="card hover:border-steel-600 transition-all">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-10 h-10 bg-petroleum-700 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <BookOpen size={18} className="text-petroleum-200" />
                     </div>
-                    <p className="text-xs text-steel-400 line-clamp-2">
-                      {tr.description}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <span className="badge badge-info">{tr.category}</span>
-
-                  <span className="badge badge-neutral flex items-center gap-1">
-                    <Clock size={10} /> {tr.duration_minutes} min
-                  </span>
-
-                  {tr.certificate_enabled && (
-                    <span className="badge badge-warning flex items-center gap-1">
-                      <Award size={10} /> Certifica
-                    </span>
-                  )}
-
-                  {tr.validity_months && (
-                    <span className="badge badge-neutral">
-                      {tr.validity_months}m vigencia
-                    </span>
-                  )}
-
-                  {tr.content_type && (
-                    <span className="badge badge-neutral">
-                      {getContentLabel(tr)}
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="bg-steel-900 rounded-lg p-2.5 text-center">
-                    <div className="text-sm font-bold text-steel-100">
-                      {tr.passing_score}%
+                    <div className="flex-1 min-w-0">
+                      <div className="text-base font-semibold text-steel-100 mb-1">
+                        {tr.title}
+                      </div>
+                      <p className="text-xs text-steel-400 line-clamp-2">
+                        {tr.description}
+                      </p>
                     </div>
-                    <div className="text-xs text-steel-500">Min. aprobación</div>
                   </div>
 
-                  <div className="bg-steel-900 rounded-lg p-2.5 text-center">
-                    <div className="text-sm font-bold text-steel-100">
-                      {tr.max_attempts ?? '∞'}
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <span className="badge badge-info">{tr.category}</span>
+
+                    <span className="badge badge-neutral flex items-center gap-1">
+                      <Clock size={10} /> {tr.duration_minutes} min
+                    </span>
+
+                    {tr.certificate_enabled && (
+                      <span className="badge badge-warning flex items-center gap-1">
+                        <Award size={10} /> Certifica
+                      </span>
+                    )}
+
+                    {tr.validity_months && (
+                      <span className="badge badge-neutral">
+                        {tr.validity_months}m vigencia
+                      </span>
+                    )}
+
+                    {tr.content_type && (
+                      <span className="badge badge-neutral">
+                        {getContentLabel(tr)}
+                      </span>
+                    )}
+
+                    {test ? (
+                      <span className="badge badge-success">
+                        Test cargado
+                      </span>
+                    ) : (
+                      <span className="badge badge-neutral">
+                        Sin test
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    <div className="bg-steel-900 rounded-lg p-2.5 text-center">
+                      <div className="text-sm font-bold text-steel-100">
+                        {test?.passingScore ?? tr.passing_score}%
+                      </div>
+                      <div className="text-xs text-steel-500">Min. aprobación</div>
                     </div>
-                    <div className="text-xs text-steel-500">Intentos</div>
+
+                    <div className="bg-steel-900 rounded-lg p-2.5 text-center">
+                      <div className="text-sm font-bold text-steel-100">
+                        {test?.maxAttempts ?? tr.max_attempts ?? '∞'}
+                      </div>
+                      <div className="text-xs text-steel-500">Intentos</div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowDetail(tr)}
+                      className="btn-ghost text-xs flex-1 justify-center"
+                    >
+                      <ChevronRight size={13} /> Detalle
+                    </button>
+
+                    <button
+                      onClick={() => openAssignModal(tr)}
+                      className="btn-primary text-xs flex-1 justify-center"
+                    >
+                      <Plus size={13} /> Asignar
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowDetail(tr)}
-                    className="btn-ghost text-xs flex-1 justify-center"
-                  >
-                    <ChevronRight size={13} /> Detalle
-                  </button>
-
-                  <button
-                    onClick={() => openAssignModal(tr)}
-                    className="btn-primary text-xs flex-1 justify-center"
-                  >
-                    <Plus size={13} /> Asignar
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {filtered.length === 0 && (
@@ -407,19 +601,45 @@ export default function AdminTrainings() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <ClipboardCheck size={16} className="text-amber-400" />
-                <h3 className="text-sm font-semibold text-steel-100">
-                  Evaluación
-                </h3>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ClipboardCheck size={16} className="text-amber-400" />
+                  <h3 className="text-sm font-semibold text-steel-100">
+                    Evaluación
+                  </h3>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowQuestions(showDetail)}
+                  className="btn-secondary text-xs py-2"
+                >
+                  <Eye size={13} />
+                  Preguntas
+                </button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Requiere examen', value: showDetail.passing_score > 0 ? 'Sí' : 'No' },
-                  { label: 'Preguntas configuradas', value: 'Próximamente' },
-                  { label: 'Puntaje mínimo', value: `${showDetail.passing_score}%` },
-                  { label: 'Intentos máx.', value: showDetail.max_attempts?.toString() ?? 'Ilimitado' },
+                  {
+                    label: 'Requiere examen',
+                    value: showDetail.passing_score > 0 ? 'Sí' : 'No',
+                  },
+                  {
+                    label: 'Preguntas configuradas',
+                    value: detailTest ? `${detailTest.questions.length}` : 'Sin test cargado',
+                  },
+                  {
+                    label: 'Puntaje mínimo',
+                    value: `${detailTest?.passingScore ?? showDetail.passing_score}%`,
+                  },
+                  {
+                    label: 'Intentos máx.',
+                    value:
+                      detailTest?.maxAttempts?.toString() ??
+                      showDetail.max_attempts?.toString() ??
+                      'Ilimitado',
+                  },
                 ].map(item => (
                   <div key={item.label} className="bg-steel-900 rounded-lg p-3">
                     <div className="text-xs text-steel-500 mb-1">{item.label}</div>
@@ -453,6 +673,17 @@ export default function AdminTrainings() {
               </div>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {showQuestions && (
+        <Modal
+          open={!!showQuestions}
+          onClose={() => setShowQuestions(null)}
+          title={`Preguntas — ${showQuestions.title}`}
+          size="lg"
+        >
+          {renderQuestionsModalContent(showQuestions, questionsTest)}
         </Modal>
       )}
 
