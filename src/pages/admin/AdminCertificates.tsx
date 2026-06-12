@@ -7,9 +7,7 @@ import {
   FileText,
   RefreshCw,
   AlertCircle,
-  Eye,
   X,
-  ExternalLink,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -46,6 +44,7 @@ interface TenantTraining {
   title?: string | null;
   name?: string | null;
   training_title?: string | null;
+  description?: string | null;
   [key: string]: any;
 }
 
@@ -63,6 +62,9 @@ interface Certificate {
   expires_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  worker_signature_url?: string | null;
+  test_score?: number | null;
+  test_attempts_count?: number | null;
   certificate_url?: string | null;
   pdf_url?: string | null;
   file_url?: string | null;
@@ -112,32 +114,6 @@ function getCertificateCode(certificate: Certificate) {
   );
 }
 
-function getCertificateUrl(certificate: Certificate) {
-  return (
-    certificate.certificate_url ||
-    certificate.pdf_url ||
-    certificate.file_url ||
-    certificate.download_url ||
-    null
-  );
-}
-
-function getSafeFileName(certificate: Certificate) {
-  const userName = getFullName(certificate.user)
-    .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+/g, '_')
-    .replace(/_+/g, '_');
-
-  const trainingTitle = getTrainingTitle(certificate.training, certificate)
-    .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+/g, '_')
-    .replace(/_+/g, '_');
-
-  const code = getCertificateCode(certificate)
-    .replace(/[^a-zA-Z0-9_-]+/g, '_')
-    .replace(/_+/g, '_');
-
-  return `certificado_${userName}_${trainingTitle}_${code}.pdf`;
-}
-
 function formatDate(date?: string | null) {
   if (!date) return '—';
 
@@ -146,6 +122,16 @@ function formatDate(date?: string | null) {
   if (Number.isNaN(parsed.getTime())) return '—';
 
   return parsed.toLocaleDateString('es-AR');
+}
+
+function formatDateTime(date?: string | null) {
+  if (!date) return '—';
+
+  const parsed = new Date(date);
+
+  if (Number.isNaN(parsed.getTime())) return '—';
+
+  return parsed.toLocaleString('es-AR');
 }
 
 function getIssuedDate(certificate: Certificate) {
@@ -200,6 +186,7 @@ export default function AdminCertificates() {
   const tenantId = user?.tenant_id;
 
   const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [tenantName, setTenantName] = useState<string>('Empresa / Tenant');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -222,13 +209,18 @@ export default function AdminCertificates() {
     setSuccessMessage(null);
 
     try {
-      const [usersResult, trainingsResult] = await Promise.all([
+      const [usersResult, trainingsResult, tenantResult] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
+        supabase.from('tenants').select('id, name').eq('id', tenantId).maybeSingle(),
       ]);
 
       if (usersResult.error) throw usersResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
+
+      if (!tenantResult.error && tenantResult.data?.name) {
+        setTenantName(tenantResult.data.name);
+      }
 
       const loadedUsers = (usersResult.data ?? []) as Profile[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
@@ -356,7 +348,6 @@ export default function AdminCertificates() {
       'Emitido',
       'Vence',
       'Estado',
-      'URL',
     ];
 
     const rows = filtered.map((certificate) => [
@@ -369,7 +360,6 @@ export default function AdminCertificates() {
       formatDate(getIssuedDate(certificate)),
       formatDate(certificate.expires_at),
       getComputedStatus(certificate),
-      getCertificateUrl(certificate) || '',
     ]);
 
     const csvContent = [headers, ...rows]
@@ -412,59 +402,106 @@ export default function AdminCertificates() {
     }, 3000);
   }
 
-  function handlePreview(certificate: Certificate) {
-    const url = getCertificateUrl(certificate);
+  function printCertificate(certificate: Certificate) {
+    const workerName = getFullName(certificate.user);
+    const workerSignatureUrl = certificate.worker_signature_url;
+    const trainingTitle = getTrainingTitle(certificate.training, certificate);
+    const certificateCode = getCertificateCode(certificate);
+    const status = getComputedStatus(certificate);
+    const issuerName = tenantName || 'Empresa / Tenant';
 
-    if (!url) {
-      setErrorMessage('Este certificado todavía no tiene una URL de preview guardada.');
-      setSuccessMessage(null);
-      return;
-    }
+    const workerSignatureBlock = workerSignatureUrl
+      ? `<img src="${workerSignatureUrl}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
+      : '<div style="height:70px;color:#64748b;font-size:12px;display:flex;align-items:center;">Firma no disponible</div>';
 
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    setSelectedCertificate(certificate);
-  }
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${certificateCode}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
+            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
+            .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+            .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
+            h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
+            .lead { text-align: center; color: #475569; font-size: 16px; }
+            .name { text-align: center; font-size: 30px; font-weight: 800; margin: 24px 0; }
+            .training { text-align: center; font-size: 22px; font-weight: 700; color: #0f172a; }
+            .issuer { text-align: center; color: #475569; font-size: 14px; margin-top: 12px; }
+            .meta { margin-top: 42px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 14px; }
+            .box { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; }
+            .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+            .signatures { margin-top: 54px; display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: end; }
+            .signature-slot { height:70px; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-size:12px; border:1px dashed #cbd5e1; border-radius:10px; }
+            .line { border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #334155; margin-top:8px; }
+            .audit { margin-top: 34px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-family: monospace; color: #64748b; font-size: 11px; line-height: 1.6; }
+            @media print { body { padding: 0; } .certificate { border-width: 2px; min-height: calc(100vh - 88px); } }
+          </style>
+        </head>
+        <body>
+          <main class="certificate">
+            <div class="brand">CIGÜEÑA</div>
+            <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
 
-  function handleDownload(certificate: Certificate) {
-    const url = getCertificateUrl(certificate);
+            <h1>Certificado de capacitación</h1>
 
-    if (!url) {
-      setErrorMessage('Este certificado todavía no tiene una URL de descarga guardada.');
-      setSuccessMessage(null);
-      return;
-    }
+            <p class="lead">Se certifica que</p>
+            <div class="name">${workerName}</div>
 
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = getSafeFileName(certificate);
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
+            <p class="lead">aprobó satisfactoriamente la capacitación</p>
+            <div class="training">${trainingTitle}</div>
 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
+            <div class="issuer">Emitido por: <strong>${issuerName}</strong></div>
 
-  function handleOpenInNewTab(certificate: Certificate) {
-    const url = getCertificateUrl(certificate);
+            <section class="meta">
+              <div class="box"><div class="label">Código</div>${certificateCode}</div>
+              <div class="box"><div class="label">Estado</div>${status}</div>
+              <div class="box"><div class="label">Emitido</div>${formatDate(getIssuedDate(certificate))}</div>
+              <div class="box"><div class="label">Vencimiento</div>${formatDate(certificate.expires_at)}</div>
+              <div class="box"><div class="label">Puntaje</div>${certificate.test_score ?? '-'}%</div>
+              <div class="box"><div class="label">Intentos utilizados</div>${certificate.test_attempts_count ?? '-'}</div>
+            </section>
 
-    if (!url) {
-      setErrorMessage('Este certificado todavía no tiene una URL guardada.');
-      setSuccessMessage(null);
-      return;
-    }
+            <section class="signatures">
+              <div>
+                ${workerSignatureBlock}
+                <div class="line">Firma electrónica del trabajador</div>
+              </div>
 
-    window.open(url, '_blank', 'noopener,noreferrer');
+              <div>
+                <div class="signature-slot">Firma responsable de capacitaciones</div>
+                <div class="line">Responsable de capacitaciones · ${issuerName}</div>
+              </div>
+            </section>
+
+            <div class="audit">
+              Registro auditable · Certificate ID: ${certificate.id}<br/>
+              Assignment ID: ${certificate.assignment_id || 'sin assignment'}<br/>
+              User ID: ${certificate.user_id || 'sin user'}<br/>
+              Tenant ID: ${certificate.tenant_id || 'sin tenant'}<br/>
+              Training ID: ${certificate.training_id || 'sin training'}<br/>
+              Created at: ${formatDateTime(certificate.created_at || getIssuedDate(certificate))}
+            </div>
+          </main>
+
+          <script>window.onload = () => window.print();</script>
+        </body>
+      </html>
+    `;
+
+    const popup = window.open('', '_blank', 'width=900,height=700');
+    if (!popup) return;
+
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
   }
 
   const validCount = getStatusCount('valid');
   const expiringCount = getStatusCount('expiring_soon');
   const expiredCount = getStatusCount('expired');
-
-  const selectedCertificateUrl = selectedCertificate
-    ? getCertificateUrl(selectedCertificate)
-    : null;
 
   if (loading) {
     return (
@@ -616,7 +653,6 @@ export default function AdminCertificates() {
                 {filtered.map((certificate) => {
                   const userName = getFullName(certificate.user);
                   const trainingTitle = getTrainingTitle(certificate.training, certificate);
-                  const certificateUrl = getCertificateUrl(certificate);
                   const status = getComputedStatus(certificate);
 
                   return (
@@ -665,35 +701,17 @@ export default function AdminCertificates() {
                       <td className="table-cell text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
-                            onClick={() => handlePreview(certificate)}
-                            className={`p-1.5 rounded transition-colors ${
-                              certificateUrl
-                                ? 'text-steel-400 hover:text-amber-400 hover:bg-steel-700'
-                                : 'text-steel-700 cursor-not-allowed'
-                            }`}
-                            title={
-                              certificateUrl
-                                ? 'Ver preview del certificado'
-                                : 'Este certificado no tiene URL guardada'
-                            }
-                            disabled={!certificateUrl}
+                            onClick={() => setSelectedCertificate(certificate)}
+                            className="p-1.5 rounded transition-colors text-steel-400 hover:text-amber-400 hover:bg-steel-700"
+                            title="Ver certificado"
                           >
-                            <Eye size={14} />
+                            <FileText size={14} />
                           </button>
 
                           <button
-                            onClick={() => handleDownload(certificate)}
-                            className={`p-1.5 rounded transition-colors ${
-                              certificateUrl
-                                ? 'text-steel-400 hover:text-amber-400 hover:bg-steel-700'
-                                : 'text-steel-700 cursor-not-allowed'
-                            }`}
-                            title={
-                              certificateUrl
-                                ? 'Descargar PDF'
-                                : 'Este certificado no tiene URL guardada'
-                            }
-                            disabled={!certificateUrl}
+                            onClick={() => printCertificate(certificate)}
+                            className="p-1.5 rounded transition-colors text-steel-400 hover:text-amber-400 hover:bg-steel-700"
+                            title="Descargar PDF"
                           >
                             <Download size={14} />
                           </button>
@@ -724,54 +742,160 @@ export default function AdminCertificates() {
         </div>
       </div>
 
-      {selectedCertificate && selectedCertificateUrl && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-steel-950 border border-steel-700 rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex items-start sm:items-center justify-between gap-3 px-4 py-3 border-b border-steel-700">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-steel-100 truncate">
-                  Certificado · {getTrainingTitle(selectedCertificate.training, selectedCertificate)}
+      {selectedCertificate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-steel-950 border border-steel-700 shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-steel-800 bg-steel-950 px-5 py-4">
+              <div>
+                <div className="text-sm font-semibold text-steel-100">
+                  Certificado firmado
                 </div>
-
-                <div className="text-xs text-steel-500 truncate mt-0.5">
-                  {getFullName(selectedCertificate.user)} · Código{' '}
+                <div className="text-xs text-steel-500">
+                  {getTrainingTitle(selectedCertificate.training, selectedCertificate)} ·{' '}
                   {getCertificateCode(selectedCertificate)}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => handleOpenInNewTab(selectedCertificate)}
-                  className="btn-secondary text-xs hidden sm:inline-flex"
-                >
-                  <ExternalLink size={14} />
-                  Abrir
-                </button>
-
-                <button
-                  onClick={() => handleDownload(selectedCertificate)}
-                  className="btn-primary text-xs"
-                >
-                  <Download size={14} />
-                  Descargar PDF
-                </button>
-
-                <button
-                  onClick={() => setSelectedCertificate(null)}
-                  className="p-2 rounded-lg text-steel-400 hover:text-steel-100 hover:bg-steel-800 transition-colors"
-                  title="Cerrar preview"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCertificate(null)}
+                className="rounded-lg p-2 text-steel-400 hover:bg-steel-800 hover:text-steel-100"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            <div className="flex-1 bg-steel-900">
-              <iframe
-                src={selectedCertificateUrl}
-                title={`Preview certificado ${getCertificateCode(selectedCertificate)}`}
-                className="w-full h-full border-0 bg-white"
-              />
+            <div className="p-5">
+              <div className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4 border-amber-500">
+                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
+                  CIGÜEÑA
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  by BondiApps · Plataforma de capacitaciones y certificaciones
+                </div>
+
+                <h1 className="mt-12 text-center text-4xl font-bold text-slate-900">
+                  Certificado de capacitación
+                </h1>
+
+                <p className="mt-5 text-center text-base text-slate-600">
+                  Se certifica que
+                </p>
+
+                <div className="mt-5 text-center text-3xl font-extrabold text-slate-900">
+                  {getFullName(selectedCertificate.user)}
+                </div>
+
+                <p className="mt-5 text-center text-base text-slate-600">
+                  aprobó satisfactoriamente la capacitación
+                </p>
+
+                <div className="mt-4 text-center text-2xl font-bold text-slate-900">
+                  {getTrainingTitle(selectedCertificate.training, selectedCertificate)}
+                </div>
+
+                <div className="mt-3 text-center text-sm text-slate-600">
+                  Emitido por: <strong>{tenantName || 'Empresa / Tenant'}</strong>
+                </div>
+
+                <div className="mt-10 grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Código
+                    </div>
+                    <div className="font-mono text-xs">{getCertificateCode(selectedCertificate)}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Estado
+                    </div>
+                    <div>{getComputedStatus(selectedCertificate)}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Emitido
+                    </div>
+                    <div>{formatDate(getIssuedDate(selectedCertificate))}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Vencimiento
+                    </div>
+                    <div>{formatDate(selectedCertificate.expires_at)}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Puntaje
+                    </div>
+                    <div>{selectedCertificate.test_score ?? '-'}%</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Intentos utilizados
+                    </div>
+                    <div>{selectedCertificate.test_attempts_count ?? '-'}</div>
+                  </div>
+                </div>
+
+                <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
+                  <div>
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
+                      {selectedCertificate.worker_signature_url ? (
+                        <img
+                          src={selectedCertificate.worker_signature_url}
+                          alt="Firma trabajador"
+                          className="max-h-24 max-w-full object-contain"
+                          style={{ filter: 'invert(1) contrast(1.4)' }}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">Firma no disponible</span>
+                      )}
+                    </div>
+                    <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
+                      Firma electrónica del trabajador
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-dashed border-slate-300 p-3 text-xs text-slate-400">
+                      Firma responsable de capacitaciones
+                    </div>
+                    <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
+                      Responsable de capacitaciones · {tenantName || 'Empresa / Tenant'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-10 border-t border-slate-200 pt-4 font-mono text-xs leading-6 text-slate-500">
+                  Registro auditable · Certificate ID: {selectedCertificate.id}
+                  <br />
+                  Assignment ID: {selectedCertificate.assignment_id || 'sin assignment'}
+                  <br />
+                  User ID: {selectedCertificate.user_id || 'sin user'}
+                  <br />
+                  Tenant ID: {selectedCertificate.tenant_id || 'sin tenant'}
+                  <br />
+                  Training ID: {selectedCertificate.training_id || 'sin training'}
+                  <br />
+                  Created at:{' '}
+                  {formatDateTime(selectedCertificate.created_at || getIssuedDate(selectedCertificate))}
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => printCertificate(selectedCertificate)}
+                  className="btn-secondary text-xs py-2"
+                >
+                  <Download size={13} /> Descargar PDF
+                </button>
+              </div>
             </div>
           </div>
         </div>
