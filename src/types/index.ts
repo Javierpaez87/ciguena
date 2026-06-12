@@ -7,8 +7,10 @@ export type AssignmentStatus = 'not_started' | 'in_progress' | 'pending_test' | 
 export type CertificateStatus = 'valid' | 'expiring_soon' | 'expired';
 export type FeedbackType = 'platform' | 'training';
 export type ReminderType = 'invitation' | 'training_pending' | 'training_in_progress' | 'certificate_expiring' | 'certificate_expired' | 'certificate_issued';
-export type VideoProvider = 'bunny' | 'cloudflare' | 'vimeo' | 'external';
+
+export type VideoProvider = 'bunny' | 'cloudflare' | 'vimeo' | 'youtube' | 'local' | 'external';
 export type LessonType = 'video' | 'pdf' | 'text' | 'image' | 'link';
+export type TrainingContentType = 'video' | 'youtube' | 'document' | 'external' | 'local_video' | null;
 
 export interface Tenant {
   id: string;
@@ -48,6 +50,15 @@ export interface Training {
   created_at: string;
   module_count?: number;
   tenant_count?: number;
+
+  /**
+   * Campos opcionales para mostrar o previsualizar el contenido principal
+   * desde el catálogo. Más adelante, el consumo real del training puede
+   * seguir usando TrainingModule + TrainingLesson.
+   */
+  content_type?: TrainingContentType;
+  content_url?: string | null;
+  thumbnail_url?: string | null;
 }
 
 export interface TenantTraining {
@@ -153,6 +164,11 @@ export interface Certificate {
   assignment_id: string;
   certificate_url: string | null;
   certificate_code: string;
+  worker_signature_url?: string | null;
+  company_signature_id?: string | null;
+  company_signature_url?: string | null;
+  company_signer_name?: string | null;
+  company_signer_role?: string | null;
   issued_at: string;
   expires_at: string | null;
   status: CertificateStatus;
@@ -203,4 +219,31 @@ export interface AuthUser {
   tenant_id: string | null;
   full_name: string;
   profile: Profile;
+}
+
+
+export interface EthicsCode {
+  id: string;
+  tenant_id: string;
+  title: string;
+  version: string;
+  content: string;
+  content_hash?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+}
+
+export interface EthicsAcceptance {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  ethics_code_id?: string | null;
+  accepted_name?: string | null;
+  accepted_document_number?: string | null;
+  signature_image_url?: string | null;
+  signature_hash?: string | null;
+  acceptance_text?: string | null;
+  accepted_at?: string | null;
+  user_agent?: string | null;
+  created_at?: string | null;
 }
