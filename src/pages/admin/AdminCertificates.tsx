@@ -7,6 +7,8 @@ import {
   FileText,
   RefreshCw,
   AlertCircle,
+  Eye,
+  X,
   ExternalLink,
 } from 'lucide-react';
 
@@ -120,6 +122,22 @@ function getCertificateUrl(certificate: Certificate) {
   );
 }
 
+function getSafeFileName(certificate: Certificate) {
+  const userName = getFullName(certificate.user)
+    .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+/g, '_')
+    .replace(/_+/g, '_');
+
+  const trainingTitle = getTrainingTitle(certificate.training, certificate)
+    .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]+/g, '_')
+    .replace(/_+/g, '_');
+
+  const code = getCertificateCode(certificate)
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_');
+
+  return `certificado_${userName}_${trainingTitle}_${code}.pdf`;
+}
+
 function formatDate(date?: string | null) {
   if (!date) return '—';
 
@@ -189,6 +207,8 @@ export default function AdminCertificates() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [remindSent, setRemindSent] = useState(false);
+
+  const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
 
   async function loadCertificates() {
     if (!tenantId) {
@@ -392,11 +412,45 @@ export default function AdminCertificates() {
     }, 3000);
   }
 
+  function handlePreview(certificate: Certificate) {
+    const url = getCertificateUrl(certificate);
+
+    if (!url) {
+      setErrorMessage('Este certificado todavía no tiene una URL de preview guardada.');
+      setSuccessMessage(null);
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setSelectedCertificate(certificate);
+  }
+
   function handleDownload(certificate: Certificate) {
     const url = getCertificateUrl(certificate);
 
     if (!url) {
       setErrorMessage('Este certificado todavía no tiene una URL de descarga guardada.');
+      setSuccessMessage(null);
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = getSafeFileName(certificate);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function handleOpenInNewTab(certificate: Certificate) {
+    const url = getCertificateUrl(certificate);
+
+    if (!url) {
+      setErrorMessage('Este certificado todavía no tiene una URL guardada.');
       setSuccessMessage(null);
       return;
     }
@@ -407,6 +461,10 @@ export default function AdminCertificates() {
   const validCount = getStatusCount('valid');
   const expiringCount = getStatusCount('expiring_soon');
   const expiredCount = getStatusCount('expired');
+
+  const selectedCertificateUrl = selectedCertificate
+    ? getCertificateUrl(selectedCertificate)
+    : null;
 
   if (loading) {
     return (
@@ -440,212 +498,284 @@ export default function AdminCertificates() {
   }
 
   return (
-    <div className="space-y-4">
-      {(errorMessage || successMessage) && (
-        <div
-          className={`rounded-xl border px-4 py-3 text-sm ${
-            errorMessage
-              ? 'bg-red-500/10 border-red-500/30 text-red-300'
-              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-          }`}
-        >
-          {errorMessage || successMessage}
-        </div>
-      )}
+    <>
+      <div className="space-y-4">
+        {(errorMessage || successMessage) && (
+          <div
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              errorMessage
+                ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            }`}
+          >
+            {errorMessage || successMessage}
+          </div>
+        )}
 
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search
-            size={15}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400"
-          />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="input pl-9"
-            placeholder="Buscar usuario, training o código..."
-          />
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+          <div className="relative flex-1 max-w-sm">
+            <Search
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400"
+            />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="input pl-9"
+              placeholder="Buscar usuario, training o código..."
+            />
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={loadCertificates} className="btn-secondary text-xs">
+              <RefreshCw size={14} />
+              Actualizar
+            </button>
+
+            <button onClick={sendReminderExpiring} className="btn-secondary text-xs">
+              {remindSent ? <Bell size={14} className="text-emerald-400" /> : <Bell size={14} />}
+              Reminder vencidos
+            </button>
+
+            <button onClick={exportCSV} className="btn-secondary text-xs">
+              <Download size={14} />
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <button
+            type="button"
+            className={`metric-card text-center cursor-pointer transition-all ${
+              statusFilter === 'valid' ? 'border-amber-500' : ''
+            }`}
+            onClick={() => setStatusFilter(statusFilter === 'valid' ? 'all' : 'valid')}
+          >
+            <div className="text-2xl font-bold text-emerald-400">{validCount}</div>
+            <div className="text-xs text-steel-400 mt-1">Vigentes</div>
+          </button>
+
+          <button
+            type="button"
+            className={`metric-card text-center cursor-pointer transition-all ${
+              statusFilter === 'expiring_soon' ? 'border-amber-500' : ''
+            }`}
+            onClick={() =>
+              setStatusFilter(statusFilter === 'expiring_soon' ? 'all' : 'expiring_soon')
+            }
+          >
+            <div className="text-2xl font-bold text-amber-400">{expiringCount}</div>
+            <div className="text-xs text-steel-400 mt-1">Próx. a vencer</div>
+          </button>
+
+          <button
+            type="button"
+            className={`metric-card text-center cursor-pointer transition-all ${
+              statusFilter === 'expired' ? 'border-amber-500' : ''
+            }`}
+            onClick={() => setStatusFilter(statusFilter === 'expired' ? 'all' : 'expired')}
+          >
+            <div className="text-2xl font-bold text-red-400">{expiredCount}</div>
+            <div className="text-xs text-steel-400 mt-1">Vencidos</div>
+          </button>
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          <button onClick={loadCertificates} className="btn-secondary text-xs">
-            <RefreshCw size={14} />
-            Actualizar
-          </button>
-
-          <button onClick={sendReminderExpiring} className="btn-secondary text-xs">
-            {remindSent ? <Bell size={14} className="text-emerald-400" /> : <Bell size={14} />}
-            Reminder vencidos
-          </button>
-
-          <button onClick={exportCSV} className="btn-secondary text-xs">
-            <Download size={14} />
-            Exportar CSV
-          </button>
+          {STATUS_FILTERS.map((statusFilterItem) => (
+            <button
+              key={statusFilterItem.value}
+              onClick={() => setStatusFilter(statusFilterItem.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === statusFilterItem.value
+                  ? 'bg-amber-500 text-petroleum-950'
+                  : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
+              }`}
+            >
+              {statusFilterItem.label} ({getStatusCount(statusFilterItem.value)})
+            </button>
+          ))}
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <button
-          type="button"
-          className={`metric-card text-center cursor-pointer transition-all ${
-            statusFilter === 'valid' ? 'border-amber-500' : ''
-          }`}
-          onClick={() => setStatusFilter(statusFilter === 'valid' ? 'all' : 'valid')}
-        >
-          <div className="text-2xl font-bold text-emerald-400">{validCount}</div>
-          <div className="text-xs text-steel-400 mt-1">Vigentes</div>
-        </button>
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-steel-900 border-b border-steel-700">
+                  <th className="table-header">Usuario</th>
+                  <th className="table-header">Training</th>
+                  <th className="table-header hidden md:table-cell">Código</th>
+                  <th className="table-header hidden lg:table-cell">Emitido</th>
+                  <th className="table-header hidden lg:table-cell">Vence</th>
+                  <th className="table-header">Estado</th>
+                  <th className="table-header text-right">Acciones</th>
+                </tr>
+              </thead>
 
-        <button
-          type="button"
-          className={`metric-card text-center cursor-pointer transition-all ${
-            statusFilter === 'expiring_soon' ? 'border-amber-500' : ''
-          }`}
-          onClick={() =>
-            setStatusFilter(statusFilter === 'expiring_soon' ? 'all' : 'expiring_soon')
-          }
-        >
-          <div className="text-2xl font-bold text-amber-400">{expiringCount}</div>
-          <div className="text-xs text-steel-400 mt-1">Próx. a vencer</div>
-        </button>
+              <tbody>
+                {filtered.map((certificate) => {
+                  const userName = getFullName(certificate.user);
+                  const trainingTitle = getTrainingTitle(certificate.training, certificate);
+                  const certificateUrl = getCertificateUrl(certificate);
+                  const status = getComputedStatus(certificate);
 
-        <button
-          type="button"
-          className={`metric-card text-center cursor-pointer transition-all ${
-            statusFilter === 'expired' ? 'border-amber-500' : ''
-          }`}
-          onClick={() => setStatusFilter(statusFilter === 'expired' ? 'all' : 'expired')}
-        >
-          <div className="text-2xl font-bold text-red-400">{expiredCount}</div>
-          <div className="text-xs text-steel-400 mt-1">Vencidos</div>
-        </button>
-      </div>
+                  return (
+                    <tr key={certificate.id} className="table-row">
+                      <td className="table-cell">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 bg-petroleum-700 rounded-full flex items-center justify-center text-xs font-bold text-petroleum-200 flex-shrink-0">
+                            {getInitial(certificate.user)}
+                          </div>
 
-      <div className="flex gap-2 flex-wrap">
-        {STATUS_FILTERS.map((statusFilterItem) => (
-          <button
-            key={statusFilterItem.value}
-            onClick={() => setStatusFilter(statusFilterItem.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              statusFilter === statusFilterItem.value
-                ? 'bg-amber-500 text-petroleum-950'
-                : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
-            }`}
-          >
-            {statusFilterItem.label} ({getStatusCount(statusFilterItem.value)})
-          </button>
-        ))}
-      </div>
-
-      <div className="card p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-steel-900 border-b border-steel-700">
-                <th className="table-header">Usuario</th>
-                <th className="table-header">Training</th>
-                <th className="table-header hidden md:table-cell">Código</th>
-                <th className="table-header hidden lg:table-cell">Emitido</th>
-                <th className="table-header hidden lg:table-cell">Vence</th>
-                <th className="table-header">Estado</th>
-                <th className="table-header text-right">Acciones</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filtered.map((certificate) => {
-                const userName = getFullName(certificate.user);
-                const trainingTitle = getTrainingTitle(certificate.training, certificate);
-                const certificateUrl = getCertificateUrl(certificate);
-                const status = getComputedStatus(certificate);
-
-                return (
-                  <tr key={certificate.id} className="table-row">
-                    <td className="table-cell">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 bg-petroleum-700 rounded-full flex items-center justify-center text-xs font-bold text-petroleum-200 flex-shrink-0">
-                          {getInitial(certificate.user)}
-                        </div>
-
-                        <div className="min-w-0">
-                          <span className="text-sm font-medium text-steel-100 truncate max-w-[130px] block">
-                            {userName}
-                          </span>
-                          {certificate.user?.email && (
-                            <span className="text-xs text-steel-500 truncate max-w-[130px] block">
-                              {certificate.user.email}
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium text-steel-100 truncate max-w-[130px] block">
+                              {userName}
                             </span>
-                          )}
+                            {certificate.user?.email && (
+                              <span className="text-xs text-steel-500 truncate max-w-[130px] block">
+                                {certificate.user.email}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="table-cell">
-                      <span className="text-sm text-steel-200 truncate max-w-[180px] block">
-                        {trainingTitle}
-                      </span>
-                    </td>
+                      <td className="table-cell">
+                        <span className="text-sm text-steel-200 truncate max-w-[180px] block">
+                          {trainingTitle}
+                        </span>
+                      </td>
 
-                    <td className="table-cell hidden md:table-cell font-mono text-xs text-steel-400">
-                      {getCertificateCode(certificate)}
-                    </td>
+                      <td className="table-cell hidden md:table-cell font-mono text-xs text-steel-400">
+                        {getCertificateCode(certificate)}
+                      </td>
 
-                    <td className="table-cell hidden lg:table-cell text-xs text-steel-400">
-                      {formatDate(getIssuedDate(certificate))}
-                    </td>
+                      <td className="table-cell hidden lg:table-cell text-xs text-steel-400">
+                        {formatDate(getIssuedDate(certificate))}
+                      </td>
 
-                    <td className="table-cell hidden lg:table-cell text-xs text-steel-400">
-                      {formatDate(certificate.expires_at)}
-                    </td>
+                      <td className="table-cell hidden lg:table-cell text-xs text-steel-400">
+                        {formatDate(certificate.expires_at)}
+                      </td>
 
-                    <td className="table-cell">
-                      <StatusBadge status={status} />
-                    </td>
+                      <td className="table-cell">
+                        <StatusBadge status={status} />
+                      </td>
 
-                    <td className="table-cell text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleDownload(certificate)}
-                          className={`p-1.5 rounded transition-colors ${
-                            certificateUrl
-                              ? 'text-steel-400 hover:text-amber-400 hover:bg-steel-700'
-                              : 'text-steel-700 cursor-not-allowed'
-                          }`}
-                          title={
-                            certificateUrl
-                              ? 'Abrir certificado'
-                              : 'Este certificado no tiene URL guardada'
-                          }
-                          disabled={!certificateUrl}
-                        >
-                          {certificateUrl ? <ExternalLink size={14} /> : <Download size={14} />}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td className="table-cell text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handlePreview(certificate)}
+                            className={`p-1.5 rounded transition-colors ${
+                              certificateUrl
+                                ? 'text-steel-400 hover:text-amber-400 hover:bg-steel-700'
+                                : 'text-steel-700 cursor-not-allowed'
+                            }`}
+                            title={
+                              certificateUrl
+                                ? 'Ver preview del certificado'
+                                : 'Este certificado no tiene URL guardada'
+                            }
+                            disabled={!certificateUrl}
+                          >
+                            <Eye size={14} />
+                          </button>
+
+                          <button
+                            onClick={() => handleDownload(certificate)}
+                            className={`p-1.5 rounded transition-colors ${
+                              certificateUrl
+                                ? 'text-steel-400 hover:text-amber-400 hover:bg-steel-700'
+                                : 'text-steel-700 cursor-not-allowed'
+                            }`}
+                            title={
+                              certificateUrl
+                                ? 'Descargar PDF'
+                                : 'Este certificado no tiene URL guardada'
+                            }
+                            disabled={!certificateUrl}
+                          >
+                            <Download size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {filtered.length === 0 && (
+            <EmptyState
+              icon={<Award size={28} />}
+              title="Sin certificados"
+              description="No hay certificados con los filtros seleccionados."
+            />
+          )}
         </div>
 
-        {filtered.length === 0 && (
-          <EmptyState
-            icon={<Award size={28} />}
-            title="Sin certificados"
-            description="No hay certificados con los filtros seleccionados."
-          />
-        )}
-      </div>
-
-      <div className="text-xs text-steel-600 flex items-start gap-2">
-        <FileText size={14} className="mt-0.5" />
-        <div>
-          Vista conectada a Supabase. Si no aparecen certificados, revisá que la tabla certificates
-          tenga tenant_id o que user_id coincida con profiles.id/auth_user_id.
+        <div className="text-xs text-steel-600 flex items-start gap-2">
+          <FileText size={14} className="mt-0.5" />
+          <div>
+            Vista conectada a Supabase. Si no aparecen certificados, revisá que la tabla certificates
+            tenga tenant_id o que user_id coincida con profiles.id/auth_user_id.
+          </div>
         </div>
       </div>
-    </div>
+
+      {selectedCertificate && selectedCertificateUrl && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-steel-950 border border-steel-700 rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-start sm:items-center justify-between gap-3 px-4 py-3 border-b border-steel-700">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-steel-100 truncate">
+                  Certificado · {getTrainingTitle(selectedCertificate.training, selectedCertificate)}
+                </div>
+
+                <div className="text-xs text-steel-500 truncate mt-0.5">
+                  {getFullName(selectedCertificate.user)} · Código{' '}
+                  {getCertificateCode(selectedCertificate)}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleOpenInNewTab(selectedCertificate)}
+                  className="btn-secondary text-xs hidden sm:inline-flex"
+                >
+                  <ExternalLink size={14} />
+                  Abrir
+                </button>
+
+                <button
+                  onClick={() => handleDownload(selectedCertificate)}
+                  className="btn-primary text-xs"
+                >
+                  <Download size={14} />
+                  Descargar PDF
+                </button>
+
+                <button
+                  onClick={() => setSelectedCertificate(null)}
+                  className="p-2 rounded-lg text-steel-400 hover:text-steel-100 hover:bg-steel-800 transition-colors"
+                  title="Cerrar preview"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 bg-steel-900">
+              <iframe
+                src={selectedCertificateUrl}
+                title={`Preview certificado ${getCertificateCode(selectedCertificate)}`}
+                className="w-full h-full border-0 bg-white"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
