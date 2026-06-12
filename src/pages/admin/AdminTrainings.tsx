@@ -12,7 +12,6 @@ import {
   AlertCircle,
   Eye,
   Check,
-  ClipboardList,
   Layers,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -26,6 +25,12 @@ import {
 import type { Profile, Training } from '../../types';
 import Modal from '../../components/ui/Modal';
 
+type AssignMode = 'all' | 'role' | 'individual';
+
+function getWorkerRole(profile: Profile) {
+  return profile.position?.trim() || 'Sin rol definido';
+}
+
 export default function AdminTrainings() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
@@ -36,9 +41,12 @@ export default function AdminTrainings() {
   const [showDetail, setShowDetail] = useState<Training | null>(null);
   const [showAssign, setShowAssign] = useState<Training | null>(null);
   const [showQuestions, setShowQuestions] = useState<Training | null>(null);
+
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
-  const [assignAll, setAssignAll] = useState(false);
+  const [assignMode, setAssignMode] = useState<AssignMode>('individual');
+  const [selectedRole, setSelectedRole] = useState('');
+
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignMessage, setAssignMessage] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
@@ -119,6 +127,39 @@ export default function AdminTrainings() {
     return getTrainingTestByTrainingId(showQuestions.id);
   }, [showQuestions]);
 
+  const roleGroups = useMemo(() => {
+    const map = new Map<string, Profile[]>();
+
+    users.forEach(worker => {
+      const workerRole = getWorkerRole(worker);
+
+      if (!map.has(workerRole)) {
+        map.set(workerRole, []);
+      }
+
+      map.get(workerRole)?.push(worker);
+    });
+
+    return Array.from(map.entries())
+      .map(([role, workers]) => ({
+        role,
+        workers,
+        count: workers.length,
+      }))
+      .sort((a, b) => a.role.localeCompare(b.role));
+  }, [users]);
+
+  const selectedRoleUsers = useMemo(() => {
+    if (!selectedRole) return [];
+    return users.filter(worker => getWorkerRole(worker) === selectedRole);
+  }, [users, selectedRole]);
+
+  const getAssignTargetCount = () => {
+    if (assignMode === 'all') return users.length;
+    if (assignMode === 'role') return selectedRoleUsers.length;
+    return selectedUsers.size;
+  };
+
   const getQuestionsByAttempt = (test: TrainingTest) => {
     const attempts: Array<{
       attemptNumber: number;
@@ -141,11 +182,22 @@ export default function AdminTrainings() {
     return attempts;
   };
 
+  const resetAssignModal = () => {
+    setShowAssign(null);
+    setSelectedUsers(new Set());
+    setAssignedUserIds(new Set());
+    setAssignMode('individual');
+    setSelectedRole('');
+    setAssignMessage(null);
+    setAssignError(null);
+  };
+
   const openAssignModal = async (training: Training) => {
     setShowAssign(training);
     setSelectedUsers(new Set());
     setAssignedUserIds(new Set());
-    setAssignAll(false);
+    setAssignMode('individual');
+    setSelectedRole('');
     setAssignMessage(null);
     setAssignError(null);
 
@@ -172,6 +224,8 @@ export default function AdminTrainings() {
 
     setAssignedUserIds(existingAssignedIds);
     setSelectedUsers(existingAssignedIds);
+    setAssignMode('individual');
+    setSelectedRole('');
   };
 
   const handleAssign = async () => {
@@ -180,10 +234,27 @@ export default function AdminTrainings() {
       return;
     }
 
-    const targets = assignAll ? users.map(u => u.id) : Array.from(selectedUsers);
+    let targets: string[] = [];
+
+    if (assignMode === 'all') {
+      targets = users.map(worker => worker.id);
+    }
+
+    if (assignMode === 'role') {
+      if (!selectedRole) {
+        setAssignError('Seleccioná un rol para asignar el training.');
+        return;
+      }
+
+      targets = selectedRoleUsers.map(worker => worker.id);
+    }
+
+    if (assignMode === 'individual') {
+      targets = Array.from(selectedUsers);
+    }
 
     if (targets.length === 0) {
-      setAssignError('Seleccioná al menos un usuario.');
+      setAssignError('No hay usuarios para asignar con esta selección.');
       return;
     }
 
@@ -219,19 +290,23 @@ export default function AdminTrainings() {
       return;
     }
 
-    const updatedAssignedIds = new Set(targets);
+    const updatedAssignedIds = new Set([...Array.from(assignedUserIds), ...targets]);
     setAssignedUserIds(updatedAssignedIds);
     setSelectedUsers(updatedAssignedIds);
 
-    setAssignMessage(`Training "${showAssign.title}" asignado a ${targets.length} usuario(s).`);
+    const modeLabel =
+      assignMode === 'all'
+        ? 'todos los usuarios activos'
+        : assignMode === 'role'
+          ? `el rol "${selectedRole}"`
+          : 'los usuarios seleccionados';
+
+    setAssignMessage(
+      `Training "${showAssign.title}" asignado a ${targets.length} usuario(s) de ${modeLabel}.`
+    );
 
     setTimeout(() => {
-      setShowAssign(null);
-      setSelectedUsers(new Set());
-      setAssignedUserIds(new Set());
-      setAssignAll(false);
-      setAssignMessage(null);
-      setAssignError(null);
+      resetAssignModal();
     }, 900);
   };
 
@@ -356,7 +431,10 @@ export default function AdminTrainings() {
         </div>
 
         {attempts.map((attempt) => (
-          <div key={attempt.attemptNumber} className="rounded-xl border border-steel-700 bg-steel-950 p-4">
+          <div
+            key={attempt.attemptNumber}
+            className="rounded-xl border border-steel-700 bg-steel-950 p-4"
+          >
             <div className="flex items-center gap-2 mb-4">
               <Layers size={15} className="text-amber-400" />
               <div className="text-sm font-semibold text-steel-100">
@@ -661,7 +739,12 @@ export default function AdminTrainings() {
                 {[
                   { label: 'Categoría', value: showDetail.category },
                   { label: 'Duración', value: `${showDetail.duration_minutes} minutos` },
-                  { label: 'Vigencia', value: showDetail.validity_months ? `${showDetail.validity_months} meses` : 'Sin vigencia' },
+                  {
+                    label: 'Vigencia',
+                    value: showDetail.validity_months
+                      ? `${showDetail.validity_months} meses`
+                      : 'Sin vigencia',
+                  },
                   { label: 'Emite certificado', value: showDetail.certificate_enabled ? 'Sí' : 'No' },
                   { label: 'Tipo de contenido', value: getContentLabel(showDetail) },
                 ].map(item => (
@@ -692,12 +775,7 @@ export default function AdminTrainings() {
           open={!!showAssign}
           onClose={() => {
             if (isAssigning) return;
-            setShowAssign(null);
-            setSelectedUsers(new Set());
-            setAssignedUserIds(new Set());
-            setAssignAll(false);
-            setAssignMessage(null);
-            setAssignError(null);
+            resetAssignModal();
           }}
           title={`Asignar: ${showAssign.title}`}
           size="lg"
@@ -706,12 +784,7 @@ export default function AdminTrainings() {
               <button
                 onClick={() => {
                   if (isAssigning) return;
-                  setShowAssign(null);
-                  setSelectedUsers(new Set());
-                  setAssignedUserIds(new Set());
-                  setAssignAll(false);
-                  setAssignMessage(null);
-                  setAssignError(null);
+                  resetAssignModal();
                 }}
                 className="btn-ghost"
                 disabled={isAssigning}
@@ -721,13 +794,15 @@ export default function AdminTrainings() {
 
               <button
                 onClick={handleAssign}
-                disabled={isAssigning || (!assignAll && selectedUsers.size === 0)}
+                disabled={
+                  isAssigning ||
+                  getAssignTargetCount() === 0 ||
+                  (assignMode === 'role' && !selectedRole)
+                }
                 className="btn-primary"
               >
                 <Plus size={15} />
-                {isAssigning
-                  ? 'Asignando...'
-                  : `Asignar ${assignAll ? 'a todos' : `(${selectedUsers.size})`}`}
+                {isAssigning ? 'Asignando...' : `Asignar (${getAssignTargetCount()})`}
               </button>
             </>
           }
@@ -753,38 +828,135 @@ export default function AdminTrainings() {
               </div>
             )}
 
-            <label className="flex items-center gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg cursor-pointer hover:bg-amber-500/15 transition-colors">
-              <input
-                type="checkbox"
-                checked={assignAll}
-                onChange={e => {
-                  const checked = e.target.checked;
-                  setAssignAll(checked);
-
-                  if (checked) {
-                    setSelectedUsers(new Set(users.map(u => u.id)));
-                  } else {
-                    setSelectedUsers(new Set(assignedUserIds));
-                  }
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignMode('all');
+                  setSelectedRole('');
+                  setSelectedUsers(new Set(users.map(worker => worker.id)));
                 }}
-                className="w-4 h-4 accent-amber-500"
                 disabled={isAssigning}
-              />
-
-              <div>
-                <div className="text-sm font-semibold text-amber-300">
-                  Asignar a todos los usuarios activos
-                </div>
-                <div className="text-xs text-steel-400">
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  assignMode === 'all'
+                    ? 'bg-amber-500/10 border-amber-500/40'
+                    : 'bg-steel-900 border-steel-700 hover:border-steel-600'
+                }`}
+              >
+                <div className="text-sm font-semibold text-steel-100">Todos</div>
+                <div className="text-xs text-steel-400 mt-1">
                   {users.length} usuarios activos
                 </div>
-              </div>
-            </label>
+              </button>
 
-            {!assignAll && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignMode('role');
+                  setSelectedUsers(new Set(assignedUserIds));
+                }}
+                disabled={isAssigning}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  assignMode === 'role'
+                    ? 'bg-amber-500/10 border-amber-500/40'
+                    : 'bg-steel-900 border-steel-700 hover:border-steel-600'
+                }`}
+              >
+                <div className="text-sm font-semibold text-steel-100">Por rol</div>
+                <div className="text-xs text-steel-400 mt-1">
+                  {roleGroups.length} roles detectados
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignMode('individual');
+                  setSelectedRole('');
+                  setSelectedUsers(new Set(assignedUserIds));
+                }}
+                disabled={isAssigning}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  assignMode === 'individual'
+                    ? 'bg-amber-500/10 border-amber-500/40'
+                    : 'bg-steel-900 border-steel-700 hover:border-steel-600'
+                }`}
+              >
+                <div className="text-sm font-semibold text-steel-100">Individual</div>
+                <div className="text-xs text-steel-400 mt-1">
+                  Elegir personas
+                </div>
+              </button>
+            </div>
+
+            {assignMode === 'role' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="label">Rol / puesto</label>
+                  <select
+                    value={selectedRole}
+                    onChange={event => setSelectedRole(event.target.value)}
+                    className="select"
+                    disabled={isAssigning}
+                  >
+                    <option value="">Seleccionar rol...</option>
+                    {roleGroups.map(group => (
+                      <option key={group.role} value={group.role}>
+                        {group.role} · {group.count} usuario(s)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedRole && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-steel-400 font-medium">
+                      Usuarios que recibirán este training:
+                    </p>
+
+                    {selectedRoleUsers.map(worker => (
+                      <div
+                        key={worker.id}
+                        className="flex items-center gap-3 p-2.5 bg-steel-900 rounded-lg border border-steel-700"
+                      >
+                        <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0">
+                          <Check size={10} className="text-petroleum-950" />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm text-steel-100">
+                              {worker.full_name}
+                            </div>
+
+                            {assignedUserIds.has(worker.id) && (
+                              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                                Ya asignado
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-xs text-steel-400">
+                            {getWorkerRole(worker)} · {worker.email}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!selectedRole && (
+                  <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
+                    Seleccioná un rol para ver qué usuarios serán asignados.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {assignMode === 'individual' && (
               <div className="space-y-1.5">
                 <p className="text-xs text-steel-400 font-medium">
-                  O seleccioná usuarios individuales:
+                  Seleccioná usuarios individuales:
                 </p>
 
                 {users.length === 0 && (
@@ -793,26 +965,26 @@ export default function AdminTrainings() {
                   </div>
                 )}
 
-                {users.map(u => (
+                {users.map(worker => (
                   <label
-                    key={u.id}
+                    key={worker.id}
                     className="flex items-center gap-3 p-2.5 bg-steel-900 rounded-lg border border-steel-700 hover:border-steel-600 transition-colors cursor-pointer"
                   >
                     <input
                       type="checkbox"
-                      checked={selectedUsers.has(u.id)}
+                      checked={selectedUsers.has(worker.id)}
                       disabled={isAssigning}
-                      onChange={e => {
-                        setSelectedUsers(prev => {
-                          const s = new Set(prev);
+                      onChange={event => {
+                        setSelectedUsers(previousUsers => {
+                          const nextUsers = new Set(previousUsers);
 
-                          if (e.target.checked) {
-                            s.add(u.id);
+                          if (event.target.checked) {
+                            nextUsers.add(worker.id);
                           } else {
-                            s.delete(u.id);
+                            nextUsers.delete(worker.id);
                           }
 
-                          return s;
+                          return nextUsers;
                         });
                       }}
                       className="w-4 h-4 accent-amber-500"
@@ -821,10 +993,10 @@ export default function AdminTrainings() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="text-sm text-steel-100">
-                          {u.full_name}
+                          {worker.full_name}
                         </div>
 
-                        {assignedUserIds.has(u.id) && (
+                        {assignedUserIds.has(worker.id) && (
                           <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
                             Ya asignado
                           </span>
@@ -832,11 +1004,18 @@ export default function AdminTrainings() {
                       </div>
 
                       <div className="text-xs text-steel-400">
-                        {u.position ?? u.email}
+                        {getWorkerRole(worker)} · {worker.email}
                       </div>
                     </div>
                   </label>
                 ))}
+              </div>
+            )}
+
+            {assignMode === 'all' && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                Se asignará este training a todos los usuarios activos de la empresa:
+                <span className="font-semibold"> {users.length} usuario(s)</span>.
               </div>
             )}
           </div>
