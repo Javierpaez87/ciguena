@@ -1,10 +1,28 @@
 import { workingAtHeightsTest } from './workingAtHeights';
+import { handSafetyTest } from './handSafety';
+import { confinedSpacesTest } from './confinedSpaces';
+import { energyIsolationTest } from './energyIsolation';
+import { lineOfFireTest } from './lineOfFire';
+import { mechanicalLiftingTest } from './mechanicalLifting';
+import { hotWorkTest } from './hotWork';
+import { workAuthorizationTest } from './workAuthorization';
+import { bypassControlsTest } from './bypassControls';
+import { safeDrivingTest } from './safeDriving';
 import type { TrainingTest, TrainingTestAttemptConfig } from './types';
 
 export type { TrainingTest, TrainingTestQuestion, TrainingTestOption, TrainingTestOptionKey } from './types';
 
 export const trainingTests: TrainingTest[] = [
   workingAtHeightsTest,
+  handSafetyTest,
+  confinedSpacesTest,
+  energyIsolationTest,
+  lineOfFireTest,
+  mechanicalLiftingTest,
+  hotWorkTest,
+  workAuthorizationTest,
+  bypassControlsTest,
+  safeDrivingTest,
 ];
 
 export const getTrainingTestByTrainingId = (trainingId: string): TrainingTest | null => {
