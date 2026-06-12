@@ -1,221 +1,381 @@
-import React, { useState } from 'react';
-import { Plus, Check, X, Eye, Trash2, ClipboardList } from 'lucide-react';
-import { mockTrainings, mockQuestions, mockOptions } from '../../lib/mockData';
-import type { QuizQuestion, QuizOption } from '../../types';
+import React, { useState } from 'react';import React, { useMemo, useState } from 'react';
+import {
+  Check,
+  Eye,
+  ClipboardList,
+  AlertCircle,
+  BookOpen,
+  Target,
+  RotateCcw,
+  Layers,
+} from 'lucide-react';
+
+import { baseTrainings } from '../../data/baseTrainings';
+import {
+  trainingTests,
+  getTrainingTestByTrainingId,
+  type TrainingTest,
+  type TrainingTestQuestion,
+} from '../../data/trainingTests';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
 
+function getTrainingTitle(trainingId: string) {
+  return baseTrainings.find((training) => training.id === trainingId)?.title || trainingId;
+}
+
+function getTrainingMeta(trainingId: string) {
+  return baseTrainings.find((training) => training.id === trainingId) || null;
+}
+
+function getAttemptLabel(test: TrainingTest, questionIndex: number) {
+  const attemptNumber = Math.floor(questionIndex / test.questionsPerAttempt) + 1;
+  return `Intento ${attemptNumber}`;
+}
+
+function getQuestionsByAttempt(test: TrainingTest) {
+  const attempts: Array<{
+    attemptNumber: number;
+    questions: TrainingTestQuestion[];
+  }> = [];
+
+  for (let index = 0; index < test.maxAttempts; index += 1) {
+    const startIndex = index * test.questionsPerAttempt;
+    const endIndex = startIndex + test.questionsPerAttempt;
+    const questions = test.questions.slice(startIndex, endIndex);
+
+    if (questions.length > 0) {
+      attempts.push({
+        attemptNumber: index + 1,
+        questions,
+      });
+    }
+  }
+
+  return attempts;
+}
+
 export default function SaTests() {
-  const [selectedTraining, setSelectedTraining] = useState(mockTrainings[0].id);
-  const [questions, setQuestions] = useState<QuizQuestion[]>(
-    mockQuestions.map(q => ({ ...q, options: mockOptions.filter(o => o.question_id === q.id) }))
+  const [selectedTraining, setSelectedTraining] = useState(
+    baseTrainings.find((training) => training.id === 'tr_working_at_heights')?.id ||
+      baseTrainings[0]?.id ||
+      ''
   );
-  const [showAddQuestion, setShowAddQuestion] = useState(false);
+
   const [preview, setPreview] = useState(false);
-  const [questionForm, setQuestionForm] = useState({
-    question_text: '',
-    question_type: 'multiple_choice' as 'multiple_choice' | 'true_false',
-    options: [
-      { option_text: '', is_correct: false },
-      { option_text: '', is_correct: false },
-      { option_text: '', is_correct: false },
-      { option_text: '', is_correct: false },
-    ],
-  });
+  const [showAnswers, setShowAnswers] = useState(true);
 
-  const training = mockTrainings.find(t => t.id === selectedTraining);
-  const filtered = questions.filter(q => q.training_id === selectedTraining);
+  const training = useMemo(() => {
+    return selectedTraining ? getTrainingMeta(selectedTraining) : null;
+  }, [selectedTraining]);
 
-  const setCorrect = (idx: number) => {
-    setQuestionForm(f => ({
-      ...f,
-      options: f.options.map((o, i) => ({ ...o, is_correct: i === idx })),
-    }));
-  };
+  const test = useMemo(() => {
+    return selectedTraining ? getTrainingTestByTrainingId(selectedTraining) : null;
+  }, [selectedTraining]);
 
-  const addQuestion = () => {
-    const newQ: QuizQuestion = {
-      id: `q${Date.now()}`,
-      training_id: selectedTraining,
-      question_text: questionForm.question_text,
-      question_type: questionForm.question_type,
-      order_index: filtered.length + 1,
-      created_at: new Date().toISOString(),
-      options: questionForm.options
-        .filter(o => o.option_text.trim())
-        .map((o, i) => ({
-          id: `o${Date.now()}${i}`,
-          question_id: `q${Date.now()}`,
-          option_text: o.option_text,
-          is_correct: o.is_correct,
-          order_index: i + 1,
-          created_at: new Date().toISOString(),
-        })),
-    };
-    setQuestions(qs => [...qs, newQ]);
-    setQuestionForm({
-      question_text: '', question_type: 'multiple_choice',
-      options: Array(4).fill(null).map(() => ({ option_text: '', is_correct: false })),
-    });
-    setShowAddQuestion(false);
-  };
+  const trainingsWithTest = useMemo(() => {
+    return new Set(trainingTests.map((item) => item.trainingId));
+  }, []);
 
-  const removeQuestion = (id: string) => setQuestions(qs => qs.filter(q => q.id !== id));
+  const questionsByAttempt = useMemo(() => {
+    if (!test) return [];
+    return getQuestionsByAttempt(test);
+  }, [test]);
+
+  const totalQuestions = test?.questions.length ?? 0;
+  const configuredAttempts = test?.maxAttempts ?? training?.max_attempts ?? 0;
+  const passingScore = test?.passingScore ?? training?.passing_score ?? 0;
+  const questionsPerAttempt = test?.questionsPerAttempt ?? 0;
 
   return (
     <div className="space-y-4">
       <div className="card">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-end gap-4">
           <div className="flex-1">
             <label className="label">Training</label>
-            <select value={selectedTraining} onChange={e => setSelectedTraining(e.target.value)} className="select">
-              {mockTrainings.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+
+            <select
+              value={selectedTraining}
+              onChange={(event) => setSelectedTraining(event.target.value)}
+              className="select"
+            >
+              {baseTrainings
+                .filter((trainingItem) => trainingItem.certificate_enabled)
+                .map((trainingItem) => {
+                  const hasTest = trainingsWithTest.has(trainingItem.id);
+
+                  return (
+                    <option key={trainingItem.id} value={trainingItem.id}>
+                      {trainingItem.title} {hasTest ? '· Test cargado' : '· Sin test'}
+                    </option>
+                  );
+                })}
             </select>
           </div>
-          {training && (
-            <div className="text-right">
-              <div className="text-xs text-steel-400">Puntaje mínimo</div>
-              <div className="text-2xl font-bold text-amber-400">{training.passing_score}%</div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowAnswers((value) => !value)}
+              className="btn-secondary text-xs"
+              disabled={!test}
+            >
+              <Check size={14} />
+              {showAnswers ? 'Ocultar respuestas' : 'Mostrar respuestas'}
+            </button>
+
+            <button
+              onClick={() => setPreview(true)}
+              className="btn-ghost text-xs"
+              disabled={!test}
+            >
+              <Eye size={14} />
+              Vista previa
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {training && !test && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 flex items-start gap-3">
+          <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
+
+          <div>
+            <div className="font-semibold">Este training todavía no tiene test cargado</div>
+            <div className="text-amber-100/80 mt-1">
+              El catálogo del training existe en <span className="font-mono">baseTrainings.ts</span>,
+              pero todavía no hay preguntas reales en{' '}
+              <span className="font-mono">src/data/trainingTests</span>.
             </div>
-          )}
+          </div>
         </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="metric-card text-center">
-          <div className="text-2xl font-bold text-steel-50">{filtered.length}</div>
-          <div className="text-xs text-steel-400 mt-1">Preguntas</div>
-        </div>
-        <div className="metric-card text-center">
-          <div className="text-2xl font-bold text-amber-400">{training?.passing_score}%</div>
-          <div className="text-xs text-steel-400 mt-1">Min. aprobación</div>
-        </div>
-        <div className="metric-card text-center">
-          <div className="text-2xl font-bold text-steel-50">{training?.max_attempts ?? '∞'}</div>
-          <div className="text-xs text-steel-400 mt-1">Intentos máx.</div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-steel-300">Preguntas ({filtered.length})</h3>
-        <div className="flex gap-2">
-          <button onClick={() => setPreview(true)} className="btn-ghost text-xs"><Eye size={14} /> Vista previa</button>
-          <button onClick={() => setShowAddQuestion(true)} className="btn-primary text-xs"><Plus size={14} /> Pregunta</button>
-        </div>
-      </div>
-
-      {filtered.length === 0 && (
-        <EmptyState icon={<ClipboardList size={28} />} title="Sin preguntas" description="Agregá preguntas al test de este training." />
       )}
 
-      <div className="space-y-3">
-        {filtered.map((q, idx) => (
-          <div key={q.id} className="card">
+      {training && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="metric-card text-center">
+            <BookOpen size={20} className="text-amber-400 mx-auto mb-2" />
+            <div className="text-2xl font-bold text-steel-50">{training.duration_minutes}</div>
+            <div className="text-xs text-steel-400 mt-1">Minutos</div>
+          </div>
+
+          <div className="metric-card text-center">
+            <Target size={20} className="text-emerald-400 mx-auto mb-2" />
+            <div className="text-2xl font-bold text-amber-400">{passingScore}%</div>
+            <div className="text-xs text-steel-400 mt-1">Min. aprobación</div>
+          </div>
+
+          <div className="metric-card text-center">
+            <RotateCcw size={20} className="text-blue-400 mx-auto mb-2" />
+            <div className="text-2xl font-bold text-steel-50">
+              {configuredAttempts || '—'}
+            </div>
+            <div className="text-xs text-steel-400 mt-1">Intentos máx.</div>
+          </div>
+
+          <div className="metric-card text-center">
+            <ClipboardList size={20} className="text-steel-300 mx-auto mb-2" />
+            <div className="text-2xl font-bold text-steel-50">{totalQuestions}</div>
+            <div className="text-xs text-steel-400 mt-1">Preguntas reales</div>
+          </div>
+        </div>
+      )}
+
+      {test ? (
+        <>
+          <div className="card border-emerald-500/20">
             <div className="flex items-start gap-3">
-              <div className="w-7 h-7 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 flex-shrink-0">
-                {idx + 1}
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <Check size={18} className="text-emerald-400" />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-steel-100 mb-3">{q.question_text}</p>
-                <div className="space-y-1.5">
-                  {(q.options ?? []).map(opt => (
-                    <div key={opt.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${opt.is_correct ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-steel-900 border border-steel-700 text-steel-300'}`}>
-                      <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${opt.is_correct ? 'bg-emerald-500' : 'border border-steel-600'}`}>
-                        {opt.is_correct && <Check size={10} className="text-white" />}
+
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-steel-100">
+                  {test.title}
+                </div>
+
+                <div className="text-xs text-steel-400 mt-1">
+                  {test.description || 'Evaluación cargada desde el repo.'}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="badge badge-success">Test real cargado</span>
+                  <span className="badge badge-info">{test.questions.length} preguntas</span>
+                  <span className="badge badge-neutral">
+                    {test.questionsPerAttempt} preguntas por intento
+                  </span>
+                  <span className="badge badge-neutral">
+                    {test.maxAttempts} intentos
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-steel-300">
+              Preguntas ({test.questions.length})
+            </h3>
+
+            <div className="text-xs text-steel-500">
+              Fuente: <span className="font-mono">src/data/trainingTests</span>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {questionsByAttempt.map((attempt) => (
+              <div key={attempt.attemptNumber} className="card">
+                <div className="flex items-center gap-2 mb-4">
+                  <Layers size={15} className="text-amber-400" />
+                  <div className="text-sm font-semibold text-steel-100">
+                    Intento {attempt.attemptNumber}
+                  </div>
+                  <div className="text-xs text-steel-500">
+                    {attempt.questions.length} preguntas
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {attempt.questions.map((question, index) => {
+                    const globalIndex =
+                      (attempt.attemptNumber - 1) * test.questionsPerAttempt + index;
+
+                    return (
+                      <div
+                        key={question.id}
+                        className="rounded-xl border border-steel-700 bg-steel-900 p-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-7 h-7 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 flex-shrink-0">
+                            {globalIndex + 1}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                              <p className="text-sm font-medium text-steel-100">
+                                {question.question}
+                              </p>
+
+                              <span className="text-xs text-steel-500 font-mono flex-shrink-0">
+                                {question.id} · {getAttemptLabel(test, globalIndex)}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {question.options.map((option) => {
+                                const isCorrect = option.key === question.correctOption;
+
+                                return (
+                                  <div
+                                    key={option.key}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+                                      showAnswers && isCorrect
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                                        : 'bg-steel-950 border-steel-700 text-steel-300'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold uppercase ${
+                                        showAnswers && isCorrect
+                                          ? 'bg-emerald-500 text-white'
+                                          : 'border border-steel-600 text-steel-400'
+                                      }`}
+                                    >
+                                      {showAnswers && isCorrect ? (
+                                        <Check size={11} className="text-white" />
+                                      ) : (
+                                        option.key
+                                      )}
+                                    </div>
+
+                                    <span>
+                                      <span className="uppercase font-semibold mr-1">
+                                        {option.key}.
+                                      </span>
+                                      {option.text}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      {opt.option_text}
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <EmptyState
+          icon={<ClipboardList size={28} />}
+          title="Sin preguntas reales"
+          description="Este training todavía no tiene evaluación cargada en el repo."
+        />
+      )}
+
+      <Modal
+        open={preview}
+        onClose={() => setPreview(false)}
+        title={`Vista previa — ${training ? training.title : getTrainingTitle(selectedTraining)}`}
+        size="lg"
+      >
+        {!test ? (
+          <EmptyState
+            icon={<ClipboardList size={28} />}
+            title="Sin test para previsualizar"
+            description="Todavía no hay preguntas cargadas para este training."
+          />
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-steel-900 rounded-lg p-4 border border-steel-700">
+              <p className="text-sm text-steel-300">
+                Puntaje mínimo de aprobación:{' '}
+                <span className="text-amber-400 font-semibold">{test.passingScore}%</span>
+              </p>
+
+              <p className="text-xs text-steel-500 mt-1">
+                Este preview simula cómo ve el trabajador las preguntas, sin marcar respuestas
+                correctas.
+              </p>
+            </div>
+
+            {test.questions.slice(0, test.questionsPerAttempt).map((question, index) => (
+              <div
+                key={question.id}
+                className="bg-steel-900 rounded-lg p-4 border border-steel-700"
+              >
+                <p className="text-sm font-medium text-steel-100 mb-3">
+                  {index + 1}. {question.question}
+                </p>
+
+                <div className="space-y-2">
+                  {question.options.map((option) => (
+                    <div
+                      key={option.key}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-steel-700 text-xs text-steel-300 hover:bg-steel-800 transition-colors cursor-pointer"
+                    >
+                      <div className="w-4 h-4 rounded-full border border-steel-600 flex-shrink-0" />
+
+                      <span>
+                        <span className="uppercase font-semibold mr-1">{option.key}.</span>
+                        {option.text}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
-              <button onClick={() => removeQuestion(q.id)} className="p-1.5 rounded hover:bg-red-500/10 text-steel-500 hover:text-red-400 transition-colors flex-shrink-0">
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+            ))}
 
-      {/* Add question modal */}
-      <Modal
-        open={showAddQuestion}
-        onClose={() => setShowAddQuestion(false)}
-        title="Nueva pregunta"
-        size="lg"
-        footer={
-          <>
-            <button onClick={() => setShowAddQuestion(false)} className="btn-ghost">Cancelar</button>
-            <button onClick={addQuestion} disabled={!questionForm.question_text} className="btn-primary"><Plus size={15} /> Agregar</button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="label">Tipo de pregunta</label>
-            <select value={questionForm.question_type} onChange={e => {
-              const t = e.target.value as any;
-              setQuestionForm(f => ({
-                ...f, question_type: t,
-                options: t === 'true_false'
-                  ? [{ option_text: 'Verdadero', is_correct: true }, { option_text: 'Falso', is_correct: false }]
-                  : Array(4).fill(null).map(() => ({ option_text: '', is_correct: false })),
-              }));
-            }} className="select">
-              <option value="multiple_choice">Opción múltiple</option>
-              <option value="true_false">Verdadero / Falso</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Texto de la pregunta *</label>
-            <textarea value={questionForm.question_text} onChange={e => setQuestionForm(f => ({ ...f, question_text: e.target.value }))} className="input" rows={3} placeholder="Escribí la pregunta aquí..." />
-          </div>
-          <div>
-            <label className="label">Opciones de respuesta <span className="text-steel-500">(marcá la correcta)</span></label>
-            <div className="space-y-2">
-              {questionForm.options.map((opt, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <button onClick={() => setCorrect(idx)} className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border transition-colors ${opt.is_correct ? 'bg-emerald-500 border-emerald-500' : 'border-steel-600 hover:border-emerald-500'}`}>
-                    {opt.is_correct && <Check size={11} className="text-white" />}
-                  </button>
-                  <input
-                    value={opt.option_text}
-                    onChange={e => setQuestionForm(f => ({
-                      ...f,
-                      options: f.options.map((o, i) => i === idx ? { ...o, option_text: e.target.value } : o),
-                    }))}
-                    className="input"
-                    placeholder={`Opción ${idx + 1}`}
-                    disabled={questionForm.question_type === 'true_false'}
-                  />
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-steel-500 mt-2">Hacé click en el círculo para marcar la respuesta correcta.</p>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Preview modal */}
-      <Modal open={preview} onClose={() => setPreview(false)} title={`Vista previa — ${training?.title}`} size="lg">
-        <div className="space-y-4">
-          <div className="bg-steel-900 rounded-lg p-4 border border-steel-700">
-            <p className="text-sm text-steel-300">Puntaje mínimo de aprobación: <span className="text-amber-400 font-semibold">{training?.passing_score}%</span></p>
-          </div>
-          {filtered.map((q, idx) => (
-            <div key={q.id} className="bg-steel-900 rounded-lg p-4 border border-steel-700">
-              <p className="text-sm font-medium text-steel-100 mb-3">{idx + 1}. {q.question_text}</p>
-              <div className="space-y-2">
-                {(q.options ?? []).map(opt => (
-                  <div key={opt.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-steel-700 text-xs text-steel-300 hover:bg-steel-800 transition-colors cursor-pointer">
-                    <div className="w-4 h-4 rounded-full border border-steel-600 flex-shrink-0" />
-                    {opt.option_text}
-                  </div>
-                ))}
+            {test.questions.length > test.questionsPerAttempt && (
+              <div className="text-xs text-steel-500">
+                Vista previa mostrando el primer intento: {test.questionsPerAttempt} preguntas de{' '}
+                {test.questions.length} totales.
               </div>
-            </div>
-          ))}
-        </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );
