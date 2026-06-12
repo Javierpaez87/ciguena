@@ -28,7 +28,13 @@ import Modal from '../../components/ui/Modal';
 type AssignMode = 'all' | 'role' | 'individual';
 
 function getWorkerRole(profile: Profile) {
-  return profile.position?.trim() || 'Sin rol definido';
+  const workerJobRole = (profile as any).job_role as string | null | undefined;
+
+  return (
+    workerJobRole?.trim() ||
+    profile.position?.trim() ||
+    'Sin rol definido'
+  );
 }
 
 export default function AdminTrainings() {
