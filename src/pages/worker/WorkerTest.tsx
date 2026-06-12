@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ChevronRight,
   Play,
+  AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getTrainingTestByTrainingId } from '../../data/trainingTests';
@@ -17,6 +18,7 @@ interface WorkerTestProps {
   assignment?: {
     id?: string;
     user_id?: string;
+    tenant_id?: string | null;
     training_id: string;
     training?: { title: string };
   };
@@ -33,6 +35,17 @@ type TestOption =
       label?: string;
       option_text?: string;
     };
+
+type CertificateContext = {
+  tenantId: string | null;
+  workerSignatureUrl: string | null;
+  companySignature: {
+    id: string;
+    signature_image_url: string;
+    signer_name: string | null;
+    signer_role?: string | null;
+  } | null;
+};
 
 const getOptionText = (option: TestOption) => {
   if (typeof option === 'string') return option;
@@ -77,6 +90,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   } | null>(null);
   const [attempt, setAttempt] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
 
   const questionsForAttempt = useMemo(() => {
     if (!test) return [];
@@ -94,56 +108,72 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     setAnswers((prev) => ({ ...prev, [questionId]: optionKey }));
   };
 
-  const getCertificateContext = async () => {
-    if (!assignment?.user_id) {
-      return {
-        tenantId: null as string | null,
-        workerSignatureUrl: null as string | null,
-        companySignature: null as any,
-      };
+  const getCurrentProfile = async () => {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !authData.user) {
+      console.error('Error obteniendo auth user para certificado:', authError);
+      return null;
     }
+
+    const authUserId = authData.user.id;
+
+    const candidateIds = Array.from(
+      new Set([authUserId, assignment?.user_id].filter(Boolean) as string[])
+    );
+
+    const orFilters = candidateIds
+      .flatMap(id => [`id.eq.${id}`, `auth_user_id.eq.${id}`])
+      .join(',');
 
     const { data: profiles, error: profileError } = await supabase
       .from('profiles')
-      .select('id, auth_user_id, tenant_id')
-      .or(`id.eq.${assignment.user_id},auth_user_id.eq.${assignment.user_id}`)
+      .select('id, auth_user_id, tenant_id, full_name, email')
+      .or(orFilters)
       .limit(1);
 
     if (profileError) {
       console.error('Error obteniendo perfil para certificado:', profileError);
+      return null;
     }
 
-    const profile = profiles?.[0];
+    return profiles?.[0] ?? null;
+  };
+
+  const getCertificateContext = async (): Promise<CertificateContext> => {
+    const profile = await getCurrentProfile();
+
+    const tenantId =
+      assignment?.tenant_id ||
+      (profile?.tenant_id as string | null | undefined) ||
+      null;
 
     const signatureUserIds = Array.from(
       new Set([
-        assignment.user_id,
+        assignment?.user_id,
         profile?.id,
         profile?.auth_user_id,
       ].filter(Boolean) as string[])
     );
 
-    const { data: ethicsAcceptances, error: ethicsError } = await supabase
-      .from('ethics_acceptances')
-      .select('signature_image_url')
-      .in('user_id', signatureUserIds)
-      .order('accepted_at', { ascending: false })
-      .limit(1);
+    let workerSignatureUrl: string | null = null;
 
-    const ethicsAcceptance = ethicsAcceptances?.[0] ?? null;
+    if (signatureUserIds.length > 0) {
+      const { data: ethicsAcceptances, error: ethicsError } = await supabase
+        .from('ethics_acceptances')
+        .select('signature_image_url')
+        .in('user_id', signatureUserIds)
+        .order('accepted_at', { ascending: false })
+        .limit(1);
 
-    if (ethicsError) {
-      console.error('Error obteniendo firma del worker para certificado:', ethicsError);
+      if (ethicsError) {
+        console.error('Error obteniendo firma del worker para certificado:', ethicsError);
+      }
+
+      workerSignatureUrl = ethicsAcceptances?.[0]?.signature_image_url ?? null;
     }
 
-    const tenantId = profile?.tenant_id ?? null;
-
-    let companySignature = null as null | {
-      id: string;
-      signature_image_url: string;
-      signer_name: string;
-      signer_role?: string | null;
-    };
+    let companySignature: CertificateContext['companySignature'] = null;
 
     if (tenantId) {
       const { data: signatureData, error: signatureError } = await supabase
@@ -152,6 +182,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
         .eq('tenant_id', tenantId)
         .eq('is_default', true)
         .eq('is_active', true)
+        .not('signature_image_url', 'is', null)
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -159,12 +191,30 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
         console.error('Error obteniendo firma de empresa para certificado:', signatureError);
       }
 
-      companySignature = signatureData as typeof companySignature;
+      if (signatureData?.signature_image_url) {
+        companySignature = {
+          id: signatureData.id,
+          signature_image_url: signatureData.signature_image_url,
+          signer_name: signatureData.signer_name,
+          signer_role: signatureData.signer_role,
+        };
+      }
+    }
+
+    if (!tenantId) {
+      console.error('No se encontró tenant_id para emitir certificado.');
+    }
+
+    if (tenantId && !companySignature) {
+      console.warn(
+        'No se encontró firma default activa para el tenant. Revisar tenant_signatures o RLS.',
+        { tenantId }
+      );
     }
 
     return {
       tenantId,
-      workerSignatureUrl: ethicsAcceptance?.signature_image_url ?? null,
+      workerSignatureUrl,
       companySignature,
     };
   };
@@ -180,7 +230,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     const { data: existingCertificate, error: existingError } = await supabase
       .from('certificates')
-      .select('id')
+      .select('id, company_signature_url')
       .eq('assignment_id', assignment.id)
       .maybeSingle();
 
@@ -188,16 +238,27 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       console.error('Error verificando certificado existente:', existingError);
     }
 
-    if (existingCertificate?.id) return;
+    if (existingCertificate?.id) {
+      return;
+    }
 
     const { tenantId, workerSignatureUrl, companySignature } = await getCertificateContext();
 
     if (!tenantId) {
-      console.error('No se pudo emitir certificado: tenant_id no encontrado para el usuario.');
+      setSaveWarning(
+        'El examen fue aprobado, pero no se pudo emitir el certificado porque no encontramos la empresa asociada.'
+      );
+      console.error('No se pudo emitir certificado: tenant_id no encontrado.');
       return;
     }
 
-    const { error } = await supabase.from('certificates').insert({
+    if (!companySignature?.signature_image_url) {
+      setSaveWarning(
+        'El certificado se emitirá sin firma responsable porque no se pudo leer la firma default activa de la empresa. Revisá tenant_signatures/RLS.'
+      );
+    }
+
+    const certificatePayload = {
       assignment_id: assignment.id,
       user_id: assignment.user_id,
       training_id: assignment.training_id,
@@ -213,10 +274,15 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       status: 'valid',
       test_score: score,
       test_attempts_count: attemptNumber,
-    });
+    };
+
+    console.log('Emitiendo certificado con payload:', certificatePayload);
+
+    const { error } = await supabase.from('certificates').insert(certificatePayload);
 
     if (error) {
       console.error('Error emitiendo certificado:', error);
+      setSaveWarning(`Aprobaste el examen, pero no pudimos emitir el certificado: ${error.message}`);
     }
   };
 
@@ -306,6 +372,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   const submitTest = async () => {
     if (!test || questionsForAttempt.length === 0) return;
 
+    setSaveWarning(null);
+
     let correct = 0;
 
     questionsForAttempt.forEach((question) => {
@@ -335,12 +403,12 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     });
 
     if (passed) {
-      await markAssignmentAsCertificateIssued({
+      await issueCertificate({
         score,
         attemptNumber: attempt,
       });
 
-      await issueCertificate({
+      await markAssignmentAsCertificateIssued({
         score,
         attemptNumber: attempt,
       });
@@ -356,6 +424,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     setAnswers({});
     setCurrentQ(0);
     setResult(null);
+    setSaveWarning(null);
     setAttempt(nextAttempt);
     setState('intro');
   };
@@ -403,6 +472,16 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       <button onClick={() => onNavigate('worker-trainings')} className="btn-ghost text-xs">
         <ChevronLeft size={14} /> Volver a mis trainings
       </button>
+
+      {saveWarning && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
+          <div>
+            <div className="font-semibold">Atención</div>
+            <div className="text-amber-100/90">{saveWarning}</div>
+          </div>
+        </div>
+      )}
 
       {state === 'intro' && (
         <div className="card text-center py-8">
@@ -570,7 +649,9 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
           <p className="text-steel-400 text-sm mb-6">
             {result.passed
-              ? 'Felicitaciones, superaste la evaluación. Tu certificado fue emitido correctamente.'
+              ? saveWarning
+                ? 'Aprobaste la evaluación. Revisá el aviso superior sobre la emisión del certificado.'
+                : 'Felicitaciones, superaste la evaluación. Tu certificado fue emitido correctamente.'
               : hasMoreAttempts
                 ? 'No alcanzaste el puntaje mínimo requerido. Podés volver a intentarlo con otras preguntas.'
                 : 'No alcanzaste el puntaje mínimo requerido y ya no quedan más intentos disponibles.'}
