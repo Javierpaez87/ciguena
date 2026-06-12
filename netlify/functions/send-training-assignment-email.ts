@@ -267,7 +267,7 @@ export const handler = async (event: any) => {
   const trainingId = assignment.training_id || '';
   const trainingTitle = getTrainingTitle(trainingId);
   const tenantName = tenant?.name || 'Tu empresa';
-  const loginUrl = `${appUrl.replace(/\/$/, '')}/login`;
+  const loginUrl = appUrl.replace(/\/$/, '') + '/';
   const subject = `Nuevo curso asignado: ${trainingTitle}`;
 
   const notificationBase = {
