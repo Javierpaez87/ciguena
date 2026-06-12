@@ -10,9 +10,9 @@ import {
   BookOpen,
   CalendarDays,
   Send,
-  Check,
-  X,
   Plus,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -82,6 +82,19 @@ interface Assignment {
   [key: string]: any;
 }
 
+interface Certificate {
+  id: string;
+  tenant_id?: string | null;
+  user_id?: string | null;
+  training_id?: string | null;
+  assignment_id?: string | null;
+  certificate_code?: string | null;
+  issued_at?: string | null;
+  expires_at?: string | null;
+  status?: string | null;
+  [key: string]: any;
+}
+
 interface TrainingOption {
   id: string;
   title: string;
@@ -98,6 +111,13 @@ interface EmailEvidence {
   message?: string;
   error?: string;
   provider_response?: unknown;
+}
+
+interface AssignmentReviewItem {
+  profile: Profile;
+  existingAssignment?: Assignment | null;
+  existingCertificate?: Certificate | null;
+  classification: 'new' | 'active' | 'completed' | 'certified';
 }
 
 function normalize(value?: string | null) {
@@ -192,6 +212,10 @@ function isReminderEligible(status?: string | null) {
   );
 }
 
+function isCompletedAssignmentStatus(status?: string | null) {
+  return ['completed', 'passed', 'certificate_issued', 'approved'].includes(normalize(status));
+}
+
 function isWorker(profile: Profile) {
   return normalize(profile.role) === 'worker';
 }
@@ -205,6 +229,10 @@ function getTodayISODate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function getUserTrainingKey(userId?: string | null, trainingId?: string | null) {
+  return `${userId || ''}:${trainingId || ''}`;
+}
+
 export default function AdminAssignments() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id;
@@ -212,6 +240,7 @@ export default function AdminAssignments() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTraining[]>([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -227,6 +256,7 @@ export default function AdminAssignments() {
   const [hasDueDate, setHasDueDate] = useState(false);
   const [dueDate, setDueDate] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  const [includeCertifiedUsers, setIncludeCertifiedUsers] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [lastEmailEvidence, setLastEmailEvidence] = useState<EmailEvidence | null>(null);
 
@@ -246,19 +276,22 @@ export default function AdminAssignments() {
     setSuccessMessage(null);
 
     try {
-      const [assignmentsResult, usersResult, trainingsResult] = await Promise.all([
+      const [assignmentsResult, usersResult, trainingsResult, certificatesResult] = await Promise.all([
         supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
+        supabase.from('certificates').select('*').eq('tenant_id', tenantId),
       ]);
 
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (usersResult.error) throw usersResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
+      if (certificatesResult.error) throw certificatesResult.error;
 
       const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
       const loadedUsers = (usersResult.data ?? []) as Profile[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
+      const loadedCertificates = (certificatesResult.data ?? []) as Certificate[];
 
       const usersById = new Map<string, Profile>();
       loadedUsers.forEach((profile) => {
@@ -289,6 +322,7 @@ export default function AdminAssignments() {
       setUsers(loadedUsers);
       setTenantTrainings(loadedTrainings);
       setAssignments(sortAssignments(hydratedAssignments));
+      setCertificates(loadedCertificates);
     } catch (error) {
       console.error('Error loading assignments:', error);
       setErrorMessage(
@@ -403,13 +437,116 @@ export default function AdminAssignments() {
     return filteredUsersFromCurrentView;
   }, [assignTargetMode, assignRole, workerUsers, filteredUsersFromCurrentView]);
 
-  const assignTargetsWithEmail = useMemo(() => {
-    return assignTargets.filter((profile) => Boolean(profile.email));
-  }, [assignTargets]);
-
   const selectedTraining = useMemo(() => {
     return enabledTrainingOptions.find((training) => training.id === selectedTrainingId) ?? null;
   }, [enabledTrainingOptions, selectedTrainingId]);
+
+  const assignmentsByUserTraining = useMemo(() => {
+    const map = new Map<string, Assignment>();
+
+    assignments.forEach((assignment) => {
+      if (!assignment.user_id || !assignment.training_id) return;
+
+      const key = getUserTrainingKey(assignment.user_id, assignment.training_id);
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, assignment);
+        return;
+      }
+
+      const existingDate = new Date(existing.updated_at || existing.assigned_at || existing.created_at || '').getTime();
+      const nextDate = new Date(assignment.updated_at || assignment.assigned_at || assignment.created_at || '').getTime();
+
+      if (nextDate > existingDate) {
+        map.set(key, assignment);
+      }
+    });
+
+    return map;
+  }, [assignments]);
+
+  const certificatesByUserTraining = useMemo(() => {
+    const map = new Map<string, Certificate>();
+
+    certificates.forEach((certificate) => {
+      if (!certificate.user_id || !certificate.training_id) return;
+
+      const key = getUserTrainingKey(certificate.user_id, certificate.training_id);
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, certificate);
+        return;
+      }
+
+      const existingDate = new Date(existing.issued_at || existing.created_at || '').getTime();
+      const nextDate = new Date(certificate.issued_at || certificate.created_at || '').getTime();
+
+      if (nextDate > existingDate) {
+        map.set(key, certificate);
+      }
+    });
+
+    return map;
+  }, [certificates]);
+
+  const assignmentReview = useMemo<AssignmentReviewItem[]>(() => {
+    if (!selectedTraining) return [];
+
+    return assignTargets.map((profile) => {
+      const key = getUserTrainingKey(profile.id, selectedTraining.id);
+      const existingAssignment = assignmentsByUserTraining.get(key) ?? null;
+      const existingCertificate = certificatesByUserTraining.get(key) ?? null;
+
+      let classification: AssignmentReviewItem['classification'] = 'new';
+
+      if (existingCertificate?.id) {
+        classification = 'certified';
+      } else if (existingAssignment && isCompletedAssignmentStatus(existingAssignment.status)) {
+        classification = 'completed';
+      } else if (existingAssignment) {
+        classification = 'active';
+      }
+
+      return {
+        profile,
+        existingAssignment,
+        existingCertificate,
+        classification,
+      };
+    });
+  }, [assignTargets, selectedTraining, assignmentsByUserTraining, certificatesByUserTraining]);
+
+  const reviewCounts = useMemo(() => {
+    return {
+      total: assignmentReview.length,
+      new: assignmentReview.filter((item) => item.classification === 'new').length,
+      active: assignmentReview.filter((item) => item.classification === 'active').length,
+      completed: assignmentReview.filter((item) => item.classification === 'completed').length,
+      certified: assignmentReview.filter((item) => item.classification === 'certified').length,
+    };
+  }, [assignmentReview]);
+
+  const finalAssignmentTargets = useMemo(() => {
+    return assignmentReview.filter((item) => {
+      if (item.classification === 'new') return true;
+      if (item.classification === 'active') return true;
+      if (item.classification === 'completed' || item.classification === 'certified') {
+        return includeCertifiedUsers;
+      }
+
+      return false;
+    });
+  }, [assignmentReview, includeCertifiedUsers]);
+
+  const finalRecipients = useMemo(() => {
+    return finalAssignmentTargets.map((item) => item.profile);
+  }, [finalAssignmentTargets]);
+
+  const finalRecipientsWithEmail = useMemo(() => {
+    return finalRecipients.filter((profile) => Boolean(profile.email));
+  }, [finalRecipients]);
 
   function getStatusCount(statusValue: string) {
     if (statusValue === 'all') return assignments.length;
@@ -434,6 +571,7 @@ export default function AdminAssignments() {
     setHasDueDate(false);
     setDueDate('');
     setSendEmail(true);
+    setIncludeCertifiedUsers(false);
     setShowAssignModal(true);
   }
 
@@ -542,8 +680,8 @@ export default function AdminAssignments() {
       return;
     }
 
-    if (assignTargets.length === 0) {
-      setErrorMessage('No hay usuarios para asignar con los filtros seleccionados.');
+    if (finalAssignmentTargets.length === 0) {
+      setErrorMessage('No hay usuarios para asignar con la configuración seleccionada.');
       return;
     }
 
@@ -557,9 +695,9 @@ export default function AdminAssignments() {
     try {
       const now = new Date().toISOString();
 
-      const payload = assignTargets.map((profile) => ({
+      const payload = finalAssignmentTargets.map((item) => ({
         tenant_id: tenantId,
-        user_id: profile.id,
+        user_id: item.profile.id,
         training_id: selectedTraining.id,
         status: 'not_started',
         progress_percentage: 0,
@@ -576,7 +714,7 @@ export default function AdminAssignments() {
       if (error) throw error;
 
       const emailEvidence = await notifyAssignmentsByEmail({
-        recipients: assignTargets,
+        recipients: finalRecipients,
         training: selectedTraining,
         selectedDueDate,
         reason: 'new_assignment',
@@ -584,18 +722,22 @@ export default function AdminAssignments() {
 
       setLastEmailEvidence(emailEvidence);
 
+      const skipped = assignmentReview.length - finalAssignmentTargets.length;
+
       if (emailEvidence.sent) {
         setSuccessMessage(
-          `Training asignado a ${assignTargets.length} usuario(s). Email enviado a ${emailEvidence.recipient_count} persona(s) con copia al admin.`
+          `Training asignado a ${finalAssignmentTargets.length} usuario(s). Se omitieron ${skipped}. Email enviado a ${emailEvidence.recipient_count} persona(s) con copia al admin.`
         );
       } else if (emailEvidence.requested) {
         setSuccessMessage(
-          `Training asignado a ${assignTargets.length} usuario(s). Atención: el email no pudo confirmarse${
+          `Training asignado a ${finalAssignmentTargets.length} usuario(s). Se omitieron ${skipped}. Atención: el email no pudo confirmarse${
             emailEvidence.error ? ` (${emailEvidence.error})` : '.'
           }`
         );
       } else {
-        setSuccessMessage(`Training asignado a ${assignTargets.length} usuario(s). Email no solicitado.`);
+        setSuccessMessage(
+          `Training asignado a ${finalAssignmentTargets.length} usuario(s). Se omitieron ${skipped}. Email no solicitado.`
+        );
       }
 
       setShowAssignModal(false);
@@ -723,7 +865,7 @@ export default function AdminAssignments() {
       <div className="card p-6">
         <div className="text-steel-100 font-semibold">Cargando asignaciones...</div>
         <div className="text-sm text-steel-500 mt-1">
-          Estamos trayendo las asignaciones reales desde Supabase.
+          Estamos trayendo asignaciones, usuarios, trainings y certificados desde Supabase.
         </div>
       </div>
     );
@@ -776,9 +918,7 @@ export default function AdminAssignments() {
               : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
           }`}
         >
-          <div className="font-semibold">
-            Evidencia de notificación
-          </div>
+          <div className="font-semibold">Evidencia de notificación</div>
           <div className="text-xs mt-1 opacity-90">
             Solicitado: {lastEmailEvidence.requested ? 'sí' : 'no'} · Enviado:{' '}
             {lastEmailEvidence.sent ? 'sí' : 'no'} · Destinatarios:{' '}
@@ -794,12 +934,10 @@ export default function AdminAssignments() {
       )}
 
       <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
-        <div className="text-sm font-semibold text-steel-100">
-          Asignaciones
-        </div>
+        <div className="text-sm font-semibold text-steel-100">Asignaciones</div>
         <div className="text-xs text-steel-500">
-          Filtrá por estado, rol o búsqueda. Desde esta pantalla podés asignar cursos masivamente
-          usando el filtro actual o un rol completo.
+          Filtrá por estado, rol o búsqueda. Antes de asignar masivamente, el sistema revisa si
+          los usuarios ya tienen certificado o el curso completado.
         </div>
       </div>
 
@@ -1054,7 +1192,7 @@ export default function AdminAssignments() {
             {assignStep === 'confirm' && (
               <button
                 onClick={confirmBulkAssignment}
-                disabled={isAssigning || assignTargets.length === 0 || !selectedTraining}
+                disabled={isAssigning || finalAssignmentTargets.length === 0 || !selectedTraining}
                 className="btn-primary disabled:opacity-50"
               >
                 <Send size={15} />
@@ -1177,8 +1315,8 @@ export default function AdminAssignments() {
                   Usuarios alcanzados: {assignTargets.length}
                 </div>
                 <div className="text-xs text-steel-500 mt-1">
-                  Con email: {assignTargetsWithEmail.length}. Sin email:{' '}
-                  {assignTargets.length - assignTargetsWithEmail.length}.
+                  Esta revisión todavía no asigna nada. En el paso final se mostrará cuántos ya
+                  tienen certificado o curso completado.
                 </div>
 
                 {assignTargets.length > 0 && (
@@ -1214,7 +1352,7 @@ export default function AdminAssignments() {
                       ¿Querés agregar fecha límite?
                     </div>
                     <div className="text-xs text-steel-400 mt-1">
-                      Esta fecha se guardará en cada asignación y se incluirá en el email.
+                      Esta fecha se guardará en cada asignación y se verá en las cards del trabajador.
                     </div>
                   </div>
                 </div>
@@ -1287,7 +1425,7 @@ export default function AdminAssignments() {
                     Enviar email de notificación
                   </div>
                   <div className="text-xs text-steel-500 mt-1">
-                    Se enviará a los usuarios con email y siempre con copia al admin.
+                    Se enviará a usuarios con email y siempre con copia al admin.
                   </div>
                 </div>
               </label>
@@ -1306,15 +1444,32 @@ export default function AdminAssignments() {
 
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-steel-400">Usuarios alcanzados</span>
-                  <span className="text-steel-100 font-semibold">{assignTargets.length}</span>
+                  <span className="text-steel-100 font-semibold">{reviewCounts.total}</span>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-steel-400">Usuarios con email</span>
-                  <span className="text-steel-100 font-semibold">{assignTargetsWithEmail.length}</span>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-2">
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                    <div className="text-xs text-emerald-300">Nuevos</div>
+                    <div className="text-xl font-bold text-emerald-200">{reviewCounts.new}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
+                    <div className="text-xs text-blue-300">Ya asignados/en curso</div>
+                    <div className="text-xl font-bold text-blue-200">{reviewCounts.active}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                    <div className="text-xs text-amber-300">Completados</div>
+                    <div className="text-xl font-bold text-amber-200">{reviewCounts.completed}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3">
+                    <div className="text-xs text-purple-300">Con certificado</div>
+                    <div className="text-xl font-bold text-purple-200">{reviewCounts.certified}</div>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="flex items-center justify-between gap-3 text-sm pt-2">
                   <span className="text-steel-400">Fecha límite</span>
                   <span className="text-steel-100 font-semibold">
                     {hasDueDate && dueDate ? formatDate(dueDate) : 'Sin fecha límite'}
@@ -1327,12 +1482,127 @@ export default function AdminAssignments() {
                     {sendEmail ? 'Sí, con copia al admin' : 'No enviar'}
                   </span>
                 </div>
+
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-steel-400">Se asignará finalmente a</span>
+                  <span className="text-steel-100 font-semibold">
+                    {finalAssignmentTargets.length} usuario(s)
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-steel-400">Con email</span>
+                  <span className="text-steel-100 font-semibold">
+                    {finalRecipientsWithEmail.length}
+                  </span>
+                </div>
               </div>
 
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
-                Al confirmar, se crearán o actualizarán asignaciones existentes para esos usuarios.
-                Si el usuario ya tenía ese training asignado, se actualizará el estado a no iniciado,
-                progreso 0%, fecha de asignación y fecha límite.
+              {(reviewCounts.completed > 0 || reviewCounts.certified > 0) && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle size={18} className="text-amber-300 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold text-amber-200">
+                        Hay usuarios que ya completaron este training
+                      </div>
+                      <div className="text-xs text-steel-400 mt-1">
+                        {reviewCounts.certified} usuario(s) ya tienen certificado y{' '}
+                        {reviewCounts.completed} usuario(s) figuran como completados/aprobados.
+                        Por defecto no se reasignan para no pisar evidencia ni trazabilidad.
+                      </div>
+
+                      <label className="mt-4 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-steel-950/50 p-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={includeCertifiedUsers}
+                          onChange={(event) => setIncludeCertifiedUsers(event.target.checked)}
+                          className="mt-1"
+                        />
+                        <div>
+                          <div className="text-sm font-semibold text-steel-100">
+                            Reasignar también a usuarios completados o con certificado
+                          </div>
+                          <div className="text-xs text-steel-500 mt-1">
+                            Usar solo si querés generar una nueva obligación de recertificación.
+                            Esto actualizará la asignación como no iniciada y con la nueva fecha límite.
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+                <div className="text-sm font-semibold text-steel-100 mb-2">
+                  Muestra de usuarios alcanzados
+                </div>
+
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {assignmentReview.slice(0, 14).map((item) => {
+                    const isSkipped =
+                      (item.classification === 'completed' || item.classification === 'certified') &&
+                      !includeCertifiedUsers;
+
+                    return (
+                      <div
+                        key={item.profile.id}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-steel-950 px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-steel-200 truncate">
+                            {getFullName(item.profile)}
+                          </div>
+                          <div className="text-steel-500 truncate">
+                            {getWorkerRole(item.profile)} · {item.profile.email || 'sin email'}
+                          </div>
+                        </div>
+
+                        <span
+                          className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                            isSkipped
+                              ? 'border-steel-600 bg-steel-800 text-steel-400'
+                              : item.classification === 'certified'
+                                ? 'border-purple-500/30 bg-purple-500/10 text-purple-300'
+                                : item.classification === 'completed'
+                                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                                  : item.classification === 'active'
+                                    ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                                    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                          }`}
+                        >
+                          {isSkipped
+                            ? 'omitido'
+                            : item.classification === 'certified'
+                              ? 'certificado'
+                              : item.classification === 'completed'
+                                ? 'completado'
+                                : item.classification === 'active'
+                                  ? 'actualizar'
+                                  : 'nuevo'}
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  {assignmentReview.length > 14 && (
+                    <div className="text-xs text-steel-500 px-1">
+                      + {assignmentReview.length - 14} usuario(s) más
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4 text-xs text-steel-400">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck size={15} className="text-emerald-400 mt-0.5" />
+                  <div>
+                    Recomendación: dejá desmarcada la opción de reasignar certificados, salvo que sea
+                    una recertificación real. Así no se pisa evidencia histórica de capacitaciones ya
+                    aprobadas.
+                  </div>
+                </div>
               </div>
             </>
           )}
