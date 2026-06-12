@@ -28,7 +28,13 @@ import Modal from '../../components/ui/Modal';
 type AssignMode = 'all' | 'role' | 'individual';
 
 function getWorkerRole(profile: Profile) {
-  return profile.position?.trim() || 'Sin rol definido';
+  const workerJobRole = (profile as any).job_role as string | null | undefined;
+
+  return (
+    workerJobRole?.trim() ||
+    profile.position?.trim() ||
+    'Sin rol definido'
+  );
 }
 
 export default function AdminTrainings() {
@@ -228,6 +234,58 @@ export default function AdminTrainings() {
     setSelectedRole('');
   };
 
+  const sendAssignmentEmails = async (assignmentIds: string[]) => {
+    if (assignmentIds.length === 0) {
+      console.warn('No hay assignmentIds para enviar emails.');
+      return {
+        sent: 0,
+        failed: 0,
+      };
+    }
+
+    console.log('Enviando emails para assignmentIds:', assignmentIds);
+
+    const results = await Promise.allSettled(
+      assignmentIds.map(async assignmentId => {
+        console.log('Enviando mail de asignación para assignmentId:', assignmentId);
+
+        const response = await fetch('/.netlify/functions/send-training-assignment-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ assignmentId }),
+        });
+
+        const responseBody = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          console.error('Falló send-training-assignment-email:', response.status, responseBody);
+          throw new Error(responseBody?.error || 'No se pudo enviar el email.');
+        }
+
+        return responseBody;
+      })
+    );
+
+    let sent = 0;
+    let failed = 0;
+
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        sent += 1;
+      } else {
+        failed += 1;
+        console.warn('Falló el envío de una notificación:', result.reason);
+      }
+    });
+
+    return {
+      sent,
+      failed,
+    };
+  };
+
   const handleAssign = async () => {
     if (!showAssign || !tenantId || !user?.id) {
       setAssignError('No pudimos asignar el training. Falta información del usuario o empresa.');
@@ -258,11 +316,20 @@ export default function AdminTrainings() {
       return;
     }
 
+    const newTargets = targets.filter(userId => !assignedUserIds.has(userId));
+
+    if (newTargets.length === 0) {
+      setAssignMessage(
+        `El training "${showAssign.title}" ya estaba asignado a los usuarios seleccionados. No se enviaron nuevos emails.`
+      );
+      return;
+    }
+
     setIsAssigning(true);
     setAssignError(null);
     setAssignMessage(null);
 
-    const assignments = targets.map(userId => ({
+    const assignments = newTargets.map(userId => ({
       tenant_id: tenantId,
       training_id: showAssign.id,
       user_id: userId,
@@ -282,15 +349,40 @@ export default function AdminTrainings() {
         onConflict: 'tenant_id,training_id,user_id',
       });
 
-    setIsAssigning(false);
-
     if (error) {
       console.error('Error asignando training:', error);
+      setIsAssigning(false);
       setAssignError(`No pudimos asignar el training: ${error.message}`);
       return;
     }
 
-    const updatedAssignedIds = new Set([...Array.from(assignedUserIds), ...targets]);
+    const { data: createdAssignments, error: createdAssignmentsError } = await supabase
+      .from('training_assignments')
+      .select('id, user_id')
+      .eq('tenant_id', tenantId)
+      .eq('training_id', showAssign.id)
+      .in('user_id', newTargets);
+
+    if (createdAssignmentsError) {
+      console.error('Error buscando asignaciones para enviar emails:', createdAssignmentsError);
+      setIsAssigning(false);
+      setAssignError(
+        `El training fue asignado, pero no pudimos preparar los emails: ${createdAssignmentsError.message}`
+      );
+      return;
+    }
+
+    const assignmentIds = (createdAssignments ?? [])
+      .map(row => row.id as string)
+      .filter(Boolean);
+
+    console.log('Assignment IDs para enviar mail:', assignmentIds);
+
+    const emailResult = await sendAssignmentEmails(assignmentIds);
+
+    setIsAssigning(false);
+
+    const updatedAssignedIds = new Set([...Array.from(assignedUserIds), ...newTargets]);
     setAssignedUserIds(updatedAssignedIds);
     setSelectedUsers(updatedAssignedIds);
 
@@ -301,13 +393,18 @@ export default function AdminTrainings() {
           ? `el rol "${selectedRole}"`
           : 'los usuarios seleccionados';
 
+    const emailText =
+      emailResult.failed > 0
+        ? ` Se enviaron ${emailResult.sent} email(s), pero fallaron ${emailResult.failed}.`
+        : ` Se enviaron ${emailResult.sent} email(s) de notificación.`;
+
     setAssignMessage(
-      `Training "${showAssign.title}" asignado a ${targets.length} usuario(s) de ${modeLabel}.`
+      `Training "${showAssign.title}" asignado a ${newTargets.length} usuario(s) de ${modeLabel}.${emailText}`
     );
 
     setTimeout(() => {
       resetAssignModal();
-    }, 900);
+    }, 1200);
   };
 
   const getContentLabel = (training: Training) => {

@@ -29,6 +29,7 @@ interface Profile {
   full_name?: string | null;
   email?: string | null;
   role?: string | null;
+  job_role?: string | null;
   position?: string | null;
   area?: string | null;
   contractor_company?: string | null;
@@ -147,6 +148,14 @@ function getFullName(profile: Profile) {
 function getInitials(profile: Profile) {
   const source = getFullName(profile);
   return source.trim().charAt(0).toUpperCase();
+}
+
+function getWorkerRole(profile?: Profile | null) {
+  return (
+    profile?.job_role?.trim() ||
+    profile?.position?.trim() ||
+    'Sin rol definido'
+  );
 }
 
 function getTrainingTitle(training?: TenantTraining | null, assignment?: Assignment | null) {
@@ -285,7 +294,14 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
     ]).toLowerCase();
     const dni = getColumnValue(row, ['dni', 'documento', 'documento_nacional']);
     const phone = getColumnValue(row, ['telefono', 'phone', 'celular', 'mobile']);
-    const position = getColumnValue(row, ['puesto', 'position', 'cargo', 'rol_operativo']);
+    const position = getColumnValue(row, [
+      'job_role',
+      'rol',
+      'rol_operativo',
+      'puesto',
+      'position',
+      'cargo',
+    ]);
     const area = getColumnValue(row, ['area', 'sector', 'departamento', 'department']);
     const employeeCode = getColumnValue(row, ['legajo', 'employee_code', 'codigo_empleado']);
     const contractorCompany = getColumnValue(row, [
@@ -346,7 +362,7 @@ function downloadCsvTemplate() {
     'email',
     'dni',
     'telefono',
-    'puesto',
+    'rol_operativo',
     'area',
     'legajo',
     'empresa_contratista',
@@ -360,7 +376,7 @@ function downloadCsvTemplate() {
       'juan.perez@empresa.com',
       '30111222',
       '+54 9 11 2233-4455',
-      'Operador de campo',
+      'operador',
       'Operaciones',
       'EMP001',
       'Contratista SA',
@@ -372,7 +388,7 @@ function downloadCsvTemplate() {
       'maria.gomez@empresa.com',
       '30999888',
       '+54 9 11 6677-8899',
-      'Supervisora HSE',
+      'supervisor',
       'Seguridad e Higiene',
       'EMP002',
       '',
@@ -409,6 +425,7 @@ export default function AdminUsers() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
 
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Profile | null>(null);
@@ -492,6 +509,19 @@ export default function AdminUsers() {
     loadUsersData();
   }, [tenantId]);
 
+  const roleOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    users.forEach((profile) => {
+      const workerRole = getWorkerRole(profile);
+      counts.set(workerRole, (counts.get(workerRole) ?? 0) + 1);
+    });
+
+    return Array.from(counts.entries())
+      .map(([role, count]) => ({ role, count }))
+      .sort((a, b) => a.role.localeCompare(b.role));
+  }, [users]);
+
   const filtered = useMemo(() => {
     const searchValue = normalize(search);
 
@@ -504,10 +534,14 @@ export default function AdminUsers() {
         normalizedStatus === statusFilter ||
         (statusFilter === 'active' && isActive(profile));
 
+      const workerRole = getWorkerRole(profile);
+      const matchesRole = roleFilter === 'all' || workerRole === roleFilter;
+
       const matchesSearch =
         !searchValue ||
         normalize(getFullName(profile)).includes(searchValue) ||
         normalize(profile.email).includes(searchValue) ||
+        normalize(profile.job_role).includes(searchValue) ||
         normalize(profile.position).includes(searchValue) ||
         normalize(profile.area).includes(searchValue) ||
         normalize(profile.employee_code).includes(searchValue) ||
@@ -515,9 +549,9 @@ export default function AdminUsers() {
         normalize(profile.phone).includes(searchValue) ||
         normalize(profile.contractor_company).includes(searchValue);
 
-      return matchesStatus && matchesSearch;
+      return matchesStatus && matchesRole && matchesSearch;
     });
-  }, [users, search, statusFilter]);
+  }, [users, search, statusFilter, roleFilter]);
 
   const activeCount = users.filter(isActive).length;
   const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
@@ -535,7 +569,7 @@ export default function AdminUsers() {
   }, [assignments]);
 
   async function toggleStatus(profile: Profile) {
-    if (!profile.id) return;
+    if (!profile.id || !tenantId) return;
 
     const currentIsActive = isActive(profile);
     const nextStatus = currentIsActive ? 'inactive' : 'active';
@@ -546,30 +580,63 @@ export default function AdminUsers() {
     const previousUsers = users;
 
     setUsers((currentUsers) =>
-      currentUsers.map((item) => (item.id === profile.id ? { ...item, status: nextStatus } : item))
+      currentUsers.map((item) =>
+        item.id === profile.id
+          ? {
+              ...item,
+              status: nextStatus,
+              preapproved: nextStatus === 'active' ? true : item.preapproved,
+            }
+          : item
+      )
     );
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', profile.id)
-      .eq('tenant_id', tenantId);
+    try {
+      const response = await fetch('/.netlify/functions/approve-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          profileId: profile.id,
+          tenantId,
+          status: nextStatus,
+        }),
+      });
 
-    if (error) {
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'No pudimos actualizar el usuario.');
+      }
+
+      if (result?.profile) {
+        setUsers((currentUsers) =>
+          currentUsers.map((item) =>
+            item.id === profile.id
+              ? {
+                  ...item,
+                  ...result.profile,
+                }
+              : item
+          )
+        );
+      }
+
+      setSuccessMessage(
+        nextStatus === 'active'
+          ? result?.email_sent
+            ? 'Usuario activado correctamente. Se envió el mail de aprobación.'
+            : 'Usuario activado correctamente, pero no se pudo confirmar el envío del mail.'
+          : 'Usuario desactivado correctamente.'
+      );
+    } catch (error) {
       console.error('Error updating user status:', error);
       setUsers(previousUsers);
-      setErrorMessage(error.message);
-      return;
+      setErrorMessage(
+        error instanceof Error ? error.message : 'No se pudo actualizar el usuario.'
+      );
     }
-
-    setSuccessMessage(
-      nextStatus === 'active'
-        ? 'Usuario activado correctamente.'
-        : 'Usuario desactivado correctamente.'
-    );
   }
 
   async function handleCreate() {
@@ -608,6 +675,8 @@ export default function AdminUsers() {
         throw new Error('Ya existe un usuario con ese email en esta empresa.');
       }
 
+      const cleanPosition = clean(form.position);
+
       const newUser = {
         id: crypto.randomUUID(),
         tenant_id: tenantId,
@@ -619,7 +688,8 @@ export default function AdminUsers() {
         dni: clean(form.dni),
         phone: clean(form.phone),
         role: 'worker',
-        position: clean(form.position),
+        job_role: cleanPosition,
+        position: cleanPosition,
         area: clean(form.area),
         contractor_company: clean(form.contractor_company),
         employee_code: clean(form.employee_code),
@@ -689,6 +759,7 @@ export default function AdminUsers() {
           full_name: email.split('@')[0],
           email,
           role: 'worker',
+          job_role: null,
           position: null,
           area: null,
           contractor_company: null,
@@ -776,27 +847,32 @@ export default function AdminUsers() {
     try {
       const now = new Date().toISOString();
 
-      const profilesToInsert = validRows.map((row) => ({
-        id: crypto.randomUUID(),
-        tenant_id: tenantId,
-        auth_user_id: null,
-        first_name: clean(row.first_name),
-        last_name: clean(row.last_name),
-        full_name: row.full_name,
-        email: row.email,
-        dni: clean(row.dni),
-        phone: clean(row.phone),
-        role: 'worker',
-        position: clean(row.position),
-        area: clean(row.area),
-        contractor_company: clean(row.contractor_company),
-        employee_code: clean(row.employee_code),
-        status: row.status || 'pending',
-        preapproved: true,
-        source: 'csv',
-        created_at: now,
-        updated_at: now,
-      }));
+      const profilesToInsert = validRows.map((row) => {
+        const cleanPosition = clean(row.position);
+
+        return {
+          id: crypto.randomUUID(),
+          tenant_id: tenantId,
+          auth_user_id: null,
+          first_name: clean(row.first_name),
+          last_name: clean(row.last_name),
+          full_name: row.full_name,
+          email: row.email,
+          dni: clean(row.dni),
+          phone: clean(row.phone),
+          role: 'worker',
+          job_role: cleanPosition,
+          position: cleanPosition,
+          area: clean(row.area),
+          contractor_company: clean(row.contractor_company),
+          employee_code: clean(row.employee_code),
+          status: row.status || 'pending',
+          preapproved: true,
+          source: 'csv',
+          created_at: now,
+          updated_at: now,
+        };
+      });
 
       const { data, error } = await supabase.from('profiles').insert(profilesToInsert).select('*');
 
@@ -877,22 +953,35 @@ export default function AdminUsers() {
         }}
       />
 
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex gap-2 flex-1 max-w-lg">
+      <div className="flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full xl:max-w-3xl">
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="input pl-9"
-              placeholder="Buscar usuario..."
+              placeholder="Buscar usuario, rol, área, legajo..."
             />
           </div>
 
           <select
+            value={roleFilter}
+            onChange={(event) => setRoleFilter(event.target.value)}
+            className="select sm:min-w-[210px]"
+          >
+            <option value="all">Todos los roles ({users.length})</option>
+            {roleOptions.map((roleOption) => (
+              <option key={roleOption.role} value={roleOption.role}>
+                {roleOption.role} ({roleOption.count})
+              </option>
+            ))}
+          </select>
+
+          <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="select w-auto"
+            className="select sm:w-auto"
           >
             <option value="all">Todos</option>
             <option value="active">Activos</option>
@@ -950,6 +1039,12 @@ export default function AdminUsers() {
 
         <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
           <span className="text-xs text-steel-400">
+            {roleOptions.length} roles detectados
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
+          <span className="text-xs text-steel-400">
             {tenantTrainings.length} trainings habilitados
           </span>
         </div>
@@ -961,7 +1056,7 @@ export default function AdminUsers() {
             <thead>
               <tr className="bg-steel-900 border-b border-steel-700">
                 <th className="table-header">Nombre</th>
-                <th className="table-header hidden md:table-cell">Puesto</th>
+                <th className="table-header hidden md:table-cell">Rol / puesto</th>
                 <th className="table-header hidden lg:table-cell">Área</th>
                 <th className="table-header hidden lg:table-cell">Legajo</th>
                 <th className="table-header hidden xl:table-cell">DNI</th>
@@ -1000,7 +1095,7 @@ export default function AdminUsers() {
                     </td>
 
                     <td className="table-cell hidden md:table-cell text-steel-300">
-                      {profile.position || '—'}
+                      {getWorkerRole(profile)}
                     </td>
 
                     <td className="table-cell hidden lg:table-cell text-steel-300">
@@ -1195,14 +1290,14 @@ export default function AdminUsers() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="label">Puesto</label>
+              <label className="label">Rol / puesto</label>
               <input
                 value={form.position}
                 onChange={(event) =>
                   setForm((currentForm) => ({ ...currentForm, position: event.target.value }))
                 }
                 className="input"
-                placeholder="Ej: Operador de campo"
+                placeholder="Ej: operador, supervisor, hse"
               />
             </div>
 
@@ -1355,7 +1450,7 @@ export default function AdminUsers() {
                   <ul className="space-y-1">
                     <li>dni</li>
                     <li>telefono</li>
-                    <li>puesto</li>
+                    <li>rol_operativo / puesto / cargo</li>
                     <li>area</li>
                     <li>legajo</li>
                     <li>empresa_contratista</li>
@@ -1392,7 +1487,7 @@ export default function AdminUsers() {
                     <th className="table-header">Nombre</th>
                     <th className="table-header">Email</th>
                     <th className="table-header">DNI</th>
-                    <th className="table-header">Puesto</th>
+                    <th className="table-header">Rol / puesto</th>
                     <th className="table-header">Área</th>
                     <th className="table-header">Legajo</th>
                     <th className="table-header">Estado</th>
@@ -1529,7 +1624,7 @@ export default function AdminUsers() {
                 { label: 'Apellido', value: showDetail.last_name },
                 { label: 'DNI', value: showDetail.dni },
                 { label: 'Teléfono', value: showDetail.phone },
-                { label: 'Puesto', value: showDetail.position },
+                { label: 'Rol / puesto', value: getWorkerRole(showDetail) },
                 { label: 'Área', value: showDetail.area },
                 { label: 'Legajo', value: showDetail.employee_code },
                 { label: 'Contratista', value: showDetail.contractor_company },
