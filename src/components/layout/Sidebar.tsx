@@ -18,6 +18,8 @@ import {
   LogOut,
   FileSignature,
   LibraryBig,
+  Eye,
+  ArrowLeft,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -63,6 +65,11 @@ const superAdminNav: NavItem[] = [
     id: 'sa-feedback',
     label: 'Feedback Global',
     icon: <MessageSquare size={18} />,
+  },
+  {
+    id: 'sa-ghost',
+    label: 'Ghost View',
+    icon: <Eye size={18} />,
   },
 ];
 
@@ -209,7 +216,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, sessionUser, isGhostMode, ghostSession, stopGhostSession, logout } = useAuth();
 
   const normalizedRole = normalizeRole(user?.role);
   const isSuperAdmin = isSuperAdminRole(normalizedRole);
@@ -271,6 +278,26 @@ export default function Sidebar({
         </div>
       )}
 
+      {isGhostMode && ghostSession && !collapsed && (
+        <div className="mx-3 mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-200">
+            <Eye size={14} /> Ghost View
+          </div>
+          <div className="text-[11px] text-amber-100/70 mt-1 truncate">{ghostSession.tenant.name}</div>
+          <button
+            type="button"
+            onClick={() => {
+              stopGhostSession();
+              onNavigate('sa-ghost');
+              setMobileOpen(false);
+            }}
+            className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-md border border-amber-400/30 px-2 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-400/10"
+          >
+            <ArrowLeft size={13} /> Volver a Super Admin
+          </button>
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         {!collapsed && (
@@ -317,11 +344,11 @@ export default function Sidebar({
         {!collapsed && (
           <div className="px-3 py-2 mb-2">
             <div className="text-sm font-medium text-steel-100 truncate">
-              {user?.full_name || 'Usuario'}
+              {isGhostMode ? sessionUser?.full_name : user?.full_name || 'Usuario'}
             </div>
 
             <div className="text-xs text-steel-400 truncate">
-              {user?.email || 'Sin email'}
+              {isGhostMode ? sessionUser?.email : user?.email || 'Sin email'}
             </div>
           </div>
         )}

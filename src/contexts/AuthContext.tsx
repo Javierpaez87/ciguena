@@ -3,9 +3,10 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
-import type { AuthUser, Profile, UserRole } from '../types';
+import type { AuthUser, Profile, Tenant, UserRole } from '../types';
 import { supabase } from '../lib/supabase';
 
 interface RegisterPayload {
@@ -17,8 +18,21 @@ interface RegisterPayload {
   requestedAdmin: boolean;
 }
 
+export interface GhostSession {
+  tenant: Pick<Tenant, 'id' | 'name' | 'logo_url'>;
+  profile: Profile;
+}
+
 interface AuthContextValue {
+  /** Usuario efectivo. En Ghost View representa al admin/worker observado. */
   user: AuthUser | null;
+  /** Usuario autenticado real. Nunca cambia durante Ghost View. */
+  sessionUser: AuthUser | null;
+  ghostSession: GhostSession | null;
+  isGhostMode: boolean;
+  isReadOnly: boolean;
+  startGhostSession: (tenant: GhostSession['tenant'], profile: Profile) => void;
+  stopGhostSession: () => void;
   login: (email: string, password: string) => Promise<{ error: string | null }>;
   register: (payload: RegisterPayload) => Promise<{ error: string | null }>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
@@ -41,10 +55,7 @@ function buildAuthUser(email: string, profile: SupabaseProfile): AuthUser {
     role: profile.role as UserRole,
     tenant_id: profile.tenant_id,
     full_name: profile.full_name,
-    profile: {
-      ...profile,
-      email,
-    },
+    profile: { ...profile, email },
   };
 }
 
@@ -55,97 +66,94 @@ async function getProfileForAuthUser(authUserId: string) {
     .eq('auth_user_id', authUserId)
     .single();
 
-  if (error) {
-    return { profile: null, error };
-  }
-
+  if (error) return { profile: null, error };
   return { profile: data as SupabaseProfile, error: null };
 }
 
 function normalizeRegisterError(message: string) {
   const lower = message.toLowerCase();
-
   if (lower.includes('already') || lower.includes('registered') || lower.includes('ya existe')) {
     return 'Ya existe una cuenta registrada con ese email.';
   }
-
   if (lower.includes('rate limit') || lower.includes('email rate')) {
     return 'No pudimos completar el registro en este momento. Intentá nuevamente en unos minutos o contactá a BondiApps.';
   }
-
   return message || 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.';
 }
 
+function isSuperAdmin(role?: string | null) {
+  const normalized = (role || '').trim().toLowerCase();
+  return normalized === 'super_admin' || normalized === 'superadmin';
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionUser, setSessionUser] = useState<AuthUser | null>(null);
+  const [ghostSession, setGhostSession] = useState<GhostSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadSession = useCallback(async () => {
     setIsLoading(true);
-
     const { data, error } = await supabase.auth.getSession();
 
     if (error || !data.session?.user) {
-      setUser(null);
+      setSessionUser(null);
+      setGhostSession(null);
       setIsLoading(false);
       return;
     }
 
     const authUser = data.session.user;
-    const email = authUser.email ?? '';
-
     const { profile } = await getProfileForAuthUser(authUser.id);
 
     if (!profile || profile.status !== 'active') {
-      setUser(null);
+      setSessionUser(null);
+      setGhostSession(null);
       setIsLoading(false);
       return;
     }
 
-    setUser(buildAuthUser(email, profile));
+    setSessionUser(buildAuthUser(authUser.email ?? '', profile));
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
     loadSession();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const authUser = session?.user;
-
       if (!authUser) {
-        setUser(null);
+        setSessionUser(null);
+        setGhostSession(null);
         setIsLoading(false);
         return;
       }
 
       getProfileForAuthUser(authUser.id).then(({ profile }) => {
         if (!profile || profile.status !== 'active') {
-          setUser(null);
+          setSessionUser(null);
+          setGhostSession(null);
           setIsLoading(false);
           return;
         }
-
-        setUser(buildAuthUser(authUser.email ?? '', profile));
+        setSessionUser(buildAuthUser(authUser.email ?? '', profile));
         setIsLoading(false);
       });
     });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [loadSession]);
+
+  const startGhostSession = useCallback((tenant: GhostSession['tenant'], profile: Profile) => {
+    if (!isSuperAdmin(sessionUser?.role)) return;
+    if (profile.tenant_id !== tenant.id) return;
+    if (profile.role !== 'admin' && profile.role !== 'worker') return;
+    setGhostSession({ tenant, profile });
+  }, [sessionUser?.role]);
+
+  const stopGhostSession = useCallback(() => setGhostSession(null), []);
 
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
-
     const normalizedEmail = email.trim().toLowerCase();
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
 
     if (error || !data.user) {
       setIsLoading(false);
@@ -153,93 +161,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const { profile, error: profileError } = await getProfileForAuthUser(data.user.id);
-
     if (profileError || !profile) {
       await supabase.auth.signOut();
-      setUser(null);
+      setSessionUser(null);
       setIsLoading(false);
       return { error: 'Tu usuario no tiene un perfil asociado. Contactá a BondiApps.' };
     }
 
     if (profile.status !== 'active') {
       await supabase.auth.signOut();
-      setUser(null);
+      setSessionUser(null);
       setIsLoading(false);
-
-      if (profile.status === 'pending') {
-        return { error: 'Tu cuenta está pendiente de validación.' };
-      }
-
-      return { error: 'Tu cuenta no se encuentra activa.' };
+      return { error: profile.status === 'pending' ? 'Tu cuenta está pendiente de validación.' : 'Tu cuenta no se encuentra activa.' };
     }
 
-    setUser(buildAuthUser(normalizedEmail, profile));
+    setSessionUser(buildAuthUser(normalizedEmail, profile));
+    setGhostSession(null);
     setIsLoading(false);
     return { error: null };
   }, []);
 
   const register = useCallback(async (payload: RegisterPayload) => {
     setIsLoading(true);
-
     try {
       const response = await fetch('/.netlify/functions/register-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
-
       const result = await response.json().catch(() => ({}));
-
       setIsLoading(false);
-
-      if (!response.ok) {
-        return {
-          error: normalizeRegisterError(result.error),
-        };
-      }
-
-      return { error: null };
+      return response.ok ? { error: null } : { error: normalizeRegisterError(result.error) };
     } catch {
       setIsLoading(false);
-      return {
-        error: 'No pudimos conectar con el servidor de registro. Intentá nuevamente en unos minutos.',
-      };
+      return { error: 'No pudimos conectar con el servidor de registro. Intentá nuevamente en unos minutos.' };
     }
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
     setIsLoading(true);
-
-    const redirectTo = `${window.location.origin}`;
-
-    const { error } = await supabase.auth.resetPasswordForEmail(
-      email.trim().toLowerCase(),
-      { redirectTo }
-    );
-
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: window.location.origin });
     setIsLoading(false);
-
-    if (error) {
-      return { error: 'No pudimos enviar el correo de recuperación.' };
-    }
-
-    return { error: null };
+    return { error: error ? 'No pudimos enviar el correo de recuperación.' : null };
   }, []);
 
   const logout = useCallback(async () => {
     setIsLoading(true);
+    setGhostSession(null);
     await supabase.auth.signOut();
-    setUser(null);
+    setSessionUser(null);
     setIsLoading(false);
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, login, register, resetPassword, logout, isLoading }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const user = useMemo<AuthUser | null>(() => {
+    if (!ghostSession) return sessionUser;
+    return buildAuthUser(ghostSession.profile.email || '', ghostSession.profile);
+  }, [ghostSession, sessionUser]);
+
+  const value = useMemo<AuthContextValue>(() => ({
+    user,
+    sessionUser,
+    ghostSession,
+    isGhostMode: Boolean(ghostSession),
+    isReadOnly: Boolean(ghostSession),
+    startGhostSession,
+    stopGhostSession,
+    login,
+    register,
+    resetPassword,
+    logout,
+    isLoading,
+  }), [user, sessionUser, ghostSession, startGhostSession, stopGhostSession, login, register, resetPassword, logout, isLoading]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

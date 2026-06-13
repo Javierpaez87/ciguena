@@ -64,7 +64,7 @@ function getUserInitial(fullName?: string | null, email?: string | null) {
 }
 
 export default function Header({ title, subtitle }: HeaderProps) {
-  const { user } = useAuth();
+  const { user, isGhostMode, ghostSession } = useAuth();
 
   const styles = getHeaderStyles(user?.role);
   const userName = user?.full_name || 'Usuario';
@@ -120,8 +120,13 @@ export default function Header({ title, subtitle }: HeaderProps) {
             <div
               className={`text-[10px] font-semibold leading-tight mt-0.5 ${styles.roleText}`}
             >
-              {styles.roleLabel}
+              {isGhostMode ? `Ghost · ${styles.roleLabel}` : styles.roleLabel}
             </div>
+            {isGhostMode && ghostSession && (
+              <div className="text-[10px] text-amber-300 leading-tight truncate max-w-[220px]">
+                {ghostSession.tenant.name} · solo lectura
+              </div>
+            )}
           </div>
         </div>
       </div>

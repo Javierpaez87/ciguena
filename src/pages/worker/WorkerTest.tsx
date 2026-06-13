@@ -393,6 +393,10 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   };
 
   const submitTest = async () => {
+    if (isReadOnly) {
+      setSaveWarning('Ghost View está en modo solo lectura. No se registrarán intentos ni certificados.');
+      return;
+    }
     if (!test || questionsForAttempt.length === 0) return;
 
     setSaveWarning(null);

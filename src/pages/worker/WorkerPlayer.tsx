@@ -84,7 +84,7 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
 
   useEffect(() => {
     const markAsStarted = async () => {
-      if (!assignment?.id) return;
+      if (!assignment?.id || isReadOnly) return;
       if (assignment.status !== 'not_started') return;
 
       const { error } = await supabase
@@ -104,9 +104,13 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
     };
 
     markAsStarted();
-  }, [assignment?.id, assignment?.status]);
+  }, [assignment?.id, assignment?.status, isReadOnly]);
 
   const markCompleted = async () => {
+    if (isReadOnly) {
+      setPlayerError('Ghost View está en modo solo lectura. El progreso no será modificado.');
+      return;
+    }
     if (!currentLesson || !assignment?.id) return;
 
     setIsSavingProgress(true);
