@@ -3,9 +3,15 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const resendApiKey = process.env.RESEND_API_KEY;
-const notifyEmail = process.env.REGISTRATION_NOTIFY_EMAIL || 'javierpaez@bondiapps.com';
+const notifyEmail =
+  process.env.REGISTRATION_NOTIFY_EMAIL || 'javierpaez@bondiapps.com';
 
-const fromEmail = 'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
+const fromEmail =
+  'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
+
+const platformUrl =
+  process.env.CIGUENA_PLATFORM_URL ||
+  'https://ciguena-product.netlify.app/';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -69,7 +75,12 @@ async function sendResendEmail({
   const responseBody = await response.json().catch(() => null);
 
   if (!response.ok) {
-    console.error('Error enviando email con Resend:', response.status, responseBody);
+    console.error(
+      'Error enviando email con Resend:',
+      response.status,
+      responseBody
+    );
+
     return {
       ok: false,
       error: responseBody?.message || 'No pudimos enviar el email.',
@@ -88,50 +99,89 @@ function buildApprovalEmailHtml({
 }) {
   const safeName = escapeHtml(fullName || 'Usuario');
   const safeTenant = escapeHtml(tenantName || 'tu empresa');
+  const safePlatformUrl = escapeHtml(platformUrl);
 
   return `
-    <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
-      <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
-        <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-          <div style="margin-bottom:24px;">
-            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">
-              CIGÜEÑA
-            </div>
-            <div style="font-size:13px;color:#94a3b8;">
-              Platform by BondiApps
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Tu cuenta fue aprobada</title>
+      </head>
+
+      <body style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
+        <div style="margin:0;padding:0;background:#0f172a;">
+          <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
+            <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
+              <div style="margin-bottom:24px;">
+                <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">
+                  CIGÜEÑA
+                </div>
+
+                <div style="font-size:13px;color:#94a3b8;">
+                  Platform by BondiApps
+                </div>
+              </div>
+
+              <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
+                Tu cuenta fue aprobada
+              </h1>
+
+              <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
+                Hola ${safeName}, tu acceso a Cigüeña fue aprobado por la administración de ${safeTenant}.
+              </p>
+
+              <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
+                <p style="font-size:14px;line-height:1.6;color:#cbd5e1;margin:0;">
+                  <strong style="color:#f8fafc;">Estado:</strong> cuenta activa
+                </p>
+              </div>
+
+              <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 20px;">
+                Ya podés ingresar a la plataforma con el email y la contraseña que cargaste al registrarte.
+              </p>
+
+              <div style="text-align:center;margin:28px 0;">
+                <a
+                  href="${safePlatformUrl}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-size:15px;font-weight:700;line-height:1;padding:15px 24px;border-radius:10px;"
+                >
+                  Ingresar a la plataforma
+                </a>
+              </div>
+
+              <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin:0 0 22px;">
+                <p style="font-size:12px;line-height:1.5;color:#94a3b8;margin:0 0 6px;">
+                  Si el botón no funciona, copiá y pegá esta dirección en tu navegador:
+                </p>
+
+                <a
+                  href="${safePlatformUrl}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="font-size:12px;line-height:1.5;color:#f59e0b;text-decoration:underline;word-break:break-all;"
+                >
+                  ${safePlatformUrl}
+                </a>
+              </div>
+
+              <p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:0;">
+                Si no solicitaste este acceso o tenés dudas, contactá con la administración de tu empresa.
+              </p>
+
+              <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
+
+              <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
+                Este es un mensaje automático de Cigüeña | Platform by BondiApps.
+              </p>
             </div>
           </div>
-
-          <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
-            Tu cuenta fue aprobada
-          </h1>
-
-          <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Hola ${safeName}, tu acceso a Cigüeña fue aprobado por la administración de ${safeTenant}.
-          </p>
-
-          <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
-            <p style="font-size:14px;line-height:1.6;color:#cbd5e1;margin:0;">
-              <strong style="color:#f8fafc;">Estado:</strong> cuenta activa
-            </p>
-          </div>
-
-          <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Ya podés ingresar a la plataforma con el email y la contraseña que cargaste al registrarte.
-          </p>
-
-          <p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:0;">
-            Si no solicitaste este acceso o tenés dudas, contactá con la administración de tu empresa.
-          </p>
-
-          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-          </p>
         </div>
-      </div>
-    </div>
+      </body>
+    </html>
   `;
 }
 
@@ -163,7 +213,9 @@ export const handler = async (event: any) => {
   const nextStatus = clean(payload.status) || 'active';
 
   if (!profileId || !tenantId) {
-    return json(400, { error: 'Faltan datos para aprobar el usuario.' });
+    return json(400, {
+      error: 'Faltan datos para aprobar el usuario.',
+    });
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
@@ -187,11 +239,14 @@ export const handler = async (event: any) => {
     .update(updatePayload)
     .eq('id', profileId)
     .eq('tenant_id', tenantId)
-    .select('id, tenant_id, full_name, first_name, last_name, email, status, preapproved')
+    .select(
+      'id, tenant_id, full_name, first_name, last_name, email, status, preapproved'
+    )
     .single();
 
   if (updateError || !updatedProfile) {
     console.error('Error actualizando profile:', updateError);
+
     return json(400, {
       error: 'No pudimos actualizar el usuario en Supabase.',
     });
@@ -211,7 +266,9 @@ export const handler = async (event: any) => {
 
   const fullName =
     updatedProfile.full_name ||
-    [updatedProfile.first_name, updatedProfile.last_name].filter(Boolean).join(' ') ||
+    [updatedProfile.first_name, updatedProfile.last_name]
+      .filter(Boolean)
+      .join(' ') ||
     updatedProfile.email ||
     'Usuario';
 
