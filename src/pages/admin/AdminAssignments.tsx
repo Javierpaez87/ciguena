@@ -1861,3 +1861,4 @@ export default function AdminAssignments() {
     </div>
   );
 }
+
