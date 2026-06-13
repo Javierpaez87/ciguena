@@ -10,6 +10,8 @@ import {
   FileText,
   RotateCcw,
   CheckCircle2,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -45,7 +47,8 @@ const STATUS_FILTERS = [
   { value: 'not_started', label: 'Pendientes' },
   { value: 'in_progress', label: 'En curso' },
   { value: 'pending_test', label: 'Para rendir' },
-  { value: 'certificate_issued', label: 'Completados' },
+  { value: 'valid', label: 'Aprobados vigentes' },
+  { value: 'expired', label: 'Aprobados vencidos' },
 ];
 
 const formatDateAR = (date?: string | null) => {
@@ -128,6 +131,44 @@ const isEffectivelyCompleted = (assignment: WorkerTrainingAssignment) => {
   return hasCertificate(assignment) || isCompletedStatus(assignment.status);
 };
 
+const isCertificateExpired = (assignment: WorkerTrainingAssignment) => {
+  if (!assignment.certificate?.id || !assignment.certificate.expires_at) return false;
+
+  const expiresAt = new Date(assignment.certificate.expires_at);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  expiresAt.setHours(23, 59, 59, 999);
+
+  return expiresAt < today;
+};
+
+const isCertificateValid = (assignment: WorkerTrainingAssignment) => {
+  return isEffectivelyCompleted(assignment) && !isCertificateExpired(assignment);
+};
+
+const getTrainingSection = (assignment: WorkerTrainingAssignment) => {
+  if (!isEffectivelyCompleted(assignment)) return 'active';
+  return isCertificateExpired(assignment) ? 'expired' : 'valid';
+};
+
+const getSectionTitle = (section: 'active' | 'valid' | 'expired') => {
+  if (section === 'valid') return 'Trainings aprobados y vigentes';
+  if (section === 'expired') return 'Trainings aprobados pero no vigentes';
+  return 'Trainings pendientes y en curso';
+};
+
+const getSectionDescription = (section: 'active' | 'valid' | 'expired') => {
+  if (section === 'valid') {
+    return 'Capacitaciones ya aprobadas cuyo certificado continúa vigente.';
+  }
+
+  if (section === 'expired') {
+    return 'Capacitaciones aprobadas anteriormente cuyo certificado ya venció.';
+  }
+
+  return 'Capacitaciones que todavía requieren que completes el contenido o rindas el examen.';
+};
+
 const getEffectiveProgress = (assignment: WorkerTrainingAssignment) => {
   if (isEffectivelyCompleted(assignment)) return 100;
   return assignment.progress_percentage ?? 0;
@@ -153,8 +194,15 @@ const getStatusPill = (assignment: WorkerTrainingAssignment) => {
   const dueInfo = getDueDateInfo(assignment.due_date);
 
   if (hasCertificate(assignment) || status === 'certificate_issued') {
+    if (isCertificateExpired(assignment)) {
+      return {
+        label: 'Aprobado · No vigente',
+        className: 'bg-orange-500/10 text-orange-300 border-orange-500/30',
+      };
+    }
+
     return {
-      label: 'Certificado emitido',
+      label: 'Aprobado · Vigente',
       className: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
     };
   }
@@ -368,11 +416,15 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
         return acc;
       }
 
-      if (filter.value === 'certificate_issued') {
-        acc[filter.value] = assignments.filter(assignment =>
-          isEffectivelyCompleted(assignment)
-        ).length;
+      if (filter.value === 'valid') {
+        acc[filter.value] = assignments.filter(isCertificateValid).length;
+        return acc;
+      }
 
+      if (filter.value === 'expired') {
+        acc[filter.value] = assignments.filter(assignment =>
+          isEffectivelyCompleted(assignment) && isCertificateExpired(assignment)
+        ).length;
         return acc;
       }
 
@@ -385,18 +437,48 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
   }, [assignments]);
 
   const filtered = useMemo(() => {
-    if (statusFilter === 'all') return assignments;
-
-    if (statusFilter === 'certificate_issued') {
-      return assignments.filter(assignment => isEffectivelyCompleted(assignment));
+    if (statusFilter === 'valid') {
+      return assignments.filter(isCertificateValid);
     }
 
-    return assignments.filter(assignment => {
-      return getEffectiveStatus(assignment) === statusFilter && !isEffectivelyCompleted(assignment);
+    if (statusFilter === 'expired') {
+      return assignments.filter(assignment =>
+        isEffectivelyCompleted(assignment) && isCertificateExpired(assignment)
+      );
+    }
+
+    if (statusFilter !== 'all') {
+      return assignments.filter(assignment => {
+        return getEffectiveStatus(assignment) === statusFilter && !isEffectivelyCompleted(assignment);
+      });
+    }
+
+    const sectionOrder = { active: 0, valid: 1, expired: 2 };
+
+    return [...assignments].sort((a, b) => {
+      const sectionDiff =
+        sectionOrder[getTrainingSection(a)] - sectionOrder[getTrainingSection(b)];
+
+      if (sectionDiff !== 0) return sectionDiff;
+
+      if (getTrainingSection(a) === 'expired') {
+        const aExpiry = a.certificate?.expires_at
+          ? new Date(a.certificate.expires_at).getTime()
+          : 0;
+        const bExpiry = b.certificate?.expires_at
+          ? new Date(b.certificate.expires_at).getTime()
+          : 0;
+        return bExpiry - aExpiry;
+      }
+
+      return 0;
     });
   }, [assignments, statusFilter]);
 
-  const completedCount = assignments.filter(assignment => isEffectivelyCompleted(assignment)).length;
+  const validCount = assignments.filter(isCertificateValid).length;
+  const expiredCount = assignments.filter(assignment =>
+    isEffectivelyCompleted(assignment) && isCertificateExpired(assignment)
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -436,7 +518,7 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
 
       {!isLoading && !loadError && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
               <div className="text-xs text-steel-500">Total asignados</div>
               <div className="text-xl font-bold text-steel-100 mt-1">{assignments.length}</div>
@@ -457,9 +539,16 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
             </div>
 
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-              <div className="text-xs text-emerald-300">Completados</div>
+              <div className="text-xs text-emerald-300">Aprobados vigentes</div>
               <div className="text-xl font-bold text-emerald-200 mt-1">
-                {completedCount}
+                {validCount}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3">
+              <div className="text-xs text-orange-300">Aprobados vencidos</div>
+              <div className="text-xl font-bold text-orange-200 mt-1">
+                {expiredCount}
               </div>
             </div>
           </div>
@@ -492,7 +581,7 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filtered.map(assignment => {
+              {filtered.map((assignment, index) => {
                 const dueInfo = getDueDateInfo(assignment.due_date);
                 const isCompleted = isEffectivelyCompleted(assignment);
                 const progress = getEffectiveProgress(assignment);
@@ -500,17 +589,67 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                 const effectiveStatus = getEffectiveStatus(assignment);
                 const issuedDate = assignment.certificate?.issued_at || assignment.certificate?.created_at;
                 const expiresDate = assignment.certificate?.expires_at;
+                const section = getTrainingSection(assignment);
+                const previousSection =
+                  index > 0 ? getTrainingSection(filtered[index - 1]) : null;
+                const showSectionHeading =
+                  statusFilter === 'all' && section !== previousSection;
 
                 return (
-                  <div
-                    key={assignment.id}
-                    className={`card hover:border-steel-600 transition-all ${
+                  <React.Fragment key={assignment.id}>
+                    {showSectionHeading && (
+                      <div className="md:col-span-2 mt-2 first:mt-0">
+                        <div
+                          className={`rounded-xl border p-4 ${
+                            section === 'valid'
+                              ? 'border-emerald-500/30 bg-emerald-500/10'
+                              : section === 'expired'
+                                ? 'border-orange-500/30 bg-orange-500/10'
+                                : 'border-steel-700 bg-steel-900/60'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`mt-0.5 ${
+                                section === 'valid'
+                                  ? 'text-emerald-300'
+                                  : section === 'expired'
+                                    ? 'text-orange-300'
+                                    : 'text-steel-300'
+                              }`}
+                            >
+                              {section === 'valid' ? (
+                                <ShieldCheck size={20} />
+                              ) : section === 'expired' ? (
+                                <ShieldAlert size={20} />
+                              ) : (
+                                <BookOpen size={20} />
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="text-sm font-semibold text-steel-100">
+                                {getSectionTitle(section)}
+                              </div>
+                              <div className="text-xs text-steel-400 mt-1">
+                                {getSectionDescription(section)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div
+                      className={`card hover:border-steel-600 transition-all ${
                       dueInfo.isOverdue && !isCompleted
                         ? 'border-red-500/40'
                         : dueInfo.isDueSoon && !isCompleted
                           ? 'border-amber-500/40'
                           : isCompleted
-                            ? 'border-emerald-500/20'
+                            ? isCertificateExpired(assignment)
+                              ? 'border-orange-500/30'
+                              : 'border-emerald-500/20'
                             : ''
                     }`}
                   >
@@ -519,12 +658,17 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                         <div
                           className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
                             isCompleted
-                              ? 'bg-emerald-500/10 border border-emerald-500/20'
+                              ? isCertificateExpired(assignment)
+                                ? 'bg-orange-500/10 border border-orange-500/20'
+                                : 'bg-emerald-500/10 border border-emerald-500/20'
                               : 'bg-petroleum-700'
                           }`}
                         >
                           {isCompleted ? (
-                            <Award size={20} className="text-emerald-300" />
+                            <Award
+                              size={20}
+                              className={isCertificateExpired(assignment) ? 'text-orange-300' : 'text-emerald-300'}
+                            />
                           ) : (
                             <BookOpen size={20} className="text-petroleum-200" />
                           )}
@@ -619,11 +763,23 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
 
                         {isCompleted && (
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 text-xs text-emerald-300">
-                              <CheckCircle2 size={13} />
+                            <div
+                              className={`flex items-center gap-1.5 text-xs ${
+                                isCertificateExpired(assignment)
+                                  ? 'text-orange-300'
+                                  : 'text-emerald-300'
+                              }`}
+                            >
+                              {isCertificateExpired(assignment) ? (
+                                <ShieldAlert size={13} />
+                              ) : (
+                                <CheckCircle2 size={13} />
+                              )}
                               <span>
-                                Certificado emitido
-                                {issuedDate ? ` el ${new Date(issuedDate).toLocaleDateString('es-AR')}` : ''}
+                                {isCertificateExpired(assignment)
+                                  ? 'Training aprobado · certificado no vigente'
+                                  : 'Training aprobado · certificado vigente'}
+                                {issuedDate ? ` desde el ${new Date(issuedDate).toLocaleDateString('es-AR')}` : ''}
                               </span>
                             </div>
 
@@ -631,7 +787,8 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                               <div className="flex items-center gap-1.5 text-xs text-steel-400">
                                 <CalendarDays size={13} />
                                 <span>
-                                  Vence: {new Date(expiresDate).toLocaleDateString('es-AR')}
+                                  {isCertificateExpired(assignment) ? 'Venció' : 'Vence'}:{' '}
+                                  {new Date(expiresDate).toLocaleDateString('es-AR')}
                                 </span>
                               </div>
                             )}
@@ -683,6 +840,7 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                       )}
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               })}
             </div>
