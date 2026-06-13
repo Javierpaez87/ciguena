@@ -176,6 +176,12 @@ function getStatusLabel(status?: string | null) {
   return status || 'Sin estado';
 }
 
+function getDefaultDueDateISODate() {
+  const date = new Date();
+  date.setMonth(date.getMonth() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 export default function AdminTrainings() {
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
@@ -467,12 +473,12 @@ export default function AdminTrainings() {
       assignmentIds.map(async assignmentId => {
         console.log('Enviando mail de asignación para assignmentId:', assignmentId);
 
-        const response = await fetch('/.netlify/functions/send-training-assignment-email', {
+        const response = await fetch('/.netlify/functions/send-training-notification-email', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ assignmentId }),
+          body: JSON.stringify({ assignmentId, type: 'assignment', createdBy: user?.id }),
         });
 
         const responseBody = await response.json().catch(() => null);
@@ -555,7 +561,7 @@ export default function AdminTrainings() {
       status: 'not_started',
       progress_percentage: 0,
       assigned_at: new Date().toISOString(),
-      due_date: null,
+      due_date: getDefaultDueDateISODate(),
       started_at: null,
       completed_at: null,
       expires_at: null,
@@ -618,7 +624,7 @@ export default function AdminTrainings() {
         : ` Se enviaron ${emailResult.sent} email(s) de notificación.`;
 
     setAssignMessage(
-      `Training "${showAssign.title}" asignado a ${newTargets.length} usuario(s) de ${modeLabel}.${emailText}`
+      `Training "${showAssign.title}" asignado a ${newTargets.length} usuario(s) de ${modeLabel}. Deadline sugerido: ${formatDate(getDefaultDueDateISODate())}.${emailText}`
     );
 
     setTimeout(() => {
