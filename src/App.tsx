@@ -12,6 +12,7 @@ import SaTrainings from './pages/superadmin/SaTrainings';
 import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
 import SaFeedback from './pages/superadmin/SaFeedback';
+import SaGhost from './pages/superadmin/SaGhost';
 
 // Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -36,6 +37,7 @@ import EthicsSignaturePage from './pages/worker/EthicsSignaturePage';
 import { getEthicsRequirement } from './lib/ethics';
 import { getAdminSignatureRequirement } from './lib/adminSignatures';
 import type { EthicsAcceptance, EthicsCode } from './types';
+import GhostReadOnlyBoundary from './components/layout/GhostReadOnlyBoundary';
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-dashboard': {
@@ -61,6 +63,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-feedback': {
     title: 'Feedback Global',
     subtitle: 'Opiniones de usuarios de todos los tenants',
+  },
+  'sa-ghost': {
+    title: 'Ghost View',
+    subtitle: 'Observá la plataforma como cualquier admin o trabajador, sin realizar cambios',
   },
 
   'admin-dashboard': {
@@ -135,7 +141,7 @@ const DEFAULT_VIEW: Record<string, string> = {
 type AuthScreen = 'login' | 'register' | 'forgot-password';
 
 function AppContent() {
-  const { user } = useAuth();
+  const { user, isGhostMode } = useAuth();
 
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [activeView, setActiveView] = useState(
@@ -198,7 +204,7 @@ function AppContent() {
     let ignore = false;
 
     async function checkAdminSignatureGate() {
-      if (!user || user.role !== 'admin') {
+      if (!user || user.role !== 'admin' || isGhostMode) {
         setAdminSignatureGate({
           mustSign: false,
           tenant: null,
@@ -227,13 +233,13 @@ function AppContent() {
     return () => {
       ignore = true;
     };
-  }, [user?.id, user?.role, user?.tenant_id]);
+  }, [user?.id, user?.role, user?.tenant_id, isGhostMode]);
 
   useEffect(() => {
     let ignore = false;
 
     async function checkEthicsGate() {
-      if (!user || user.role !== 'worker') {
+      if (!user || user.role !== 'worker' || isGhostMode) {
         setEthicsGate({
           mustSign: false,
           tenant: null,
@@ -259,7 +265,7 @@ function AppContent() {
     return () => {
       ignore = true;
     };
-  }, [user?.id, user?.role, user?.tenant_id]);
+  }, [user?.id, user?.role, user?.tenant_id, isGhostMode]);
 
   const navigate = (view: string, data?: unknown) => {
     setActiveView(view);
@@ -364,6 +370,8 @@ function AppContent() {
         return <SaTests />;
       case 'sa-feedback':
         return <SaFeedback />;
+      case 'sa-ghost':
+        return <SaGhost />;
 
       // Admin
       case 'admin-dashboard':
@@ -425,7 +433,7 @@ function AppContent() {
       title={meta.title}
       subtitle={meta.subtitle}
     >
-      {renderView()}
+      <GhostReadOnlyBoundary>{renderView()}</GhostReadOnlyBoundary>
     </AppLayout>
   );
 }
