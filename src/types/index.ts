@@ -1,7 +1,7 @@
 export type UserRole = 'super_admin' | 'admin' | 'worker';
 
 export type TenantStatus = 'active' | 'inactive';
-export type UserStatus = 'active' | 'inactive';
+export type UserStatus = 'active' | 'inactive' | 'pending';
 export type TrainingStatus = 'active' | 'inactive';
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'pending_test' | 'passed' | 'failed' | 'completed' | 'certificate_issued' | 'expired';
 export type CertificateStatus = 'valid' | 'expiring_soon' | 'expired';
