@@ -228,6 +228,33 @@ function getUserTrainingKey(userId?: string | null, trainingId?: string | null) 
   return `${userId || ''}:${trainingId || ''}`;
 }
 
+function getDateTimeValue(date?: string | null) {
+  if (!date) return 0;
+
+  const parsed = new Date(date).getTime();
+
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function shouldReflectCertificateOnAssignment({
+  assignment,
+  certificate,
+}: {
+  assignment: Assignment;
+  certificate?: Certificate | null;
+}) {
+  if (!certificate?.id) return false;
+  if (assignment.is_active === false || normalize(assignment.status) === 'unassigned') return false;
+
+  const certificateDate = getDateTimeValue(certificate.issued_at || certificate.created_at);
+  const reassignedDate = getDateTimeValue(assignment.reassigned_at);
+
+  if (!reassignedDate) return true;
+  if (!certificateDate) return true;
+
+  return certificateDate >= reassignedDate;
+}
+
 function sortAssignments(assignments: Assignment[]) {
   return [...assignments].sort((a, b) => {
     const dateA = new Date(
@@ -356,14 +383,61 @@ export default function AdminAssignments() {
       const loadedCertificates = (certificatesResult.data ?? []) as Certificate[];
 
       const usersById = new Map<string, Profile>();
+      const profileIdByKnownUserId = new Map<string, string>();
+
       loadedUsers.forEach((profile) => {
-        if (profile.id) usersById.set(profile.id, profile);
+        if (profile.id) {
+          usersById.set(profile.id, profile);
+          profileIdByKnownUserId.set(profile.id, profile.id);
+        }
+
+        const possibleAuthIds = [
+          profile.auth_user_id,
+          profile.auth_id,
+          profile.user_id,
+        ]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter(Boolean);
+
+        possibleAuthIds.forEach((knownId) => {
+          if (profile.id) profileIdByKnownUserId.set(knownId, profile.id);
+        });
       });
 
       const trainingsByAnyId = new Map<string, TenantTraining>();
       loadedTrainings.forEach((training) => {
         if (training.id) trainingsByAnyId.set(training.id, training);
         if (training.training_id) trainingsByAnyId.set(training.training_id, training);
+      });
+
+      const certificatesByAssignmentId = new Map<string, Certificate>();
+      const certificatesByUserTrainingKey = new Map<string, Certificate>();
+
+      loadedCertificates.forEach((certificate) => {
+        if (certificate.assignment_id) {
+          const existing = certificatesByAssignmentId.get(certificate.assignment_id);
+          const existingDate = getDateTimeValue(existing?.issued_at || existing?.created_at);
+          const nextDate = getDateTimeValue(certificate.issued_at || certificate.created_at);
+
+          if (!existing || nextDate >= existingDate) {
+            certificatesByAssignmentId.set(certificate.assignment_id, certificate);
+          }
+        }
+
+        if (certificate.user_id && certificate.training_id) {
+          const profileId =
+            profileIdByKnownUserId.get(certificate.user_id) ||
+            certificate.user_id;
+
+          const key = getUserTrainingKey(profileId, certificate.training_id);
+          const existing = certificatesByUserTrainingKey.get(key);
+          const existingDate = getDateTimeValue(existing?.issued_at || existing?.created_at);
+          const nextDate = getDateTimeValue(certificate.issued_at || certificate.created_at);
+
+          if (!existing || nextDate >= existingDate) {
+            certificatesByUserTrainingKey.set(key, certificate);
+          }
+        }
       });
 
       const hydratedAssignments = loadedAssignmentsRaw.map((assignment) => {
@@ -373,10 +447,47 @@ export default function AdminAssignments() {
           assignment.training_key ||
           assignment.training_slug;
 
-        return {
+        const certificateByAssignment = assignment.id
+          ? certificatesByAssignmentId.get(assignment.id)
+          : null;
+
+        const certificateByUserTraining =
+          assignment.user_id && assignment.training_id
+            ? certificatesByUserTrainingKey.get(
+                getUserTrainingKey(assignment.user_id, assignment.training_id)
+              )
+            : null;
+
+        const matchingCertificate = certificateByAssignment || certificateByUserTraining;
+        const reflectsCertificate = shouldReflectCertificateOnAssignment({
+          assignment,
+          certificate: matchingCertificate,
+        });
+
+        const hydratedAssignment: Assignment = {
           ...assignment,
           user: assignment.user_id ? usersById.get(assignment.user_id) ?? null : null,
           training: trainingKey ? trainingsByAnyId.get(trainingKey) ?? null : null,
+        };
+
+        if (reflectsCertificate && matchingCertificate) {
+          return {
+            ...hydratedAssignment,
+            status: 'certificate_issued',
+            progress_percentage: 100,
+            completed_at:
+              assignment.completed_at ||
+              matchingCertificate.issued_at ||
+              assignment.updated_at ||
+              assignment.assigned_at ||
+              null,
+            expires_at: matchingCertificate.expires_at || assignment.expires_at || null,
+            certificate: matchingCertificate,
+          };
+        }
+
+        return {
+          ...hydratedAssignment,
           progress_percentage: getAssignmentProgress(assignment),
           status: assignment.is_active === false ? 'unassigned' : assignment.status || 'not_started',
         };
@@ -531,11 +642,34 @@ export default function AdminAssignments() {
 
   const certificatesByUserTraining = useMemo(() => {
     const map = new Map<string, Certificate>();
+    const profileIdByKnownUserId = new Map<string, string>();
+
+    users.forEach((profile) => {
+      if (profile.id) {
+        profileIdByKnownUserId.set(profile.id, profile.id);
+      }
+
+      const possibleAuthIds = [
+        profile.auth_user_id,
+        profile.auth_id,
+        profile.user_id,
+      ]
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean);
+
+      possibleAuthIds.forEach((knownId) => {
+        if (profile.id) profileIdByKnownUserId.set(knownId, profile.id);
+      });
+    });
 
     certificates.forEach((certificate) => {
       if (!certificate.user_id || !certificate.training_id) return;
 
-      const key = getUserTrainingKey(certificate.user_id, certificate.training_id);
+      const profileId =
+        profileIdByKnownUserId.get(certificate.user_id) ||
+        certificate.user_id;
+
+      const key = getUserTrainingKey(profileId, certificate.training_id);
       const existing = map.get(key);
 
       if (!existing) {
@@ -543,14 +677,14 @@ export default function AdminAssignments() {
         return;
       }
 
-      const existingDate = new Date(existing.issued_at || existing.created_at || '').getTime();
-      const nextDate = new Date(certificate.issued_at || certificate.created_at || '').getTime();
+      const existingDate = getDateTimeValue(existing.issued_at || existing.created_at);
+      const nextDate = getDateTimeValue(certificate.issued_at || certificate.created_at);
 
       if (nextDate > existingDate) map.set(key, certificate);
     });
 
     return map;
-  }, [certificates]);
+  }, [certificates, users]);
 
   const assignmentReview = useMemo<AssignmentReviewItem[]>(() => {
     if (!selectedTraining) return [];
@@ -1861,4 +1995,3 @@ export default function AdminAssignments() {
     </div>
   );
 }
-
