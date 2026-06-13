@@ -480,6 +480,171 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
     isEffectivelyCompleted(assignment) && isCertificateExpired(assignment)
   ).length;
 
+  const renderTrainingCard = (assignment: WorkerTrainingAssignment) => {
+    const dueInfo = getDueDateInfo(assignment.due_date);
+    const isCompleted = isEffectivelyCompleted(assignment);
+    const expired = isCertificateExpired(assignment);
+    const progress = getEffectiveProgress(assignment);
+    const statusPill = getStatusPill(assignment);
+    const effectiveStatus = getEffectiveStatus(assignment);
+    const issuedDate = assignment.certificate?.issued_at || assignment.certificate?.created_at;
+    const expiresDate = assignment.certificate?.expires_at;
+
+    return (
+      <div
+        key={assignment.id}
+        className={`card hover:border-steel-600 transition-all ${
+          dueInfo.isOverdue && !isCompleted
+            ? 'border-red-500/40'
+            : dueInfo.isDueSoon && !isCompleted
+              ? 'border-amber-500/40'
+              : isCompleted
+                ? expired
+                  ? 'border-orange-500/30 bg-orange-950/10'
+                  : 'border-emerald-500/30 bg-emerald-950/10'
+                : ''
+        }`}
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                isCompleted
+                  ? expired
+                    ? 'bg-orange-500/10 border border-orange-500/20'
+                    : 'bg-emerald-500/10 border border-emerald-500/20'
+                  : 'bg-petroleum-700'
+              }`}
+            >
+              {isCompleted ? (
+                <Award size={20} className={expired ? 'text-orange-300' : 'text-emerald-300'} />
+              ) : (
+                <BookOpen size={20} className="text-petroleum-200" />
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="text-base font-semibold text-steel-100 mb-1 leading-snug">
+                {assignment.training?.title}
+              </div>
+              <p className="text-xs text-steel-400 line-clamp-2 mb-2">
+                {assignment.training?.description}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusPill.className}`}>
+                  {statusPill.label}
+                </span>
+                <span className="badge badge-neutral flex items-center gap-1">
+                  <Clock size={9} /> {assignment.training?.duration_minutes} min
+                </span>
+                {assignment.training?.category && (
+                  <span className="badge badge-info">{assignment.training.category}</span>
+                )}
+                {assignment.training?.certificate_enabled && (
+                  <span className="badge badge-warning flex items-center gap-1">
+                    <Award size={9} /> Certifica
+                  </span>
+                )}
+                {dueInfo.isDueSoon && !dueInfo.isOverdue && !isCompleted && effectiveStatus !== 'pending_test' && (
+                  <span className="inline-flex w-fit items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                    Vence pronto
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="flex justify-between text-xs text-steel-400 mb-1.5">
+              <span>Progreso</span><span>{progress}%</span>
+            </div>
+            <div className="progress-bar h-2">
+              <div className="progress-fill h-full" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-xs text-steel-500">
+              Asignado: {assignment.assigned_at ? new Date(assignment.assigned_at).toLocaleDateString('es-AR') : 'Sin fecha'}
+            </div>
+
+            {!isCompleted && assignment.due_date && (
+              <div className={`flex items-center gap-1.5 text-xs ${
+                dueInfo.isOverdue || effectiveStatus === 'not_started' || effectiveStatus === 'pending_test'
+                  ? 'text-red-300'
+                  : dueInfo.isDueSoon ? 'text-amber-300' : 'text-steel-400'
+              }`}>
+                <CalendarDays size={13} />
+                <span>
+                  Fecha límite: {formatDateAR(assignment.due_date)}
+                  {dueInfo.daysRemaining === 0
+                    ? ' · vence hoy'
+                    : dueInfo.daysRemaining && dueInfo.daysRemaining > 0
+                      ? ` · faltan ${dueInfo.daysRemaining} días`
+                      : dueInfo.isOverdue ? ' · vencido' : ''}
+                </span>
+              </div>
+            )}
+
+            {isCompleted && (
+              <div className="space-y-1">
+                <div className={`flex items-center gap-1.5 text-xs ${expired ? 'text-orange-300' : 'text-emerald-300'}`}>
+                  {expired ? <ShieldAlert size={13} /> : <CheckCircle2 size={13} />}
+                  <span>
+                    {expired ? 'Training aprobado · certificado no vigente' : 'Training aprobado · certificado vigente'}
+                    {issuedDate ? ` desde el ${new Date(issuedDate).toLocaleDateString('es-AR')}` : ''}
+                  </span>
+                </div>
+                {expiresDate && (
+                  <div className="flex items-center gap-1.5 text-xs text-steel-400">
+                    <CalendarDays size={13} />
+                    <span>{expired ? 'Venció' : 'Vence'}: {new Date(expiresDate).toLocaleDateString('es-AR')}</span>
+                  </div>
+                )}
+                {assignment.certificate?.certificate_code && (
+                  <div className="text-xs text-steel-500">Código: {assignment.certificate.certificate_code}</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {isCompleted ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={() => onNavigate('worker-certificates', { assignment })}
+                className="w-full justify-center py-2.5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
+              >
+                <FileText size={14} /> Ver certificado
+              </button>
+              <button
+                onClick={() => onNavigate('worker-test', { assignment, forceRetake: true })}
+                className="btn-secondary w-full justify-center py-2.5"
+              >
+                <RotateCcw size={14} /> Volver a rendir
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => onNavigate(getPrimaryActionView(assignment), { assignment })}
+              className={`w-full justify-center py-2.5 ${
+                effectiveStatus === 'not_started' || effectiveStatus === 'pending_test' ? 'btn-primary' : 'btn-secondary'
+              }`}
+            >
+              <Play size={14} /> {getPrimaryActionLabel(assignment)}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const groupedSections = (['active', 'valid', 'expired'] as const)
+    .map(section => ({
+      section,
+      items: filtered.filter(assignment => getTrainingSection(assignment) === section),
+    }))
+    .filter(group => group.items.length > 0);
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
@@ -580,269 +745,54 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
               }
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filtered.map((assignment, index) => {
-                const dueInfo = getDueDateInfo(assignment.due_date);
-                const isCompleted = isEffectivelyCompleted(assignment);
-                const progress = getEffectiveProgress(assignment);
-                const statusPill = getStatusPill(assignment);
-                const effectiveStatus = getEffectiveStatus(assignment);
-                const issuedDate = assignment.certificate?.issued_at || assignment.certificate?.created_at;
-                const expiresDate = assignment.certificate?.expires_at;
-                const section = getTrainingSection(assignment);
-                const previousSection =
-                  index > 0 ? getTrainingSection(filtered[index - 1]) : null;
-                const showSectionHeading =
-                  statusFilter === 'all' && section !== previousSection;
-
-                return (
-                  <React.Fragment key={assignment.id}>
-                    {showSectionHeading && (
-                      <div className="md:col-span-2 mt-2 first:mt-0">
-                        <div
-                          className={`rounded-xl border p-4 ${
-                            section === 'valid'
-                              ? 'border-emerald-500/30 bg-emerald-500/10'
-                              : section === 'expired'
-                                ? 'border-orange-500/30 bg-orange-500/10'
-                                : 'border-steel-700 bg-steel-900/60'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div
-                              className={`mt-0.5 ${
-                                section === 'valid'
-                                  ? 'text-emerald-300'
-                                  : section === 'expired'
-                                    ? 'text-orange-300'
-                                    : 'text-steel-300'
-                              }`}
-                            >
-                              {section === 'valid' ? (
-                                <ShieldCheck size={20} />
-                              ) : section === 'expired' ? (
-                                <ShieldAlert size={20} />
-                              ) : (
-                                <BookOpen size={20} />
-                              )}
-                            </div>
-
-                            <div>
-                              <div className="text-sm font-semibold text-steel-100">
-                                {getSectionTitle(section)}
-                              </div>
-                              <div className="text-xs text-steel-400 mt-1">
-                                {getSectionDescription(section)}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div
-                      className={`card hover:border-steel-600 transition-all ${
-                      dueInfo.isOverdue && !isCompleted
-                        ? 'border-red-500/40'
-                        : dueInfo.isDueSoon && !isCompleted
-                          ? 'border-amber-500/40'
-                          : isCompleted
-                            ? isCertificateExpired(assignment)
-                              ? 'border-orange-500/30'
-                              : 'border-emerald-500/20'
-                            : ''
-                    }`}
-                  >
-                    <div className="flex flex-col gap-4">
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                            isCompleted
-                              ? isCertificateExpired(assignment)
-                                ? 'bg-orange-500/10 border border-orange-500/20'
-                                : 'bg-emerald-500/10 border border-emerald-500/20'
-                              : 'bg-petroleum-700'
-                          }`}
-                        >
-                          {isCompleted ? (
-                            <Award
-                              size={20}
-                              className={isCertificateExpired(assignment) ? 'text-orange-300' : 'text-emerald-300'}
-                            />
-                          ) : (
-                            <BookOpen size={20} className="text-petroleum-200" />
-                          )}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="text-base font-semibold text-steel-100 mb-1 leading-snug">
-                            {assignment.training?.title}
-                          </div>
-
-                          <p className="text-xs text-steel-400 line-clamp-2 mb-2">
-                            {assignment.training?.description}
-                          </p>
-
-                          <div className="flex flex-wrap gap-1.5">
-                            <span
-                              className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusPill.className}`}
-                            >
-                              {statusPill.label}
-                            </span>
-
-                            <span className="badge badge-neutral flex items-center gap-1">
-                              <Clock size={9} /> {assignment.training?.duration_minutes} min
-                            </span>
-
-                            {assignment.training?.category && (
-                              <span className="badge badge-info">
-                                {assignment.training.category}
-                              </span>
-                            )}
-
-                            {assignment.training?.certificate_enabled && (
-                              <span className="badge badge-warning flex items-center gap-1">
-                                <Award size={9} /> Certifica
-                              </span>
-                            )}
-
-                            {dueInfo.isDueSoon && !dueInfo.isOverdue && !isCompleted && effectiveStatus !== 'pending_test' && (
-                              <span className="inline-flex w-fit items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
-                                Vence pronto
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-xs text-steel-400 mb-1.5">
-                          <span>Progreso</span>
-                          <span>{progress}%</span>
-                        </div>
-
-                        <div className="progress-bar h-2">
-                          <div
-                            className="progress-fill h-full"
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="text-xs text-steel-500">
-                          Asignado:{' '}
-                          {assignment.assigned_at
-                            ? new Date(assignment.assigned_at).toLocaleDateString('es-AR')
-                            : 'Sin fecha'}
-                        </div>
-
-                        {!isCompleted && assignment.due_date && (
-                          <div
-                            className={`flex items-center gap-1.5 text-xs ${
-                              dueInfo.isOverdue || effectiveStatus === 'not_started' || effectiveStatus === 'pending_test'
-                                ? 'text-red-300'
-                                : dueInfo.isDueSoon
-                                  ? 'text-amber-300'
-                                  : 'text-steel-400'
-                            }`}
-                          >
-                            <CalendarDays size={13} />
-                            <span>
-                              Fecha límite: {formatDateAR(assignment.due_date)}
-                              {dueInfo.daysRemaining === 0
-                                ? ' · vence hoy'
-                                : dueInfo.daysRemaining && dueInfo.daysRemaining > 0
-                                  ? ` · faltan ${dueInfo.daysRemaining} días`
-                                  : dueInfo.isOverdue
-                                    ? ' · vencido'
-                                    : ''}
-                            </span>
-                          </div>
-                        )}
-
-                        {isCompleted && (
-                          <div className="space-y-1">
-                            <div
-                              className={`flex items-center gap-1.5 text-xs ${
-                                isCertificateExpired(assignment)
-                                  ? 'text-orange-300'
-                                  : 'text-emerald-300'
-                              }`}
-                            >
-                              {isCertificateExpired(assignment) ? (
-                                <ShieldAlert size={13} />
-                              ) : (
-                                <CheckCircle2 size={13} />
-                              )}
-                              <span>
-                                {isCertificateExpired(assignment)
-                                  ? 'Training aprobado · certificado no vigente'
-                                  : 'Training aprobado · certificado vigente'}
-                                {issuedDate ? ` desde el ${new Date(issuedDate).toLocaleDateString('es-AR')}` : ''}
-                              </span>
-                            </div>
-
-                            {expiresDate && (
-                              <div className="flex items-center gap-1.5 text-xs text-steel-400">
-                                <CalendarDays size={13} />
-                                <span>
-                                  {isCertificateExpired(assignment) ? 'Venció' : 'Vence'}:{' '}
-                                  {new Date(expiresDate).toLocaleDateString('es-AR')}
-                                </span>
-                              </div>
-                            )}
-
-                            {assignment.certificate?.certificate_code && (
-                              <div className="text-xs text-steel-500">
-                                Código: {assignment.certificate.certificate_code}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {isCompleted ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <button
-                            onClick={() => onNavigate('worker-certificates', { assignment })}
-                            className="btn-primary w-full justify-center py-2.5"
-                          >
-                            <FileText size={14} />
-                            Ver certificado
-                          </button>
-
-                          <button
-                            onClick={() =>
-                              onNavigate('worker-test', {
-                                assignment,
-                                forceRetake: true,
-                              })
-                            }
-                            className="btn-secondary w-full justify-center py-2.5"
-                          >
-                            <RotateCcw size={14} />
-                            Volver a rendir
-                          </button>
-                        </div>
+            <div className="space-y-5">
+              {groupedSections.map(({ section, items }) => (
+                <section
+                  key={section}
+                  className={`rounded-2xl border p-4 sm:p-5 ${
+                    section === 'valid'
+                      ? 'border-emerald-500/40 bg-emerald-500/10'
+                      : section === 'expired'
+                        ? 'border-orange-500/40 bg-orange-500/10'
+                        : 'border-steel-700 bg-steel-900/50'
+                  }`}
+                >
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className={`mt-0.5 ${
+                      section === 'valid'
+                        ? 'text-emerald-300'
+                        : section === 'expired' ? 'text-orange-300' : 'text-steel-300'
+                    }`}>
+                      {section === 'valid' ? (
+                        <ShieldCheck size={21} />
+                      ) : section === 'expired' ? (
+                        <ShieldAlert size={21} />
                       ) : (
-                        <button
-                          onClick={() => onNavigate(getPrimaryActionView(assignment), { assignment })}
-                          className={`w-full justify-center py-2.5 ${
-                            effectiveStatus === 'not_started' || effectiveStatus === 'pending_test'
-                              ? 'btn-primary'
-                              : 'btn-secondary'
-                          }`}
-                        >
-                          <Play size={14} />
-                          {getPrimaryActionLabel(assignment)}
-                        </button>
+                        <BookOpen size={21} />
                       )}
                     </div>
+                    <div className="flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-steel-100">{getSectionTitle(section)}</div>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                          section === 'valid'
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                            : section === 'expired'
+                              ? 'border-orange-500/30 bg-orange-500/10 text-orange-200'
+                              : 'border-steel-600 bg-steel-800 text-steel-300'
+                        }`}>
+                          {items.length}
+                        </span>
+                      </div>
+                      <div className="text-xs text-steel-400 mt-1">{getSectionDescription(section)}</div>
+                    </div>
                   </div>
-                  </React.Fragment>
-                );
-              })}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {items.map(renderTrainingCard)}
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </>
