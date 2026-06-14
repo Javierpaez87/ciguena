@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,6 +30,7 @@ type PlayerLesson = {
 };
 
 export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerProps) {
+  const { isReadOnly } = useAuth();
   const trainingId = assignment?.training_id;
   const training =
     assignment?.training ??
