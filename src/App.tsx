@@ -324,7 +324,7 @@ function AppContent() {
   if (user?.role === 'worker' && isCheckingEthics) {
     return (
       <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
-        Verificando onboarding...
+        Verificando usuario...
       </div>
     );
   }
