@@ -2,6 +2,8 @@ export type UserRole = 'super_admin' | 'admin' | 'worker';
 
 export type TenantStatus = 'active' | 'inactive';
 export type UserStatus = 'active' | 'inactive' | 'pending';
+export type EmployeeDirectoryStatus = 'pending' | 'invited' | 'registered' | 'active' | 'inactive';
+export type EmployeeDirectorySource = 'csv' | 'manual' | 'email_invite' | 'sap' | 'api' | 'self_register';
 export type TrainingStatus = 'active' | 'inactive';
 export type AssignmentStatus = 'not_started' | 'in_progress' | 'pending_test' | 'passed' | 'failed' | 'completed' | 'certificate_issued' | 'expired';
 export type CertificateStatus = 'valid' | 'expiring_soon' | 'expired';
@@ -25,15 +27,53 @@ export interface Tenant {
 export interface Profile {
   id: string;
   tenant_id: string;
+  auth_user_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   full_name: string;
   email: string;
+  phone?: string | null;
+  dni?: string | null;
   role: UserRole;
+  job_role?: string | null;
+  work_role?: string | null;
   position: string | null;
   area: string | null;
   contractor_company: string | null;
   employee_code: string | null;
   status: UserStatus;
+  preapproved?: boolean | null;
+  requested_admin?: boolean | null;
+  source?: string | null;
   created_at: string;
+  updated_at?: string | null;
+}
+
+export interface EmployeeDirectory {
+  id: string;
+  tenant_id: string;
+  profile_id?: string | null;
+  auth_user_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  email: string;
+  phone?: string | null;
+  dni?: string | null;
+  work_role?: string | null;
+  job_role?: string | null;
+  position?: string | null;
+  area?: string | null;
+  contractor_company?: string | null;
+  employee_code?: string | null;
+  status: EmployeeDirectoryStatus;
+  source?: EmployeeDirectorySource | string | null;
+  invited_at?: string | null;
+  registered_at?: string | null;
+  last_synced_at?: string | null;
+  raw_payload?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at?: string | null;
 }
 
 export interface Training {
