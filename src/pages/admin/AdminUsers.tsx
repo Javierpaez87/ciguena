@@ -44,6 +44,32 @@ interface Profile {
   [key: string]: any;
 }
 
+interface EmployeeDirectory {
+  id: string;
+  tenant_id?: string | null;
+  source?: string | null;
+  external_id?: string | null;
+  email?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  dni?: string | null;
+  phone?: string | null;
+  employee_code?: string | null;
+  work_role?: string | null;
+  area?: string | null;
+  position?: string | null;
+  contractor_company?: string | null;
+  department?: string | null;
+  status?: string | null;
+  invited_at?: string | null;
+  registered_at?: string | null;
+  profile_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: any;
+}
+
 interface Assignment {
   id: string;
   tenant_id?: string | null;
@@ -158,6 +184,41 @@ function getWorkerRole(profile?: Profile | null) {
   );
 }
 
+function isDirectoryOnly(profile: Profile) {
+  return Boolean(profile.is_directory_only || String(profile.id || '').startsWith('directory:'));
+}
+
+function directoryRowToProfile(row: EmployeeDirectory): Profile {
+  return {
+    id: `directory:${row.id}`,
+    tenant_id: row.tenant_id,
+    auth_user_id: null,
+    employee_directory_id: row.id,
+    profile_id: row.profile_id,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    full_name: row.full_name || [row.first_name, row.last_name].filter(Boolean).join(' '),
+    email: row.email,
+    role: 'worker',
+    job_role: row.work_role || row.position,
+    work_role: row.work_role,
+    position: row.position || row.work_role,
+    area: row.area || row.department,
+    contractor_company: row.contractor_company,
+    employee_code: row.employee_code || row.external_id,
+    dni: row.dni,
+    phone: row.phone,
+    status: row.status || 'preapproved',
+    preapproved: true,
+    source: row.source || 'csv',
+    invited_at: row.invited_at,
+    registered_at: row.registered_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    is_directory_only: true,
+  };
+}
+
 function getTrainingTitle(training?: TenantTraining | null, assignment?: Assignment | null) {
   return (
     training?.title ||
@@ -251,10 +312,10 @@ function getColumnValue(row: Record<string, string>, keys: string[]) {
 function mapStatus(value: string) {
   const status = normalize(value);
 
-  if (!status) return 'pending';
+  if (!status) return 'preapproved';
   if (['activo', 'active', 'habilitado'].includes(status)) return 'active';
   if (['inactivo', 'inactive', 'deshabilitado'].includes(status)) return 'inactive';
-  if (['pendiente', 'pending'].includes(status)) return 'pending';
+  if (['pendiente', 'pending', 'preaprobado', 'preapproved'].includes(status)) return 'preapproved';
 
   return status;
 }
@@ -420,6 +481,7 @@ export default function AdminUsers() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [users, setUsers] = useState<Profile[]>([]);
+  const [, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTraining[]>([]);
 
@@ -453,18 +515,74 @@ export default function AdminUsers() {
     setSuccessMessage(null);
 
     try {
-      const [usersResult, assignmentsResult, tenantTrainingsResult] = await Promise.all([
+      const [usersResult, directoryResult, assignmentsResult, tenantTrainingsResult] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+        supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
         supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
       ]);
 
       if (usersResult.error) throw usersResult.error;
+      if (directoryResult.error) throw directoryResult.error;
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (tenantTrainingsResult.error) throw tenantTrainingsResult.error;
 
-      const loadedUsers = ((usersResult.data ?? []) as Profile[])
-        .filter((profile) => !isAdminUser(profile))
+      const directoryRows = (directoryResult.data ?? []) as EmployeeDirectory[];
+
+      const rawProfiles = ((usersResult.data ?? []) as Profile[]).filter((profile) => !isAdminUser(profile));
+      const profileById = new Map(rawProfiles.map((profile) => [profile.id, profile]));
+      const directoryByProfileId = new Map<string, EmployeeDirectory>();
+      const directoryByEmail = new Map<string, EmployeeDirectory>();
+
+      directoryRows.forEach((row) => {
+        if (row.profile_id) directoryByProfileId.set(row.profile_id, row);
+        if (row.email) directoryByEmail.set(normalize(row.email), row);
+      });
+
+      const enhancedProfiles = rawProfiles.map((profile) => {
+        const directoryRow =
+          directoryByProfileId.get(profile.id) ||
+          (profile.email ? directoryByEmail.get(normalize(profile.email)) : undefined);
+
+        if (!directoryRow) return profile;
+
+        return {
+          ...profile,
+          employee_directory_id: directoryRow.id,
+          first_name: profile.first_name || directoryRow.first_name,
+          last_name: profile.last_name || directoryRow.last_name,
+          full_name:
+            profile.full_name ||
+            directoryRow.full_name ||
+            [directoryRow.first_name, directoryRow.last_name].filter(Boolean).join(' '),
+          dni: profile.dni || directoryRow.dni,
+          phone: profile.phone || directoryRow.phone,
+          job_role: profile.job_role || profile.work_role || directoryRow.work_role || directoryRow.position,
+          work_role: profile.work_role || directoryRow.work_role,
+          position: profile.position || directoryRow.position || directoryRow.work_role,
+          area: profile.area || directoryRow.area || directoryRow.department,
+          contractor_company: profile.contractor_company || directoryRow.contractor_company,
+          employee_code: profile.employee_code || directoryRow.employee_code || directoryRow.external_id,
+          preapproved: profile.preapproved ?? true,
+          source: profile.source || directoryRow.source,
+          directory_status: directoryRow.status,
+          invited_at: profile.invited_at || directoryRow.invited_at,
+          registered_at: profile.registered_at || directoryRow.registered_at,
+        };
+      });
+
+      const registeredDirectoryIds = new Set(
+        enhancedProfiles
+          .map((profile) => profile.employee_directory_id)
+          .filter(Boolean)
+      );
+
+      const directoryOnlyProfiles = directoryRows
+        .filter((row) => !row.profile_id || !profileById.has(row.profile_id))
+        .filter((row) => !registeredDirectoryIds.has(row.id))
+        .map(directoryRowToProfile);
+
+      const loadedUsers = [...enhancedProfiles, ...directoryOnlyProfiles]
         .sort((a, b) => getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase()));
 
       const loadedTenantTrainings = (tenantTrainingsResult.data ?? []) as TenantTraining[];
@@ -490,6 +608,7 @@ export default function AdminUsers() {
         };
       });
 
+      setEmployeeDirectory(directoryRows);
       setUsers(loadedUsers);
       setAssignments(sortByCreatedAtDesc(loadedAssignments));
       setTenantTrainings(loadedTenantTrainings);
@@ -592,6 +711,24 @@ export default function AdminUsers() {
     );
 
     try {
+      if (isDirectoryOnly(profile)) {
+        const directoryId = profile.employee_directory_id || String(profile.id).replace('directory:', '');
+        const { error } = await supabase
+          .from('employee_directory')
+          .update({ status: nextStatus })
+          .eq('id', directoryId)
+          .eq('tenant_id', tenantId);
+
+        if (error) throw error;
+
+        setSuccessMessage(
+          nextStatus === 'active'
+            ? 'Trabajador activado en la nómina. Cuando se registre, quedará validado automáticamente.'
+            : 'Trabajador desactivado en la nómina.'
+        );
+        return;
+      }
+
       const response = await fetch('/.netlify/functions/approve-user', {
         method: 'POST',
         headers: {
@@ -677,42 +814,45 @@ export default function AdminUsers() {
 
       const cleanPosition = clean(form.position);
 
-      const newUser = {
-        id: crypto.randomUUID(),
+      const newDirectoryEntry = {
         tenant_id: tenantId,
-        auth_user_id: null,
+        source: 'manual',
+        external_id: clean(form.employee_code),
         first_name: clean(form.first_name),
         last_name: clean(form.last_name),
         full_name: fullName,
         email: cleanEmail,
         dni: clean(form.dni),
         phone: clean(form.phone),
-        role: 'worker',
-        job_role: cleanPosition,
+        work_role: cleanPosition,
         position: cleanPosition,
         area: clean(form.area),
         contractor_company: clean(form.contractor_company),
         employee_code: clean(form.employee_code),
-        status: form.status || 'pending',
-        preapproved: true,
-        source: 'manual',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        status: form.status === 'inactive' ? 'inactive' : 'preapproved',
+        raw_payload: { source: 'admin_manual_create' },
       };
 
-      const { data, error } = await supabase.from('profiles').insert(newUser).select('*').single();
+      const { data, error } = await supabase
+        .from('employee_directory')
+        .insert(newDirectoryEntry)
+        .select('*')
+        .single();
 
       if (error) throw error;
 
+      const newProfile = directoryRowToProfile(data as EmployeeDirectory);
+
+      setEmployeeDirectory((currentRows) => [...currentRows, data as EmployeeDirectory]);
       setUsers((currentUsers) =>
-        [...currentUsers, data as Profile].sort((a, b) =>
+        [...currentUsers, newProfile].sort((a, b) =>
           getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
         )
       );
 
       setForm(emptyForm);
       setShowCreate(false);
-      setSuccessMessage('Trabajador creado y preaprobado correctamente.');
+      setSuccessMessage('Trabajador agregado a la nómina y preaprobado correctamente.');
     } catch (error) {
       console.error('Error creating user:', error);
       setErrorMessage(
@@ -747,57 +887,94 @@ export default function AdminUsers() {
 
     try {
       const existingEmails = new Set(users.map((profile) => normalize(profile.email)));
+      const now = new Date().toISOString();
 
-      const newProfiles = uniqueEmails
+      const newDirectoryRows = uniqueEmails
         .filter((email) => !existingEmails.has(email))
         .map((email) => ({
-          id: crypto.randomUUID(),
           tenant_id: tenantId,
-          auth_user_id: null,
-          first_name: null,
-          last_name: null,
-          full_name: email.split('@')[0],
+          source: 'manual',
           email,
-          role: 'worker',
-          job_role: null,
-          position: null,
-          area: null,
-          contractor_company: null,
-          employee_code: null,
-          dni: null,
-          phone: null,
-          status: 'pending',
-          preapproved: true,
-          source: 'email_invite',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          full_name: email.split('@')[0],
+          status: 'preapproved',
+          raw_payload: { source: 'admin_email_invite' },
+          created_at: now,
+          updated_at: now,
         }));
 
-      if (newProfiles.length === 0) {
-        setSuccessMessage('Todos los emails ya estaban cargados en la empresa.');
-        setShowInvite(false);
-        setInviteEmails('');
-        return;
+      if (newDirectoryRows.length > 0) {
+        const { data, error } = await supabase
+          .from('employee_directory')
+          .insert(newDirectoryRows)
+          .select('*');
+
+        if (error) throw error;
+
+        const createdRows = (data ?? []) as EmployeeDirectory[];
+        setEmployeeDirectory((currentRows) => [...currentRows, ...createdRows]);
+        setUsers((currentUsers) =>
+          [...currentUsers, ...createdRows.map(directoryRowToProfile)].sort((a, b) =>
+            getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
+          )
+        );
       }
 
-      const { data, error } = await supabase.from('profiles').insert(newProfiles).select('*');
+      const response = await fetch('/.netlify/functions/send-employee-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, emails: uniqueEmails }),
+      });
 
-      if (error) throw error;
-
-      setUsers((currentUsers) =>
-        [...currentUsers, ...((data ?? []) as Profile[])].sort((a, b) =>
-          getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
-        )
-      );
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'No pudimos enviar las invitaciones.');
+      }
 
       setShowInvite(false);
       setInviteEmails('');
-      setSuccessMessage(`${newProfiles.length} trabajador(es) cargado(s) como preaprobado(s).`);
+      setSuccessMessage(
+        `Invitaciones procesadas: ${result?.sent ?? 0} enviada(s), ${result?.failed ?? 0} con error.`
+      );
+      await loadUsersData();
     } catch (error) {
       console.error('Error inviting users:', error);
       setErrorMessage(
-        error instanceof Error ? error.message : 'No se pudieron cargar las invitaciones.'
+        error instanceof Error ? error.message : 'No se pudieron cargar/enviar las invitaciones.'
       );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSendPendingInvitations() {
+    if (!tenantId) {
+      setErrorMessage('No se encontró tenant_id para enviar invitaciones.');
+      return;
+    }
+
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch('/.netlify/functions/send-employee-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'No pudimos enviar las invitaciones.');
+      }
+
+      setSuccessMessage(
+        `Invitaciones procesadas: ${result?.sent ?? 0} enviada(s), ${result?.failed ?? 0} con error.`
+      );
+      await loadUsersData();
+    } catch (error) {
+      console.error('Error sending pending invitations:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudieron enviar invitaciones.');
     } finally {
       setSaving(false);
     }
@@ -847,46 +1024,53 @@ export default function AdminUsers() {
     try {
       const now = new Date().toISOString();
 
-      const profilesToInsert = validRows.map((row) => {
+      const directoryRowsToInsert = validRows.map((row) => {
         const cleanPosition = clean(row.position);
 
         return {
-          id: crypto.randomUUID(),
           tenant_id: tenantId,
-          auth_user_id: null,
+          source: 'csv',
+          external_id: clean(row.employee_code),
           first_name: clean(row.first_name),
           last_name: clean(row.last_name),
           full_name: row.full_name,
           email: row.email,
           dni: clean(row.dni),
           phone: clean(row.phone),
-          role: 'worker',
-          job_role: cleanPosition,
+          work_role: cleanPosition,
           position: cleanPosition,
           area: clean(row.area),
           contractor_company: clean(row.contractor_company),
           employee_code: clean(row.employee_code),
-          status: row.status || 'pending',
-          preapproved: true,
-          source: 'csv',
+          status: row.status === 'inactive' ? 'inactive' : 'preapproved',
+          raw_payload: {
+            source: 'csv',
+            row_number: row.rowNumber,
+          },
           created_at: now,
           updated_at: now,
         };
       });
 
-      const { data, error } = await supabase.from('profiles').insert(profilesToInsert).select('*');
+      const { data, error } = await supabase
+        .from('employee_directory')
+        .insert(directoryRowsToInsert)
+        .select('*');
 
       if (error) throw error;
 
+      const createdRows = (data ?? []) as EmployeeDirectory[];
+
+      setEmployeeDirectory((currentRows) => [...currentRows, ...createdRows]);
       setUsers((currentUsers) =>
-        [...currentUsers, ...((data ?? []) as Profile[])].sort((a, b) =>
+        [...currentUsers, ...createdRows.map(directoryRowToProfile)].sort((a, b) =>
           getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
         )
       );
 
       setCsvRows([]);
       setShowCsvModal(false);
-      setSuccessMessage(`${profilesToInsert.length} trabajador(es) importado(s) desde CSV.`);
+      setSuccessMessage(`${directoryRowsToInsert.length} trabajador(es) importado(s) a la nómina desde CSV.`);
     } catch (error) {
       console.error('Error importing CSV:', error);
       setErrorMessage(error instanceof Error ? error.message : 'No se pudo importar el CSV.');
@@ -986,6 +1170,8 @@ export default function AdminUsers() {
             <option value="all">Todos</option>
             <option value="active">Activos</option>
             <option value="pending">Pendientes</option>
+            <option value="preapproved">Preaprobados</option>
+            <option value="invited">Invitados</option>
             <option value="inactive">Inactivos</option>
           </select>
         </div>
@@ -1007,9 +1193,14 @@ export default function AdminUsers() {
             Cargar CSV
           </button>
 
+          <button onClick={handleSendPendingInvitations} disabled={saving} className="btn-secondary text-xs">
+            <Mail size={14} />
+            Enviar invitaciones
+          </button>
+
           <button onClick={() => setShowInvite(true)} className="btn-secondary text-xs">
             <Mail size={14} />
-            Invitar por email
+            Invitar emails puntuales
           </button>
 
           <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
@@ -1120,7 +1311,7 @@ export default function AdminUsers() {
                     <td className="table-cell">
                       <div className="space-y-1">
                         <StatusBadge status={getDisplayStatus(profile)} />
-                        {profile.preapproved && (
+                        {(profile.preapproved || isDirectoryOnly(profile)) && (
                           <div className="text-[10px] text-emerald-400 flex items-center gap-1">
                             <CheckCircle size={10} />
                             preaprobado
@@ -1190,8 +1381,7 @@ export default function AdminUsers() {
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
-            Esto crea el trabajador como preaprobado. Cuando se registre con este email, podremos
-            validarlo automáticamente contra esta base.
+            Esto agrega el trabajador a la nómina preaprobada. Cuando se registre con este email, Cigüeña lo validará automáticamente contra employee_directory.
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1393,8 +1583,8 @@ export default function AdminUsers() {
                 Carga masiva de trabajadores
               </div>
               <p className="text-sm text-amber-100/80">
-                Subí un archivo CSV con la nómina de trabajadores de la empresa. Los usuarios
-                cargados quedarán preaprobados para que, cuando se registren con su email, puedan
+                Subí un archivo CSV con la nómina de trabajadores de la empresa. Los trabajadores
+                cargados quedarán en la nómina preaprobada para que, cuando se registren con su email, puedan
                 validarse automáticamente.
               </p>
             </div>
@@ -1560,15 +1750,14 @@ export default function AdminUsers() {
             </button>
             <button onClick={handleInviteUsers} disabled={saving} className="btn-primary">
               <Mail size={15} />
-              {saving ? 'Cargando...' : 'Cargar invitaciones'}
+              {saving ? 'Enviando...' : 'Enviar invitaciones'}
             </button>
           </>
         }
       >
         <div className="space-y-3">
           <p className="text-sm text-steel-400">
-            Ingresá uno o más emails, uno por línea. Se cargan como trabajadores pendientes y
-            preaprobados.
+            Ingresá uno o más emails, uno por línea. Se agregan a la nómina preaprobada y se les envía invitación.
           </p>
 
           <textarea

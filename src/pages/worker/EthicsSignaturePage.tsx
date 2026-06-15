@@ -21,12 +21,26 @@ interface EthicsSignaturePageProps {
 
 type Point = { x: number; y: number };
 
+function valueFromProfile(profile: any, keys: string[]) {
+  for (const key of keys) {
+    const value = profile?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
 export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned }: EthicsSignaturePageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
-  const [acceptedName, setAcceptedName] = useState(user.full_name ?? '');
-  const [documentNumber, setDocumentNumber] = useState(user.profile.employee_code ?? '');
+  const profile = user.profile || {};
+  const [acceptedName, setAcceptedName] = useState(user.full_name ?? profile.full_name ?? '');
+  const [dni, setDni] = useState(valueFromProfile(profile, ['dni']));
+  const [employeeCode, setEmployeeCode] = useState(valueFromProfile(profile, ['employee_code', 'external_id']));
+  const [workRole, setWorkRole] = useState(valueFromProfile(profile, ['work_role', 'job_role', 'position']));
+  const [phone, setPhone] = useState(valueFromProfile(profile, ['phone']));
+  const [area, setArea] = useState(valueFromProfile(profile, ['area', 'department']));
+  const [position, setPosition] = useState(valueFromProfile(profile, ['position', 'job_role', 'work_role']));
   const [hasOpenedCode, setHasOpenedCode] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState('');
@@ -120,8 +134,23 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
       return;
     }
 
-    if (!documentNumber.trim()) {
-      setError('Completá tu DNI, legajo o identificador interno.');
+    if (!dni.trim()) {
+      setError('Completá tu DNI.');
+      return;
+    }
+
+    if (!employeeCode.trim()) {
+      setError('Completá tu legajo o identificador interno.');
+      return;
+    }
+
+    if (!workRole.trim()) {
+      setError('Completá tu rol operativo.');
+      return;
+    }
+
+    if (!phone.trim()) {
+      setError('Completá tu teléfono.');
       return;
     }
 
@@ -151,6 +180,51 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
         .from('signature-images')
         .getPublicUrl(signaturePath);
 
+      const cleanAcceptedName = acceptedName.trim();
+      const cleanDni = dni.trim();
+      const cleanEmployeeCode = employeeCode.trim();
+      const cleanWorkRole = workRole.trim();
+      const cleanPhone = phone.trim();
+      const cleanArea = area.trim() || null;
+      const cleanPosition = position.trim() || cleanWorkRole;
+
+      const profileUpdate = {
+        full_name: cleanAcceptedName,
+        dni: cleanDni,
+        employee_code: cleanEmployeeCode,
+        work_role: cleanWorkRole,
+        job_role: cleanWorkRole,
+        phone: cleanPhone,
+        area: cleanArea,
+        position: cleanPosition,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: profileUpdateError } = await supabase
+        .from('profiles')
+        .update(profileUpdate)
+        .eq('id', user.id)
+        .eq('tenant_id', tenant.id);
+
+      if (profileUpdateError) throw profileUpdateError;
+
+      await supabase
+        .from('employee_directory')
+        .update({
+          full_name: cleanAcceptedName,
+          dni: cleanDni,
+          employee_code: cleanEmployeeCode,
+          work_role: cleanWorkRole,
+          phone: cleanPhone,
+          area: cleanArea,
+          position: cleanPosition,
+          status: 'registered',
+          registered_at: new Date().toISOString(),
+          profile_id: user.id,
+        })
+        .eq('tenant_id', tenant.id)
+        .eq('email', user.email || profile.email);
+
       const acceptanceText = `Declaro haber leído y aceptado el ${ethicsCode.title}, versión ${ethicsCode.version}, de ${tenant.name}. Autorizo el uso de mi firma electrónica registrada para constancias y certificados emitidos por Cigüeña vinculados a mis capacitaciones.`;
 
       const { data: acceptanceRecord, error: acceptanceError } = await supabase
@@ -159,8 +233,8 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
           tenant_id: tenant.id,
           user_id: user.id,
           ethics_code_id: ethicsCode.id,
-          accepted_name: acceptedName.trim(),
-          accepted_document_number: documentNumber.trim(),
+          accepted_name: cleanAcceptedName,
+          accepted_document_number: cleanDni,
           signature_image_url: publicUrlData.publicUrl,
           signature_hash: signatureHash,
           acceptance_text: acceptanceText,
@@ -182,9 +256,15 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
           ethics_code_title: ethicsCode.title,
           ethics_code_version: ethicsCode.version,
           ethics_code_hash: ethicsCode.content_hash,
-          accepted_name: acceptedName.trim(),
-          accepted_document_number: documentNumber.trim(),
+          accepted_name: cleanAcceptedName,
+          accepted_document_number: cleanDni,
           signature_hash: signatureHash,
+          dni: cleanDni,
+          employee_code: cleanEmployeeCode,
+          work_role: cleanWorkRole,
+          phone: cleanPhone,
+          area: cleanArea,
+          position: cleanPosition,
         },
       });
 
@@ -295,16 +375,84 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label" htmlFor="dni">DNI *</label>
+                  <input
+                    id="dni"
+                    className="input"
+                    value={dni}
+                    onChange={e => setDni(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="Ej. 30111222"
+                  />
+                </div>
+
+                <div>
+                  <label className="label" htmlFor="employee-code">Legajo *</label>
+                  <input
+                    id="employee-code"
+                    className="input"
+                    value={employeeCode}
+                    onChange={e => setEmployeeCode(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="Ej. EMP001"
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="label" htmlFor="document-number">DNI / Legajo / Identificador</label>
+                <label className="label" htmlFor="work-role">Rol operativo *</label>
                 <input
-                  id="document-number"
+                  id="work-role"
                   className="input"
-                  value={documentNumber}
-                  onChange={e => setDocumentNumber(e.target.value)}
+                  value={workRole}
+                  onChange={e => setWorkRole(e.target.value)}
                   disabled={isSaving}
-                  placeholder="Ej. DNI o legajo interno"
+                  placeholder="Ej. operador, supervisor, HSE"
                 />
+              </div>
+
+              <div>
+                <label className="label" htmlFor="phone">Teléfono *</label>
+                <input
+                  id="phone"
+                  className="input"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  disabled={isSaving}
+                  placeholder="Ej. +54 9 11..."
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label" htmlFor="area">Área</label>
+                  <input
+                    id="area"
+                    className="input"
+                    value={area}
+                    onChange={e => setArea(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="Ej. Operaciones"
+                  />
+                </div>
+
+                <div>
+                  <label className="label" htmlFor="position">Puesto</label>
+                  <input
+                    id="position"
+                    className="input"
+                    value={position}
+                    onChange={e => setPosition(e.target.value)}
+                    disabled={isSaving}
+                    placeholder="Ej. Técnico de campo"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-xs text-steel-400 leading-relaxed">
+                Si tu empresa cargó previamente la nómina, estos datos pueden aparecer precargados. Revisalos antes de firmar. Si falta alguno, completalo para que tu perfil laboral quede validado.
               </div>
 
               <div>

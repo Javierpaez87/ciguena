@@ -32,6 +32,10 @@ function clean(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeEmail(value: unknown) {
+  return clean(value).toLowerCase();
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -240,7 +244,7 @@ export const handler = async (event: any) => {
     .eq('id', profileId)
     .eq('tenant_id', tenantId)
     .select(
-      'id, tenant_id, full_name, first_name, last_name, email, status, preapproved'
+      'id, tenant_id, auth_user_id, full_name, first_name, last_name, email, phone, dni, employee_code, job_role, position, area, contractor_company, status, preapproved, source'
     )
     .single();
 
@@ -250,6 +254,72 @@ export const handler = async (event: any) => {
     return json(400, {
       error: 'No pudimos actualizar el usuario en Supabase.',
     });
+  }
+
+  const now = new Date().toISOString();
+
+  if (updatedProfile.email) {
+    const normalizedEmail = normalizeEmail(updatedProfile.email);
+    const directoryStatus = nextStatus === 'active' ? 'registered' : nextStatus;
+
+    const directoryPayload = {
+      tenant_id: tenantId,
+      email: normalizedEmail,
+      first_name: updatedProfile.first_name || null,
+      last_name: updatedProfile.last_name || null,
+      full_name:
+        updatedProfile.full_name ||
+        [updatedProfile.first_name, updatedProfile.last_name].filter(Boolean).join(' ') ||
+        updatedProfile.email ||
+        null,
+      phone: updatedProfile.phone || null,
+      dni: updatedProfile.dni || null,
+      employee_code: updatedProfile.employee_code || null,
+      work_role: updatedProfile.job_role || updatedProfile.position || null,
+      position: updatedProfile.position || updatedProfile.job_role || null,
+      area: updatedProfile.area || null,
+      contractor_company: updatedProfile.contractor_company || null,
+      status: directoryStatus,
+      profile_id: updatedProfile.id,
+      registered_at: nextStatus === 'active' ? now : null,
+      source: updatedProfile.source || 'self_register_admin_approved',
+      updated_at: now,
+    };
+
+    const { data: existingDirectory, error: directoryLookupError } = await supabaseAdmin
+      .from('employee_directory')
+      .select('id, registered_at')
+      .eq('tenant_id', tenantId)
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (directoryLookupError) {
+      console.error('Error buscando employee_directory:', directoryLookupError);
+    } else if (existingDirectory?.id) {
+      const { error: directoryUpdateError } = await supabaseAdmin
+        .from('employee_directory')
+        .update({
+          ...directoryPayload,
+          registered_at:
+            nextStatus === 'active' ? existingDirectory.registered_at || now : existingDirectory.registered_at,
+        })
+        .eq('id', existingDirectory.id);
+
+      if (directoryUpdateError) {
+        console.error('Error actualizando employee_directory:', directoryUpdateError);
+      }
+    } else {
+      const { error: directoryInsertError } = await supabaseAdmin
+        .from('employee_directory')
+        .insert({
+          ...directoryPayload,
+          created_at: now,
+        });
+
+      if (directoryInsertError) {
+        console.error('Error creando employee_directory:', directoryInsertError);
+      }
+    }
   }
 
   let tenantName = 'tu empresa';
