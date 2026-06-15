@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -22,6 +22,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 interface NavItem {
   id: string;
@@ -158,21 +159,16 @@ function cleanText(value?: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getTenantName({
-  user,
-  isGhostMode,
-  ghostSession,
-}: {
-  user?: any;
-  isGhostMode?: boolean;
-  ghostSession?: any;
-}) {
-  const ghostTenantName = cleanText(ghostSession?.tenant?.name);
+function getTenantId(user?: any) {
+  return (
+    cleanText(user?.tenant_id) ||
+    cleanText(user?.profile?.tenant_id) ||
+    cleanText(user?.tenant?.id) ||
+    ''
+  );
+}
 
-  if (isGhostMode && ghostTenantName) {
-    return ghostTenantName;
-  }
-
+function getTenantNameFromUser(user?: any) {
   return (
     cleanText(user?.tenant?.name) ||
     cleanText(user?.tenant_name) ||
@@ -247,10 +243,48 @@ export default function Sidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, sessionUser, isGhostMode, ghostSession, stopGhostSession, logout } = useAuth();
+  const [tenantNameFromDb, setTenantNameFromDb] = useState('');
 
   const normalizedRole = normalizeRole(user?.role);
   const isSuperAdmin = isSuperAdminRole(normalizedRole);
   const styles = getSidebarStyles(normalizedRole);
+
+  const tenantId = getTenantId(user);
+  const ghostTenantName = cleanText(ghostSession?.tenant?.name);
+  const userTenantName = getTenantNameFromUser(user);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTenantName() {
+      if (isSuperAdmin || isGhostMode || userTenantName || !tenantId) {
+        if (isMounted) setTenantNameFromDb('');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('tenants')
+        .select('name')
+        .eq('id', tenantId)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (error) {
+        console.warn('No se pudo cargar el nombre del tenant para el sidebar:', error);
+        setTenantNameFromDb('');
+        return;
+      }
+
+      setTenantNameFromDb(cleanText(data?.name));
+    }
+
+    loadTenantName();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isSuperAdmin, isGhostMode, tenantId, userTenantName]);
 
   const navItems = isSuperAdmin
     ? superAdminNav
@@ -264,7 +298,10 @@ export default function Sidebar({
       ? 'Admin Empresa'
       : 'Trabajador';
 
-  const tenantName = getTenantName({ user, isGhostMode, ghostSession });
+  const tenantName = isGhostMode
+    ? ghostTenantName
+    : userTenantName || tenantNameFromDb;
+
   const shouldShowTenantName = !isSuperAdmin && Boolean(tenantName);
 
   const SidebarContent = () => (
