@@ -4,7 +4,11 @@ const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const resendApiKey = process.env.RESEND_API_KEY;
 const fromEmail = 'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
-const appUrl = process.env.APP_URL || process.env.URL || 'https://ciguena-product.netlify.app';
+const appUrl =
+  process.env.CIGUENA_PLATFORM_URL ||
+  process.env.APP_URL ||
+  process.env.URL ||
+  'https://ciguena-product.netlify.app';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -217,7 +221,7 @@ export const handler = async (event: any) => {
     });
   }
 
-  const registerUrl = `${appUrl.replace(/\/$/, '')}/register`;
+  const registerUrl = appUrl.replace(/\/$/, '');
   const results = [] as Array<{ id: string; email: string; ok: boolean; error?: string }>;
 
   // Envío secuencial para evitar rate limits y timeouts bruscos.
