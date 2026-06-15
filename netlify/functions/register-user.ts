@@ -39,6 +39,24 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
+function compactEmailList(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeEmail(value))
+        .filter((value) => Boolean(value))
+    )
+  );
+}
+
+function splitFullName(fullName: string) {
+  const parts = fullName.split(' ').map((part) => part.trim()).filter(Boolean);
+  const firstName = parts[0] || '';
+  const lastName = parts.slice(1).join(' ');
+
+  return { firstName, lastName };
+}
+
 function getFriendlyAuthError(message = '') {
   const lower = message.toLowerCase();
 
@@ -106,17 +124,31 @@ function buildUserEmailHtml({
   fullName,
   requestedAdmin,
   tenantName,
+  autoApproved,
 }: {
   fullName: string;
   requestedAdmin: boolean;
   tenantName: string;
+  autoApproved: boolean;
 }) {
   const safeName = escapeHtml(fullName);
   const safeTenant = escapeHtml(tenantName);
 
-  const approvalText = requestedAdmin
-    ? 'Tu solicitud de acceso como administrador quedó pendiente de validación por parte de BondiApps.'
-    : 'Tu cuenta quedó pendiente de validación por parte del administrador de tu empresa.';
+  const title = autoApproved
+    ? 'Tu cuenta ya está habilitada'
+    : 'Recibimos tu solicitud de acceso';
+
+  const statusText = autoApproved ? 'habilitada' : 'pendiente de validación';
+
+  const approvalText = autoApproved
+    ? 'Tu email fue encontrado en la nómina precargada por tu empresa, por eso tu acceso quedó habilitado automáticamente.'
+    : requestedAdmin
+      ? 'Tu solicitud de acceso como administrador quedó pendiente de validación por parte de BondiApps.'
+      : 'Tu cuenta quedó pendiente de validación por parte del administrador de tu empresa.';
+
+  const nextStepText = autoApproved
+    ? 'Ya podés ingresar a la plataforma con el email y la contraseña que cargaste. En tu primer ingreso vas a validar tus datos laborales y firmar el código de ética.'
+    : 'Cuando tu acceso sea aprobado, vas a poder ingresar a la plataforma con el email y la contraseña que cargaste al registrarte.';
 
   return `
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
@@ -132,7 +164,7 @@ function buildUserEmailHtml({
           </div>
 
           <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
-            Recibimos tu solicitud de acceso
+            ${title}
           </h1>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
@@ -142,7 +174,7 @@ function buildUserEmailHtml({
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
             <p style="font-size:14px;line-height:1.6;color:#cbd5e1;margin:0;">
               <strong style="color:#f8fafc;">Empresa:</strong> ${safeTenant}<br/>
-              <strong style="color:#f8fafc;">Estado:</strong> pendiente de validación
+              <strong style="color:#f8fafc;">Estado:</strong> ${statusText}
             </p>
           </div>
 
@@ -151,7 +183,7 @@ function buildUserEmailHtml({
           </p>
 
           <p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:0;">
-            Cuando tu acceso sea aprobado, vas a poder ingresar a la plataforma con el email y la contraseña que cargaste al registrarte.
+            ${nextStepText}
           </p>
 
           <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
@@ -171,12 +203,14 @@ function buildInternalEmailHtml({
   phone,
   requestedAdmin,
   tenantName,
+  autoApproved,
 }: {
   fullName: string;
   email: string;
   phone: string;
   requestedAdmin: boolean;
   tenantName: string;
+  autoApproved: boolean;
 }) {
   return `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;">
@@ -190,10 +224,11 @@ function buildInternalEmailHtml({
         <li><strong>Teléfono:</strong> ${escapeHtml(phone)}</li>
         <li><strong>Empresa:</strong> ${escapeHtml(tenantName)}</li>
         <li><strong>Solicitó admin:</strong> ${requestedAdmin ? 'Sí' : 'No'}</li>
-        <li><strong>Estado inicial:</strong> pending</li>
+        <li><strong>Encontrado en nómina:</strong> ${autoApproved ? 'Sí' : 'No'}</li>
+        <li><strong>Estado inicial:</strong> ${autoApproved ? 'active' : 'pending'}</li>
       </ul>
 
-      <p>Revisar en Supabase / panel admin para aprobar o gestionar el acceso.</p>
+      <p>${autoApproved ? 'El usuario fue activado automáticamente porque estaba en employee_directory.' : 'Revisar en el panel admin para aprobar o gestionar el acceso.'}</p>
     </div>
   `;
 }
@@ -263,7 +298,7 @@ export const handler = async (event: any) => {
 
   const tenantName = tenantData.name || 'Empresa seleccionada';
 
-  // Evita duplicados en profiles
+  // Evita duplicados en profiles. Supabase Auth también exige email único.
   const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
     .from('profiles')
     .select('id')
@@ -280,16 +315,51 @@ export const handler = async (event: any) => {
     return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
   }
 
+  // Busca si el usuario estaba precargado por nómina/CSV/API.
+  // Si existe para este tenant, queda validado automáticamente como worker.
+  const { data: employeeDirectoryEntry, error: employeeDirectoryError } = await supabaseAdmin
+    .from('employee_directory')
+    .select(
+      'id, tenant_id, email, first_name, last_name, dni, phone, employee_code, work_role, area, position, status, profile_id'
+    )
+    .eq('tenant_id', companyId)
+    .eq('email', email)
+    .maybeSingle();
+
+  if (employeeDirectoryError) {
+    return json(500, {
+      error: 'No pudimos verificar la nómina de la empresa. Intentá nuevamente.',
+    });
+  }
+
+  if (employeeDirectoryEntry?.profile_id) {
+    return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
+  }
+
+  const isPreapprovedWorker = Boolean(employeeDirectoryEntry) && !requestedAdmin;
+  const initialStatus = isPreapprovedWorker ? 'active' : 'pending';
+
+  const rosterFullName = [employeeDirectoryEntry?.first_name, employeeDirectoryEntry?.last_name]
+    .map((value) => clean(value))
+    .filter(Boolean)
+    .join(' ');
+
+  const finalFullName = rosterFullName || fullName;
+  const { firstName, lastName } = splitFullName(finalFullName);
+  const finalPhone = clean(employeeDirectoryEntry?.phone) || phone;
+
   // Crear usuario en Supabase Auth, ya confirmado.
-  // La validación real de acceso queda en profiles.status = pending.
+  // La validación real de acceso queda en profiles.status.
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     user_metadata: {
-      full_name: fullName,
-      phone,
+      full_name: finalFullName,
+      phone: finalPhone,
       requested_admin: requestedAdmin,
+      tenant_id: companyId,
+      preapproved: isPreapprovedWorker,
     },
   });
 
@@ -302,25 +372,41 @@ export const handler = async (event: any) => {
   await supabaseAdmin.auth.admin.updateUserById(authData.user.id, {
     email_confirm: true,
     user_metadata: {
-      full_name: fullName,
-      phone,
+      full_name: finalFullName,
+      phone: finalPhone,
       requested_admin: requestedAdmin,
+      tenant_id: companyId,
+      preapproved: isPreapprovedWorker,
     },
   });
 
-  // Crear perfil pendiente en Cigüeña
-  const { error: profileError } = await supabaseAdmin.from('profiles').insert({
+  const profilePayload = {
     auth_user_id: authData.user.id,
     tenant_id: companyId,
-    full_name: fullName,
+    full_name: finalFullName,
+    first_name: firstName || null,
+    last_name: lastName || null,
     email,
-    phone,
+    phone: finalPhone,
+    dni: clean(employeeDirectoryEntry?.dni) || null,
+    employee_code: clean(employeeDirectoryEntry?.employee_code) || null,
+    work_role: clean(employeeDirectoryEntry?.work_role) || null,
+    area: clean(employeeDirectoryEntry?.area) || null,
+    position: clean(employeeDirectoryEntry?.position) || null,
     role: 'worker',
-    status: 'pending',
+    status: initialStatus,
+    preapproved: isPreapprovedWorker,
     requested_admin: requestedAdmin,
-  });
+  };
 
-  if (profileError) {
+  // Crear perfil en Cigüeña.
+  const { data: profileData, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .insert(profilePayload)
+    .select('id')
+    .single();
+
+  if (profileError || !profileData?.id) {
     // Si falla el profile, eliminamos el usuario Auth para no dejar cuentas huérfanas.
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
 
@@ -329,30 +415,70 @@ export const handler = async (event: any) => {
     });
   }
 
+  if (employeeDirectoryEntry) {
+    const { error: employeeDirectoryUpdateError } = await supabaseAdmin
+      .from('employee_directory')
+      .update({
+        status: 'registered',
+        registered_at: new Date().toISOString(),
+        profile_id: profileData.id,
+        phone: finalPhone,
+      })
+      .eq('id', employeeDirectoryEntry.id);
+
+    if (employeeDirectoryUpdateError) {
+      console.error('Error actualizando employee_directory:', employeeDirectoryUpdateError);
+    }
+  }
+
+  const { data: tenantAdmins, error: tenantAdminsError } = await supabaseAdmin
+    .from('profiles')
+    .select('email')
+    .eq('tenant_id', companyId)
+    .eq('role', 'admin')
+    .eq('status', 'active');
+
+  if (tenantAdminsError) {
+    console.warn('No pudimos obtener administradores del tenant:', tenantAdminsError);
+  }
+
+  const tenantAdminEmails = compactEmailList((tenantAdmins || []).map((admin: any) => admin.email));
+  const internalRecipients = requestedAdmin
+    ? [notifyEmail]
+    : compactEmailList([...tenantAdminEmails, notifyEmail]);
+
   // Emails informativos vía Resend.
   // No bloqueamos la creación de cuenta si el email falla.
   const userEmailResult = await sendResendEmail({
     to: email,
     bcc: notifyEmail,
-    subject: 'Recibimos tu solicitud de acceso a Cigüeña',
+    subject: isPreapprovedWorker
+      ? 'Tu cuenta de Cigüeña ya está habilitada'
+      : 'Recibimos tu solicitud de acceso a Cigüeña',
     html: buildUserEmailHtml({
-      fullName,
+      fullName: finalFullName,
       requestedAdmin,
       tenantName,
+      autoApproved: isPreapprovedWorker,
     }),
   });
 
-  const internalEmailResult = await sendResendEmail({
-    to: notifyEmail,
-    subject: `Nuevo registro pendiente en Cigüeña: ${fullName}`,
-    html: buildInternalEmailHtml({
-      fullName,
-      email,
-      phone,
-      requestedAdmin,
-      tenantName,
-    }),
-  });
+  const shouldNotifyAdmins = !isPreapprovedWorker || requestedAdmin;
+
+  const internalEmailResult = shouldNotifyAdmins
+    ? await sendResendEmail({
+        to: internalRecipients.length ? internalRecipients : notifyEmail,
+        subject: `Nuevo registro pendiente en Cigüeña: ${finalFullName}`,
+        html: buildInternalEmailHtml({
+          fullName: finalFullName,
+          email,
+          phone: finalPhone,
+          requestedAdmin,
+          tenantName,
+          autoApproved: isPreapprovedWorker,
+        }),
+      })
+    : { ok: true };
 
   const emailWarning =
     !userEmailResult.ok || !internalEmailResult.ok
@@ -361,11 +487,15 @@ export const handler = async (event: any) => {
 
   return json(200, {
     ok: true,
+    preapproved: isPreapprovedWorker,
+    status: initialStatus,
     email_sent: userEmailResult.ok,
     internal_email_sent: internalEmailResult.ok,
     email_warning: emailWarning,
     message: requestedAdmin
       ? 'Tu cuenta fue creada correctamente. Tu solicitud de acceso como administrador quedó pendiente de validación por BondiApps.'
-      : 'Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de tu empresa.',
+      : isPreapprovedWorker
+        ? 'Tu cuenta fue creada correctamente y ya quedó habilitada porque tu email estaba en la nómina de tu empresa.'
+        : 'Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de tu empresa.',
   });
 };
