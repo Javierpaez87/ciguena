@@ -154,6 +154,36 @@ function isSuperAdminRole(role?: string | null) {
   return normalizedRole === 'super_admin' || normalizedRole === 'superadmin';
 }
 
+function cleanText(value?: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getTenantName({
+  user,
+  isGhostMode,
+  ghostSession,
+}: {
+  user?: any;
+  isGhostMode?: boolean;
+  ghostSession?: any;
+}) {
+  const ghostTenantName = cleanText(ghostSession?.tenant?.name);
+
+  if (isGhostMode && ghostTenantName) {
+    return ghostTenantName;
+  }
+
+  return (
+    cleanText(user?.tenant?.name) ||
+    cleanText(user?.tenant_name) ||
+    cleanText(user?.tenantName) ||
+    cleanText(user?.profile?.tenant?.name) ||
+    cleanText(user?.company_name) ||
+    cleanText(user?.companyName) ||
+    ''
+  );
+}
+
 function getSidebarStyles(role?: string | null) {
   const normalizedRole = normalizeRole(role);
 
@@ -234,6 +264,9 @@ export default function Sidebar({
       ? 'Admin Empresa'
       : 'Trabajador';
 
+  const tenantName = getTenantName({ user, isGhostMode, ghostSession });
+  const shouldShowTenantName = !isSuperAdmin && Boolean(tenantName);
+
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -263,9 +296,25 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Role badge */}
+      {/* Tenant and role badge */}
       {!collapsed && (
         <div className={`px-4 py-3 border-b ${styles.sectionBorder}`}>
+          {shouldShowTenantName && (
+            <div className="mb-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Building2 size={14} className="text-amber-400 flex-shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-widest text-steel-500 leading-tight">
+                    Empresa
+                  </div>
+                  <div className="text-sm font-semibold text-steel-100 truncate leading-tight">
+                    {tenantName}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div
             className={`flex items-center gap-2 rounded-lg px-3 py-2 ${styles.roleBadge}`}
           >
