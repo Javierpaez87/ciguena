@@ -7,6 +7,12 @@ const notifyEmail = process.env.REGISTRATION_NOTIFY_EMAIL || 'javierpaez@bondiap
 
 const fromEmail = 'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
+const platformUrl =
+  process.env.CIGUENA_PLATFORM_URL ||
+  process.env.APP_URL ||
+  process.env.URL ||
+  'https://ciguena-product.netlify.app';
+
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -125,14 +131,17 @@ function buildUserEmailHtml({
   requestedAdmin,
   tenantName,
   autoApproved,
+  platformUrl,
 }: {
   fullName: string;
   requestedAdmin: boolean;
   tenantName: string;
   autoApproved: boolean;
+  platformUrl: string;
 }) {
   const safeName = escapeHtml(fullName);
   const safeTenant = escapeHtml(tenantName);
+  const safePlatformUrl = escapeHtml(platformUrl.replace(/\/$/, ''));
 
   const title = autoApproved
     ? 'Tu cuenta ya está habilitada'
@@ -185,6 +194,32 @@ function buildUserEmailHtml({
           <p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:0;">
             ${nextStepText}
           </p>
+
+          <div style="text-align:center;margin:26px 0 20px;">
+            <a
+              href="${safePlatformUrl}"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-size:15px;font-weight:700;line-height:1;padding:15px 24px;border-radius:10px;"
+            >
+              Ingresar a Cigüeña
+            </a>
+          </div>
+
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin:0 0 22px;">
+            <p style="font-size:12px;line-height:1.5;color:#94a3b8;margin:0 0 6px;">
+              Si el botón no funciona, copiá y pegá esta dirección en tu navegador:
+            </p>
+
+            <a
+              href="${safePlatformUrl}"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="font-size:12px;line-height:1.5;color:#f59e0b;text-decoration:underline;word-break:break-all;"
+            >
+              ${safePlatformUrl}
+            </a>
+          </div>
 
           <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
 
@@ -460,6 +495,7 @@ export const handler = async (event: any) => {
       requestedAdmin,
       tenantName,
       autoApproved: isPreapprovedWorker,
+      platformUrl,
     }),
   });
 
