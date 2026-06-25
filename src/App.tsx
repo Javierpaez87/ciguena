@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import AppLayout from './components/layout/AppLayout';
 
 // Super Admin
@@ -276,6 +277,16 @@ function AppContent() {
       setViewData(null);
     }
   };
+
+  if (window.location.pathname === '/reset-password') {
+    return (
+      <ResetPasswordPage
+        onPasswordUpdated={() => {
+          window.location.href = '/';
+        }}
+      />
+    );
+  }
 
   if (!user) {
     if (authScreen === 'register') {
