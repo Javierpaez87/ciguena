@@ -197,11 +197,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
-    setIsLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: window.location.origin });
-    setIsLoading(false);
-    return { error: error ? 'No pudimos enviar el correo de recuperación.' : null };
-  }, []);
+  setIsLoading(true);
+
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email.trim().toLowerCase(),
+    {
+      redirectTo: `${window.location.origin}/reset-password`,
+    }
+  );
+
+  setIsLoading(false);
+
+  return {
+    error: error ? 'No pudimos enviar el correo de recuperación.' : null,
+  };
+}, []);
 
   const logout = useCallback(async () => {
     setIsLoading(true);
