@@ -1283,7 +1283,12 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
           ) : (
             <div className="divide-y divide-steel-800">
               {filteredList.map(worker => {
-                const checked = selectedIds.includes(worker.id);
+  const workerIdsToMatch = [
+    worker.id,
+    worker.auth_user_id,
+  ].filter(Boolean) as string[];
+
+  const checked = workerIdsToMatch.some(id => selectedIds.includes(id));
 
                 return (
                   <label
