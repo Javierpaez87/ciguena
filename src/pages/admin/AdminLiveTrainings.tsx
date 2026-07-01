@@ -38,6 +38,7 @@ import {
   getLiveTrainingParticipants,
   getLiveTrainingStats,
   getTenantWorkersForLiveTraining,
+  replaceLiveTrainingParticipants,
   restoreLiveTraining,
   softDeleteLiveTraining,
   updateLiveTraining,
@@ -337,6 +338,9 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [workerSearch, setWorkerSearch] = useState('');
 
+  const [editSelectedWorkerIds, setEditSelectedWorkerIds] = useState<string[]>([]);
+  const [editWorkerSearch, setEditWorkerSearch] = useState('');
+
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -369,6 +373,32 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       return haystack.includes(query);
     });
   }, [workers, workerSearch]);
+
+  const filteredEditWorkers = useMemo(() => {
+    const query = editWorkerSearch.trim().toLowerCase();
+
+    if (!query) return workers;
+
+    return workers.filter(worker => {
+      const haystack = [
+        worker.full_name,
+        worker.first_name,
+        worker.last_name,
+        worker.email,
+        worker.job_role,
+        worker.work_role,
+        worker.position,
+        worker.area,
+        worker.employee_code,
+        worker.dni,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [workers, editWorkerSearch]);
 
   const upcomingTrainings = useMemo(() => {
     return trainings.filter(training => !isPastTraining(training));
@@ -445,18 +475,29 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setCreateModalOpen(false);
   }
 
-  function openEditModal(training: LiveTraining) {
+  async function openEditModal(training: LiveTraining) {
     setEditingTraining(training);
     setEditForm(trainingToFormState(training));
+    setEditSelectedWorkerIds([]);
+    setEditWorkerSearch('');
     setError(null);
     setSuccessMessage(null);
     setEditModalOpen(true);
+
+    try {
+      const rows = await getLiveTrainingParticipants(training.id);
+      setEditSelectedWorkerIds(rows.map(row => row.user_id));
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   }
 
   function closeEditModal() {
     if (isSaving) return;
     setEditModalOpen(false);
     setEditingTraining(null);
+    setEditSelectedWorkerIds([]);
+    setEditWorkerSearch('');
   }
 
   function toggleWorker(workerId: string) {
@@ -476,6 +517,25 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
 
   function clearSelectedWorkers() {
     setSelectedWorkerIds([]);
+  }
+
+  function toggleEditWorker(workerId: string) {
+    setEditSelectedWorkerIds(current => {
+      if (current.includes(workerId)) {
+        return current.filter(id => id !== workerId);
+      }
+
+      return [...current, workerId];
+    });
+  }
+
+  function selectAllFilteredEditWorkers() {
+    const ids = filteredEditWorkers.map(worker => worker.id);
+    setEditSelectedWorkerIds(current => Array.from(new Set([...current, ...ids])));
+  }
+
+  function clearEditSelectedWorkers() {
+    setEditSelectedWorkerIds([]);
   }
 
   async function handleCreateTraining(event: React.FormEvent) {
@@ -581,6 +641,14 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
         async_recovery_enabled: editForm.asyncRecoveryEnabled,
         late_tolerance_minutes: editForm.lateToleranceMinutes,
       });
+
+      if (tenantId) {
+        await replaceLiveTrainingParticipants({
+          tenant_id: tenantId,
+          live_training_id: editingTraining.id,
+          user_ids: editSelectedWorkerIds,
+        });
+      }
 
       setEditModalOpen(false);
       setEditingTraining(null);
@@ -1028,6 +1096,109 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     );
   }
 
+
+  function renderWorkerSelector({
+    title,
+    selectedIds,
+    search,
+    filteredList,
+    onSearchChange,
+    onToggle,
+    onSelectAllFiltered,
+    onClear,
+  }: {
+    title: string;
+    selectedIds: string[];
+    search: string;
+    filteredList: Profile[];
+    onSearchChange: (value: string) => void;
+    onToggle: (workerId: string) => void;
+    onSelectAllFiltered: () => void;
+    onClear: () => void;
+  }) {
+    return (
+      <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-steel-100">
+              {title}
+            </h3>
+            <p className="text-xs text-steel-500">
+              Seleccionados: {selectedIds.length}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onSelectAllFiltered}
+              className="rounded-lg border border-steel-700 bg-steel-800 px-3 py-1.5 text-xs font-medium text-steel-200 hover:bg-steel-700"
+            >
+              Seleccionar visibles
+            </button>
+
+            <button
+              type="button"
+              onClick={onClear}
+              className="rounded-lg border border-steel-700 bg-steel-800 px-3 py-1.5 text-xs font-medium text-steel-200 hover:bg-steel-700"
+            >
+              Limpiar
+            </button>
+          </div>
+        </div>
+
+        <div className="relative mt-4">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-steel-500" size={16} />
+          <input
+            type="text"
+            value={search}
+            onChange={event => onSearchChange(event.target.value)}
+            placeholder="Buscar por nombre, email, rol, área, legajo..."
+            className="w-full rounded-xl border border-steel-700 bg-steel-900 py-2 pl-9 pr-3 text-sm text-steel-100 outline-none placeholder:text-steel-600 focus:border-cyan-500"
+          />
+        </div>
+
+        <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-steel-800">
+          {filteredList.length === 0 ? (
+            <div className="p-6 text-center text-sm text-steel-500">
+              No encontramos workers activos para esta búsqueda.
+            </div>
+          ) : (
+            <div className="divide-y divide-steel-800">
+              {filteredList.map(worker => {
+                const checked = selectedIds.includes(worker.id);
+
+                return (
+                  <label
+                    key={worker.id}
+                    className="flex cursor-pointer items-start gap-3 bg-steel-900 px-4 py-3 transition-colors hover:bg-steel-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => onToggle(worker.id)}
+                      className="mt-1"
+                    />
+
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-steel-100">
+                        {getProfileName(worker)}
+                      </span>
+                      <span className="block truncate text-xs text-steel-500">
+                        {worker.email}
+                        {getProfileSubtitle(worker) ? ` · ${getProfileSubtitle(worker)}` : ''}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-[420px] items-center justify-center">
@@ -1381,85 +1552,16 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
         <form id="create-live-training-form" onSubmit={handleCreateTraining} className="space-y-6">
           {renderTrainingFormFields(form, setForm)}
 
-          <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-steel-100">
-                  Participantes
-                </h3>
-                <p className="text-xs text-steel-500">
-                  Seleccionados: {selectedWorkerIds.length}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={selectAllFilteredWorkers}
-                  className="rounded-lg border border-steel-700 bg-steel-800 px-3 py-1.5 text-xs font-medium text-steel-200 hover:bg-steel-700"
-                >
-                  Seleccionar visibles
-                </button>
-
-                <button
-                  type="button"
-                  onClick={clearSelectedWorkers}
-                  className="rounded-lg border border-steel-700 bg-steel-800 px-3 py-1.5 text-xs font-medium text-steel-200 hover:bg-steel-700"
-                >
-                  Limpiar
-                </button>
-              </div>
-            </div>
-
-            <div className="relative mt-4">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-steel-500" size={16} />
-              <input
-                type="text"
-                value={workerSearch}
-                onChange={event => setWorkerSearch(event.target.value)}
-                placeholder="Buscar por nombre, email, rol, área, legajo..."
-                className="w-full rounded-xl border border-steel-700 bg-steel-900 py-2 pl-9 pr-3 text-sm text-steel-100 outline-none placeholder:text-steel-600 focus:border-cyan-500"
-              />
-            </div>
-
-            <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-steel-800">
-              {filteredWorkers.length === 0 ? (
-                <div className="p-6 text-center text-sm text-steel-500">
-                  No encontramos workers activos para esta búsqueda.
-                </div>
-              ) : (
-                <div className="divide-y divide-steel-800">
-                  {filteredWorkers.map(worker => {
-                    const checked = selectedWorkerIds.includes(worker.id);
-
-                    return (
-                      <label
-                        key={worker.id}
-                        className="flex cursor-pointer items-start gap-3 bg-steel-900 px-4 py-3 transition-colors hover:bg-steel-800"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleWorker(worker.id)}
-                          className="mt-1"
-                        />
-
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-steel-100">
-                            {getProfileName(worker)}
-                          </span>
-                          <span className="block truncate text-xs text-steel-500">
-                            {worker.email}
-                            {getProfileSubtitle(worker) ? ` · ${getProfileSubtitle(worker)}` : ''}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          {renderWorkerSelector({
+            title: 'Participantes',
+            selectedIds: selectedWorkerIds,
+            search: workerSearch,
+            filteredList: filteredWorkers,
+            onSearchChange: setWorkerSearch,
+            onToggle: toggleWorker,
+            onSelectAllFiltered: selectAllFilteredWorkers,
+            onClear: clearSelectedWorkers,
+          })}
         </form>
       </Modal>
 
@@ -1493,6 +1595,17 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       >
         <form id="edit-live-training-form" onSubmit={handleUpdateTraining} className="space-y-6">
           {renderTrainingFormFields(editForm, setEditForm)}
+
+          {renderWorkerSelector({
+            title: 'Participantes',
+            selectedIds: editSelectedWorkerIds,
+            search: editWorkerSearch,
+            filteredList: filteredEditWorkers,
+            onSearchChange: setEditWorkerSearch,
+            onToggle: toggleEditWorker,
+            onSelectAllFiltered: selectAllFilteredEditWorkers,
+            onClear: clearEditSelectedWorkers,
+          })}
         </form>
       </Modal>
     </div>
