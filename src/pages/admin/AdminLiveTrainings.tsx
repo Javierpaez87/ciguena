@@ -76,6 +76,63 @@ const initialFormState: LiveTrainingFormState = {
   lateToleranceMinutes: 15,
 };
 
+const DEFAULT_TRAINING_DURATION_MINUTES = 60;
+const TIME_OPTION_INTERVAL_MINUTES = 15;
+const DATE_OPTION_DAYS_AHEAD = 180;
+
+function addMinutesToTime(time: string, minutesToAdd: number) {
+  if (!time) return '';
+
+  const [hoursRaw, minutesRaw] = time.split(':');
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return '';
+
+  const totalMinutes = hours * 60 + minutes + minutesToAdd;
+  const normalizedMinutes = Math.max(0, Math.min(totalMinutes, 23 * 60 + 45));
+  const nextHours = Math.floor(normalizedMinutes / 60);
+  const nextMinutes = normalizedMinutes % 60;
+
+  return `${String(nextHours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}`;
+}
+
+function isEndTimeBeforeOrEqualStart(startTime: string, endTime: string) {
+  if (!startTime || !endTime) return false;
+
+  return endTime <= startTime;
+}
+
+function buildTimeOptions() {
+  const options: string[] = [];
+
+  for (let minutes = 0; minutes < 24 * 60; minutes += TIME_OPTION_INTERVAL_MINUTES) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    options.push(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`);
+  }
+
+  return options;
+}
+
+function buildDateOptions() {
+  return Array.from({ length: DATE_OPTION_DAYS_AHEAD }, (_, index) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + index);
+
+    const value = date.toISOString().slice(0, 10);
+    const label = date.toLocaleDateString('es-AR', {
+      weekday: 'short',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+
+    return { value, label };
+  });
+}
+
 const attendanceLabels: Record<LiveAttendanceStatus, string> = {
   invited: 'Invitado',
   on_time: 'On time',
@@ -319,6 +376,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isEditParticipantsLoading, setIsEditParticipantsLoading] = useState(false);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -347,6 +405,9 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
   const selectedStats = useMemo<LiveTrainingStats>(() => {
     return getLiveTrainingStats(participants as LiveTrainingParticipant[]);
   }, [participants]);
+
+  const dateOptions = useMemo(() => buildDateOptions(), []);
+  const timeOptions = useMemo(() => buildTimeOptions(), []);
 
   const filteredWorkers = useMemo(() => {
     const query = workerSearch.trim().toLowerCase();
@@ -483,12 +544,20 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setError(null);
     setSuccessMessage(null);
     setEditModalOpen(true);
+    setIsEditParticipantsLoading(true);
 
     try {
       const rows = await getLiveTrainingParticipants(training.id);
-      setEditSelectedWorkerIds(rows.map(row => row.user_id));
+      const assignedWorkerIds = rows
+        .map(row => row.user_id)
+        .filter((userId): userId is string => Boolean(userId));
+
+      setEditSelectedWorkerIds(assignedWorkerIds);
     } catch (err) {
       setError(getErrorMessage(err));
+      setEditSelectedWorkerIds([]);
+    } finally {
+      setIsEditParticipantsLoading(false);
     }
   }
 
@@ -498,6 +567,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setEditingTraining(null);
     setEditSelectedWorkerIds([]);
     setEditWorkerSearch('');
+    setIsEditParticipantsLoading(false);
   }
 
   function toggleWorker(workerId: string) {
@@ -536,6 +606,24 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
 
   function clearEditSelectedWorkers() {
     setEditSelectedWorkerIds([]);
+  }
+
+  function handleStartTimeChange(
+    value: string,
+    setState: React.Dispatch<React.SetStateAction<LiveTrainingFormState>>
+  ) {
+    setState(current => {
+      const suggestedEndTime = addMinutesToTime(value, DEFAULT_TRAINING_DURATION_MINUTES);
+
+      return {
+        ...current,
+        startTime: value,
+        endTime:
+          !current.endTime || isEndTimeBeforeOrEqualStart(value, current.endTime)
+            ? suggestedEndTime
+            : current.endTime,
+      };
+    });
   }
 
   async function handleCreateTraining(event: React.FormEvent) {
@@ -946,36 +1034,56 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                 <span className="mb-1 block text-xs font-medium text-steel-400">
                   Fecha
                 </span>
-                <input
-                  type="date"
+                <select
                   value={state.date}
                   onChange={event => setState(current => ({ ...current, date: event.target.value }))}
                   className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none transition-colors focus:border-cyan-500"
-                />
+                >
+                  {dateOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-steel-400">
                   Hora inicio
                 </span>
-                <input
-                  type="time"
+                <select
                   value={state.startTime}
-                  onChange={event => setState(current => ({ ...current, startTime: event.target.value }))}
+                  onChange={event => handleStartTimeChange(event.target.value, setState)}
                   className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none transition-colors focus:border-cyan-500"
-                />
+                >
+                  <option value="">Seleccionar</option>
+                  {timeOptions.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-steel-400">
                   Hora fin
                 </span>
-                <input
-                  type="time"
+                <select
                   value={state.endTime}
                   onChange={event => setState(current => ({ ...current, endTime: event.target.value }))}
                   className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none transition-colors focus:border-cyan-500"
-                />
+                >
+                  <option value="">Seleccionar</option>
+                  {timeOptions.map(option => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-steel-500">
+                  Por defecto se sugiere una hora después del inicio.
+                </p>
               </label>
             </div>
           </div>
@@ -1106,6 +1214,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     onToggle,
     onSelectAllFiltered,
     onClear,
+    isLoading = false,
   }: {
     title: string;
     selectedIds: string[];
@@ -1115,6 +1224,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     onToggle: (workerId: string) => void;
     onSelectAllFiltered: () => void;
     onClear: () => void;
+    isLoading?: boolean;
   }) {
     return (
       <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
@@ -1157,6 +1267,13 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             className="w-full rounded-xl border border-steel-700 bg-steel-900 py-2 pl-9 pr-3 text-sm text-steel-100 outline-none placeholder:text-steel-600 focus:border-cyan-500"
           />
         </div>
+
+        {isLoading && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+            <Loader2 className="animate-spin" size={14} />
+            Cargando participantes asignados...
+          </div>
+        )}
 
         <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-steel-800">
           {filteredList.length === 0 ? (
@@ -1605,6 +1722,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             onToggle: toggleEditWorker,
             onSelectAllFiltered: selectAllFilteredEditWorkers,
             onClear: clearEditSelectedWorkers,
+            isLoading: isEditParticipantsLoading,
           })}
         </form>
       </Modal>
