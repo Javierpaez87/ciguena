@@ -21,6 +21,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
+import { supabase } from '../../lib/supabase';
 
 import type {
   LiveAttendanceStatus,
@@ -258,6 +259,42 @@ function getProfileSubtitle(profile?: Profile | null) {
     profile.email ||
     ''
   );
+}
+
+function normalizeId(value?: string | null) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function uniqueIds(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map(normalizeId).filter(Boolean)));
+}
+
+function getProfileIdCandidates(profile?: Profile | null) {
+  if (!profile) return [];
+
+  const profileWithAuthId = profile as Profile & { auth_user_id?: string | null };
+
+  return uniqueIds([
+    profileWithAuthId.id,
+    profileWithAuthId.auth_user_id,
+  ]);
+}
+
+async function getAssignedWorkerIdsForLiveTraining(liveTrainingId: string) {
+  if (!supabase) {
+    throw new Error('Supabase no está configurado.');
+  }
+
+  const { data, error } = await supabase
+    .from('live_training_participants')
+    .select('user_id')
+    .eq('live_training_id', liveTrainingId);
+
+  if (error) {
+    throw error;
+  }
+
+  return uniqueIds((data ?? []).map(row => row.user_id as string | null));
 }
 
 function isPastTraining(training: LiveTraining) {
@@ -547,10 +584,19 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setIsEditParticipantsLoading(true);
 
     try {
-      const rows = await getLiveTrainingParticipants(training.id);
-      const assignedWorkerIds = rows
-        .map(row => row.user_id)
-        .filter((userId): userId is string => Boolean(userId));
+      const assignedWorkerIds = await getAssignedWorkerIdsForLiveTraining(training.id);
+
+      console.log('EDITANDO LIVE TRAINING:', {
+        id: training.id,
+        title: training.title,
+        assignedWorkerIds,
+        workers: workers.map(worker => ({
+          id: worker.id,
+          auth_user_id: (worker as Profile & { auth_user_id?: string | null }).auth_user_id,
+          email: worker.email,
+          name: getProfileName(worker),
+        })),
+      });
 
       setEditSelectedWorkerIds(assignedWorkerIds);
     } catch (err) {
@@ -1283,12 +1329,8 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
           ) : (
             <div className="divide-y divide-steel-800">
               {filteredList.map(worker => {
-  const workerIdsToMatch = [
-    worker.id,
-    worker.auth_user_id,
-  ].filter(Boolean) as string[];
-
-  const checked = workerIdsToMatch.some(id => selectedIds.includes(id));
+                const workerIdCandidates = getProfileIdCandidates(worker);
+                const checked = workerIdCandidates.some(id => selectedIds.includes(id));
 
                 return (
                   <label
