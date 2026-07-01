@@ -448,8 +448,17 @@ export async function getLiveTrainingParticipants(
 /**
  * Obtiene capacitaciones en vivo asignadas a un worker.
  */
-export async function getWorkerLiveTrainings(userId: string): Promise<LiveTrainingParticipantWithUser[]> {
+export async function getWorkerLiveTrainings(
+  userIdOrIds: string | string[]
+): Promise<LiveTrainingParticipantWithUser[]> {
   const client = assertSupabase();
+  const userIds = Array.from(
+    new Set((Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds]).filter(Boolean))
+  );
+
+  if (userIds.length === 0) {
+    return [];
+  }
 
   const { data, error } = await client
     .from('live_training_participants')
@@ -457,15 +466,17 @@ export async function getWorkerLiveTrainings(userId: string): Promise<LiveTraini
       *,
       live_training:live_trainings(*)
     `)
-    .eq('user_id', userId)
-    .is('live_training.deleted_at', null)
+    .in('user_id', userIds)
     .order('created_at', { ascending: false });
 
   if (error) {
     throw error;
   }
 
-  return (data ?? []) as LiveTrainingParticipantWithUser[];
+  return ((data ?? []) as LiveTrainingParticipantWithUser[]).filter(item => {
+    const training = item.live_training as LiveTrainingParticipantWithUser['live_training'] & { deleted_at?: string | null };
+    return !training?.deleted_at;
+  });
 }
 
 /**
@@ -474,9 +485,16 @@ export async function getWorkerLiveTrainings(userId: string): Promise<LiveTraini
  */
 export async function getWorkerLiveTrainingParticipant(
   liveTrainingId: string,
-  userId: string
+  userIdOrIds: string | string[]
 ): Promise<LiveTrainingParticipant | null> {
   const client = assertSupabase();
+  const userIds = Array.from(
+    new Set((Array.isArray(userIdOrIds) ? userIdOrIds : [userIdOrIds]).filter(Boolean))
+  );
+
+  if (userIds.length === 0) {
+    return null;
+  }
 
   const { data, error } = await client
     .from('live_training_participants')
@@ -485,7 +503,9 @@ export async function getWorkerLiveTrainingParticipant(
       live_training:live_trainings(*)
     `)
     .eq('live_training_id', liveTrainingId)
-    .eq('user_id', userId)
+    .in('user_id', userIds)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {

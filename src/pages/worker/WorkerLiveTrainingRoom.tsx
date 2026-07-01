@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
-import type { LiveTrainingParticipant } from '../../types';
+import type { AuthUser, LiveTrainingParticipant } from '../../types';
 import {
   getWorkerLiveTrainingParticipant,
   markLiveTrainingJoinClicked,
@@ -21,6 +21,21 @@ import {
 interface WorkerLiveTrainingRoomProps {
   liveTrainingId?: string;
   onNavigate: (view: string, data?: unknown) => void;
+}
+
+
+function uniqueIds(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map(value => value?.trim()).filter(Boolean))) as string[];
+}
+
+function getCurrentUserIdCandidates(user: AuthUser | null) {
+  const profile = user?.profile as { id?: string | null; auth_user_id?: string | null } | undefined;
+
+  return uniqueIds([
+    user?.id,
+    profile?.id,
+    profile?.auth_user_id,
+  ]);
 }
 
 function getErrorMessage(error: unknown) {
@@ -114,6 +129,7 @@ export default function WorkerLiveTrainingRoom({
   onNavigate,
 }: WorkerLiveTrainingRoomProps) {
   const { user } = useAuth();
+  const userIdCandidates = useMemo(() => getCurrentUserIdCandidates(user), [user]);
   const [participant, setParticipant] = useState<LiveTrainingParticipant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
@@ -127,7 +143,7 @@ export default function WorkerLiveTrainingRoom({
     let ignore = false;
 
     async function loadRoom() {
-      if (!user?.id || !liveTrainingId) {
+      if (userIdCandidates.length === 0 || !liveTrainingId) {
         setError('No encontramos la capacitación en vivo seleccionada.');
         setIsLoading(false);
         return;
@@ -137,7 +153,7 @@ export default function WorkerLiveTrainingRoom({
       setError(null);
 
       try {
-        const foundParticipant = await getWorkerLiveTrainingParticipant(liveTrainingId, user.id);
+        const foundParticipant = await getWorkerLiveTrainingParticipant(liveTrainingId, userIdCandidates);
 
         if (!foundParticipant) {
           throw new Error('No tenés acceso asignado a esta capacitación en vivo.');
@@ -171,7 +187,7 @@ export default function WorkerLiveTrainingRoom({
     return () => {
       ignore = true;
     };
-  }, [user?.id, liveTrainingId]);
+  }, [userIdCandidates.join('|'), liveTrainingId]);
 
   const handleJoin = async () => {
     if (!participant || !training?.meeting_url) return;

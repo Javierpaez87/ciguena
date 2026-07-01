@@ -12,7 +12,7 @@ import {
 
 import EmptyState from '../../components/ui/EmptyState';
 import { useAuth } from '../../contexts/AuthContext';
-import type { LiveAttendanceStatus, LiveTrainingParticipant } from '../../types';
+import type { AuthUser, LiveAttendanceStatus, LiveTrainingParticipant } from '../../types';
 import {
   getWorkerLiveTrainings,
   type LiveTrainingParticipantWithUser,
@@ -39,6 +39,21 @@ const attendanceClasses: Record<LiveAttendanceStatus, string> = {
   invalid_after_event: 'bg-orange-500/10 text-orange-300 border-orange-500/30',
   excused_manual: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
 };
+
+
+function uniqueIds(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map(value => value?.trim()).filter(Boolean))) as string[];
+}
+
+function getCurrentUserIdCandidates(user: AuthUser | null) {
+  const profile = user?.profile as { id?: string | null; auth_user_id?: string | null } | undefined;
+
+  return uniqueIds([
+    user?.id,
+    profile?.id,
+    profile?.auth_user_id,
+  ]);
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -186,18 +201,19 @@ function WorkerLiveTrainingCard({
 
 export default function WorkerLiveTrainings({ onNavigate }: WorkerLiveTrainingsProps) {
   const { user } = useAuth();
+  const userIdCandidates = useMemo(() => getCurrentUserIdCandidates(user), [user]);
   const [items, setItems] = useState<LiveTrainingParticipantWithUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadLiveTrainings = async () => {
-    if (!user?.id) return;
+    if (userIdCandidates.length === 0) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const data = await getWorkerLiveTrainings(user.id);
+      const data = await getWorkerLiveTrainings(userIdCandidates);
       setItems(data);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
@@ -208,7 +224,7 @@ export default function WorkerLiveTrainings({ onNavigate }: WorkerLiveTrainingsP
 
   useEffect(() => {
     loadLiveTrainings();
-  }, [user?.id]);
+  }, [userIdCandidates.join('|')]);
 
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => {
