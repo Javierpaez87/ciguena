@@ -245,6 +245,11 @@ export interface LiveTraining {
   created_at: string;
   updated_at: string | null;
 
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  restored_at?: string | null;
+  restored_by?: string | null;
+
   creator?: Profile;
   tenant?: Tenant;
   participants?: LiveTrainingParticipant[];
