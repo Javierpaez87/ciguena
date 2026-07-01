@@ -114,7 +114,7 @@ function buildEmptyStats(): LiveTrainingStats {
 
 /**
  * Crea una capacitación en vivo.
- * Por ahora queda en status "draft" o "scheduled" según lo que mandemos desde UI.
+ * Por ahora queda en status "draft".
  */
 export async function createLiveTraining(input: CreateLiveTrainingInput): Promise<LiveTraining> {
   const client = assertSupabase();
@@ -191,7 +191,67 @@ export async function updateLiveTraining(
 }
 
 /**
- * Lista capacitaciones en vivo para un admin de tenant.
+ * Envía una capacitación a papelera.
+ * No borra físicamente la capacitación ni sus participantes.
+ */
+export async function softDeleteLiveTraining(
+  liveTrainingId: string,
+  deletedBy: string
+): Promise<LiveTraining> {
+  const client = assertSupabase();
+  const now = getNowIso();
+
+  const { data, error } = await client
+    .from('live_trainings')
+    .update({
+      deleted_at: now,
+      deleted_by: deletedBy,
+      updated_at: now,
+    })
+    .eq('id', liveTrainingId)
+    .select('*')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as LiveTraining;
+}
+
+/**
+ * Restaura una capacitación desde la papelera.
+ */
+export async function restoreLiveTraining(
+  liveTrainingId: string,
+  restoredBy: string
+): Promise<LiveTraining> {
+  const client = assertSupabase();
+  const now = getNowIso();
+
+  const { data, error } = await client
+    .from('live_trainings')
+    .update({
+      deleted_at: null,
+      deleted_by: null,
+      restored_at: now,
+      restored_by: restoredBy,
+      updated_at: now,
+    })
+    .eq('id', liveTrainingId)
+    .select('*')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as LiveTraining;
+}
+
+/**
+ * Lista capacitaciones en vivo activas para un admin de tenant.
+ * Excluye las enviadas a papelera.
  */
 export async function getAdminLiveTrainings(tenantId: string): Promise<LiveTraining[]> {
   const client = assertSupabase();
@@ -200,6 +260,7 @@ export async function getAdminLiveTrainings(tenantId: string): Promise<LiveTrain
     .from('live_trainings')
     .select('*')
     .eq('tenant_id', tenantId)
+    .is('deleted_at', null)
     .order('starts_at', { ascending: false });
 
   if (error) {
@@ -210,7 +271,28 @@ export async function getAdminLiveTrainings(tenantId: string): Promise<LiveTrain
 }
 
 /**
+ * Lista capacitaciones en vivo enviadas a papelera para un admin de tenant.
+ */
+export async function getAdminDeletedLiveTrainings(tenantId: string): Promise<LiveTraining[]> {
+  const client = assertSupabase();
+
+  const { data, error } = await client
+    .from('live_trainings')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as LiveTraining[];
+}
+
+/**
  * Lista todas las capacitaciones en vivo para SuperAdmin.
+ * Excluye papelera por default.
  */
 export async function getSuperAdminLiveTrainings(): Promise<LiveTraining[]> {
   const client = assertSupabase();
@@ -222,6 +304,7 @@ export async function getSuperAdminLiveTrainings(): Promise<LiveTraining[]> {
       tenant:tenants(*),
       creator:profiles(*)
     `)
+    .is('deleted_at', null)
     .order('starts_at', { ascending: false });
 
   if (error) {
@@ -375,6 +458,7 @@ export async function getWorkerLiveTrainings(userId: string): Promise<LiveTraini
       live_training:live_trainings(*)
     `)
     .eq('user_id', userId)
+    .is('live_training.deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) {
