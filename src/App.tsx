@@ -21,6 +21,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminTrainings from './pages/admin/AdminTrainings';
 import AdminTrainingCatalog from './pages/admin/AdminTrainingCatalog';
 import AdminAssignments from './pages/admin/AdminAssignments';
+import AdminLiveTrainings from './pages/admin/AdminLiveTrainings';
 import AdminCertificates from './pages/admin/AdminCertificates';
 import AdminReports from './pages/admin/AdminReports';
 import AdminFeedback from './pages/admin/AdminFeedback';
@@ -89,6 +90,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-assignments': {
     title: 'Asignaciones',
     subtitle: 'Estado y seguimiento de trainings asignados',
+  },
+  'admin-live-trainings': {
+    title: 'Capacitaciones en Vivo',
+    subtitle: 'Creación, calendarización, asistencia y certificación de capacitaciones sincrónicas',
   },
   'admin-certificates': {
     title: 'Certificados',
@@ -395,6 +400,8 @@ function AppContent() {
         return <AdminTrainingCatalog />;
       case 'admin-assignments':
         return <AdminAssignments />;
+      case 'admin-live-trainings':
+        return <AdminLiveTrainings onNavigate={navigate} />;
       case 'admin-certificates':
         return <AdminCertificates />;
       case 'admin-reports':
