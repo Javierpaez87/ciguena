@@ -161,15 +161,23 @@ export default function WorkerLiveTrainingRoom({
 
         let nextParticipant = foundParticipant;
 
-        if (!foundParticipant.room_opened_at) {
-          nextParticipant = await markLiveTrainingRoomOpened(foundParticipant.id, {
-            source: 'worker_live_room',
-          });
-          setOpenedWasRegistered(true);
-        }
+if (!foundParticipant.room_opened_at) {
+  const updatedParticipant = await markLiveTrainingRoomOpened(foundParticipant.id, {
+    source: 'worker_live_room',
+  });
 
-        if (!ignore) {
-          setParticipant(nextParticipant);
+  nextParticipant = {
+    ...foundParticipant,
+    ...updatedParticipant,
+    live_training: foundParticipant.live_training,
+  };
+
+  setOpenedWasRegistered(true);
+}
+
+if (!ignore) {
+  setParticipant(nextParticipant);
+}
         }
       } catch (loadError) {
         if (!ignore) {
