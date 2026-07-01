@@ -4,6 +4,7 @@ import {
   Users,
   BookOpen,
   ClipboardList,
+  CalendarClock,
   Award,
   BarChart2,
   MessageSquare,
@@ -99,6 +100,11 @@ const adminNav: NavItem[] = [
     id: 'admin-assignments',
     label: 'Asignaciones',
     icon: <ClipboardList size={18} />,
+  },
+  {
+    id: 'admin-live-trainings',
+    label: 'Capacitaciones en Vivo',
+    icon: <CalendarClock size={18} />,
   },
   {
     id: 'admin-certificates',
@@ -516,4 +522,3 @@ export default function Sidebar({
     </>
   );
 }
-
