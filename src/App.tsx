@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import AppLayout from './components/layout/AppLayout';
 
 // Super Admin
@@ -20,6 +21,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminTrainings from './pages/admin/AdminTrainings';
 import AdminTrainingCatalog from './pages/admin/AdminTrainingCatalog';
 import AdminAssignments from './pages/admin/AdminAssignments';
+import AdminLiveTrainings from './pages/admin/AdminLiveTrainings';
 import AdminCertificates from './pages/admin/AdminCertificates';
 import AdminReports from './pages/admin/AdminReports';
 import AdminFeedback from './pages/admin/AdminFeedback';
@@ -29,6 +31,8 @@ import AdminSignatureConsent from './pages/admin/AdminSignatureConsent';
 // Worker
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTrainings from './pages/worker/WorkerTrainings';
+import WorkerLiveTrainings from './pages/worker/WorkerLiveTrainings';
+import WorkerLiveTrainingRoom from './pages/worker/WorkerLiveTrainingRoom';
 import WorkerPlayer from './pages/worker/WorkerPlayer';
 import WorkerTest from './pages/worker/WorkerTest';
 import WorkerCertificates from './pages/worker/WorkerCertificates';
@@ -89,6 +93,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     title: 'Asignaciones',
     subtitle: 'Estado y seguimiento de trainings asignados',
   },
+  'admin-live-trainings': {
+    title: 'Capacitaciones en Vivo',
+    subtitle: 'Creación, calendarización, asistencia y certificación de capacitaciones sincrónicas',
+  },
   'admin-certificates': {
     title: 'Certificados',
     subtitle: 'Certificados emitidos, vigentes y vencidos',
@@ -113,6 +121,14 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'worker-trainings': {
     title: 'Mis Trainings',
     subtitle: 'Todos tus trainings asignados',
+  },
+  'worker-live-trainings': {
+    title: 'Mis capacitaciones en vivo',
+    subtitle: 'Capacitaciones sincrónicas asignadas y registro de asistencia',
+  },
+  'worker-live-room': {
+    title: 'Sala de capacitación',
+    subtitle: 'Ingreso interno desde Cigüeña para registrar asistencia',
   },
   'worker-player': {
     title: 'Player de Training',
@@ -277,6 +293,16 @@ function AppContent() {
     }
   };
 
+  if (window.location.pathname === '/reset-password') {
+    return (
+      <ResetPasswordPage
+        onPasswordUpdated={() => {
+          window.location.href = '/';
+        }}
+      />
+    );
+  }
+
   if (!user) {
     if (authScreen === 'register') {
       return <RegisterPage onBackToLogin={() => setAuthScreen('login')} />;
@@ -384,6 +410,8 @@ function AppContent() {
         return <AdminTrainingCatalog />;
       case 'admin-assignments':
         return <AdminAssignments />;
+      case 'admin-live-trainings':
+        return <AdminLiveTrainings onNavigate={navigate} />;
       case 'admin-certificates':
         return <AdminCertificates />;
       case 'admin-reports':
@@ -398,6 +426,15 @@ function AppContent() {
         return <WorkerDashboard onNavigate={navigate} />;
       case 'worker-trainings':
         return <WorkerTrainings onNavigate={navigate} />;
+      case 'worker-live-trainings':
+        return <WorkerLiveTrainings onNavigate={navigate} />;
+      case 'worker-live-room':
+        return (
+          <WorkerLiveTrainingRoom
+            liveTrainingId={(viewData as any)?.liveTrainingId}
+            onNavigate={navigate}
+          />
+        );
       case 'worker-player':
         return (
           <WorkerPlayer

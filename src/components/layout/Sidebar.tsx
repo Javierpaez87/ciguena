@@ -4,6 +4,7 @@ import {
   Users,
   BookOpen,
   ClipboardList,
+  CalendarClock,
   Award,
   BarChart2,
   MessageSquare,
@@ -101,6 +102,11 @@ const adminNav: NavItem[] = [
     icon: <ClipboardList size={18} />,
   },
   {
+    id: 'admin-live-trainings',
+    label: 'Capacitaciones en Vivo',
+    icon: <CalendarClock size={18} />,
+  },
+  {
     id: 'admin-certificates',
     label: 'Certificados',
     icon: <Award size={18} />,
@@ -132,6 +138,11 @@ const workerNav: NavItem[] = [
     id: 'worker-trainings',
     label: 'Mis Trainings',
     icon: <Play size={18} />,
+  },
+  {
+    id: 'worker-live-trainings',
+    label: 'Capacitaciones en Vivo',
+    icon: <CalendarClock size={18} />,
   },
   {
     id: 'worker-certificates',
@@ -516,4 +527,3 @@ export default function Sidebar({
     </>
   );
 }
-
