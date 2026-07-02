@@ -236,6 +236,12 @@ export async function restoreLiveTraining(
       deleted_by: null,
       restored_at: now,
       restored_by: restoredBy,
+      meeting_url: null,
+      meeting_external_id: null,
+      calendar_event_id: null,
+      calendar_status: 'pending',
+      calendar_error: null,
+      status: 'draft',
       updated_at: now,
     })
     .eq('id', liveTrainingId)
@@ -245,6 +251,19 @@ export async function restoreLiveTraining(
   if (error) {
     throw error;
   }
+
+  await logLiveTrainingEvent({
+    tenant_id: data.tenant_id,
+    live_training_id: liveTrainingId,
+    user_id: null,
+    event_type: 'live_training_restored_requires_new_meet',
+    metadata: {
+      restored_at: now,
+      restored_by: restoredBy,
+      note: 'La capacitación fue restaurada. Debe crearse un nuevo Calendar/Meet antes de usarla.',
+    },
+    created_by: restoredBy,
+  });
 
   return data as LiveTraining;
 }

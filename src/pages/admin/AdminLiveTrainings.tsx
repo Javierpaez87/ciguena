@@ -41,7 +41,6 @@ import {
   getTenantWorkersForLiveTraining,
   replaceLiveTrainingParticipants,
   restoreLiveTraining,
-  softDeleteLiveTraining,
   updateLiveTraining,
   type LiveTrainingParticipantWithUser,
   type LiveTrainingStats,
@@ -446,6 +445,10 @@ function getCalendarStatusClass(training: LiveTraining) {
   return 'bg-amber-500/10 text-amber-300 border-amber-500/30';
 }
 
+function isCalendarCreationRequired(training: LiveTraining) {
+  return training.calendar_status !== 'created' || !training.calendar_event_id || !training.meeting_url;
+}
+
 function trainingToFormState(training: LiveTraining): LiveTrainingFormState {
   return {
     title: training.title,
@@ -765,6 +768,36 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     };
   }
 
+  async function cancelGoogleMeetEventForTraining(liveTrainingId: string, cancelledBy: string) {
+    const response = await fetch('/.netlify/functions/cancel-google-meet-event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        live_training_id: liveTrainingId,
+        cancelled_by: cancelledBy,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(payload?.error || 'No pudimos cancelar el evento de Google Calendar/Meet.');
+    }
+
+    return payload as {
+      already_cancelled?: boolean;
+      training?: LiveTraining;
+      google_calendar_cancelled?: boolean;
+      google_calendar_already_missing?: boolean;
+      attendee_count?: number;
+      cancellation_email_count?: number;
+      cancellation_email_failed_count?: number;
+      cancellation_email_errors?: Array<{ email: string; error: string | null }>;
+    };
+  }
+
   async function handleCreateTraining(event: React.FormEvent) {
     event.preventDefault();
 
@@ -936,12 +969,12 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
 
   async function handleSoftDeleteTraining(training: LiveTraining) {
     if (!adminProfileId) {
-      setError('No se encontró profile admin para borrar.');
+      setError('No se encontró profile admin para cancelar.');
       return;
     }
 
     const confirmed = window.confirm(
-      `¿Querés enviar "${training.title}" a la papelera? Podrás restaurarla más adelante.`
+      `¿Querés cancelar "${training.title}"? Esto eliminará el evento de Google Calendar/Meet, avisará a los invitados y enviará la capacitación a la papelera.`
     );
 
     if (!confirmed) return;
@@ -951,14 +984,25 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setSuccessMessage(null);
 
     try {
-      await softDeleteLiveTraining(training.id, adminProfileId);
+      const payload = await cancelGoogleMeetEventForTraining(training.id, adminProfileId);
 
       if (selectedTraining?.id === training.id) {
         setSelectedTraining(null);
         setParticipants([]);
       }
 
-      setSuccessMessage('Capacitación enviada a la papelera.');
+      const cancellationEmailCount = payload?.cancellation_email_count ?? 0;
+      const cancellationEmailFailedCount = payload?.cancellation_email_failed_count ?? 0;
+      const googleMessage = payload?.google_calendar_cancelled || payload?.google_calendar_already_missing
+        ? 'Google Calendar/Meet fue cancelado.'
+        : 'No había un evento de Google Calendar/Meet activo para cancelar.';
+
+      setSuccessMessage(
+        cancellationEmailFailedCount > 0
+          ? `Capacitación cancelada y enviada a papelera. ${googleMessage} Se enviaron ${cancellationEmailCount} mail(s) de cancelación y ${cancellationEmailFailedCount} fallaron.`
+          : `Capacitación cancelada y enviada a papelera. ${googleMessage} Se enviaron ${cancellationEmailCount} mail(s) de cancelación.`
+      );
+
       await loadData();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -973,14 +1017,22 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       return;
     }
 
+    const confirmed = window.confirm(
+      `¿Querés restaurar "${training.title}"? El Meet anterior fue cancelado o quedará descartado. Después de restaurarla deberás crear un nuevo Calendar/Meet para que los invitados puedan ingresar.`
+    );
+
+    if (!confirmed) return;
+
     setIsRestoring(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      await restoreLiveTraining(training.id, adminProfileId);
-      setSuccessMessage('Capacitación restaurada correctamente.');
+      const restored = await restoreLiveTraining(training.id, adminProfileId);
+      setSuccessMessage('Capacitación restaurada. Paso obligatorio pendiente: crear un nuevo Calendar/Meet antes de usarla.');
+      setSelectedTraining(restored);
       await loadData();
+      await loadParticipants(restored);
       setActiveSection('active');
     } catch (err) {
       setError(getErrorMessage(err));
@@ -1147,7 +1199,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                 className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 size={13} />
-                Papelera
+                Cancelar capacitación
               </button>
             </>
           ) : (
@@ -1895,6 +1947,38 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                     </div>
                   </div>
                 </div>
+
+                {isCalendarCreationRequired(selectedTraining) && (
+                  <div className="border-b border-amber-500/20 bg-amber-500/10 p-5">
+                    <div className="flex flex-col gap-4 rounded-xl border border-amber-500/30 bg-steel-950/60 p-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="mt-0.5 shrink-0 text-amber-300" size={20} />
+                        <div>
+                          <p className="text-sm font-semibold text-amber-100">
+                            Paso obligatorio pendiente: crear un nuevo Calendar/Meet
+                          </p>
+                          <p className="mt-1 text-sm text-amber-100/80">
+                            Esta capacitación no tiene un Meet activo. Si fue restaurada desde papelera, el evento anterior fue cancelado y no debe reutilizarse. Creá un nuevo Calendar/Meet para invitar a los participantes y habilitar el ingreso desde Cigüeña.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleCreateGoogleMeetEvent}
+                        disabled={isCreatingCalendar || isReadOnly}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-steel-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isCreatingCalendar ? (
+                          <Loader2 className="animate-spin" size={16} />
+                        ) : (
+                          <ExternalLink size={16} />
+                        )}
+                        Crear nuevo Calendar/Meet
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid gap-3 border-b border-steel-800 p-5 sm:grid-cols-2 xl:grid-cols-4">
                   <StatCard label="Invitados" value={participants.length} icon={<Users size={18} />} />
