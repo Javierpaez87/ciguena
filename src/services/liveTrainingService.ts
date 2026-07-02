@@ -429,6 +429,68 @@ export async function getLiveTrainingParticipants(
 ): Promise<LiveTrainingParticipantWithUser[]> {
   const client = assertSupabase();
 
+  const { data: participantsData, error: participantsError } = await client
+    .from('live_training_participants')
+    .select('*')
+    .eq('live_training_id', liveTrainingId)
+    .order('created_at', { ascending: true });
+
+  if (participantsError) {
+    throw participantsError;
+  }
+
+  const participants = (participantsData ?? []) as LiveTrainingParticipant[];
+
+  if (participants.length === 0) {
+    return [];
+  }
+
+  const participantUserIds = Array.from(
+    new Set(
+      participants
+        .map(participant => participant.user_id)
+        .filter(Boolean)
+    )
+  );
+
+  if (participantUserIds.length === 0) {
+    return participants as LiveTrainingParticipantWithUser[];
+  }
+
+  const { data: profilesData, error: profilesError } = await client
+    .from('profiles')
+    .select('*')
+    .or(
+      `id.in.(${participantUserIds.join(',')}),auth_user_id.in.(${participantUserIds.join(',')})`
+    );
+
+  if (profilesError) {
+    throw profilesError;
+  }
+
+  const profiles = (profilesData ?? []) as Profile[];
+
+  const profilesById = new Map<string, Profile>();
+
+  profiles.forEach(profile => {
+    if (profile.id) {
+      profilesById.set(profile.id, profile);
+    }
+
+    const authUserId = (profile as Profile & { auth_user_id?: string | null }).auth_user_id;
+
+    if (authUserId) {
+      profilesById.set(authUserId, profile);
+    }
+  });
+
+  return participants.map(participant => ({
+    ...participant,
+    user: profilesById.get(participant.user_id) ?? undefined,
+  })) as LiveTrainingParticipantWithUser[];
+}
+  const client = assertSupabase();
+
   const { data, error } = await client
     .from('live_training_participants')
     .select(`
