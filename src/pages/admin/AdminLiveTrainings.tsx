@@ -65,6 +65,20 @@ interface LiveTrainingFormState {
 
 type ActiveSection = 'active' | 'trash';
 
+interface WorkerFilterState {
+  role: string;
+  area: string;
+  position: string;
+  status: string;
+}
+
+const emptyWorkerFilters: WorkerFilterState = {
+  role: '',
+  area: '',
+  position: '',
+  status: '',
+};
+
 const initialFormState: LiveTrainingFormState = {
   title: '',
   description: '',
@@ -280,6 +294,92 @@ function getProfileIdCandidates(profile?: Profile | null) {
   ]);
 }
 
+function getProfileFieldValue(profile: Profile, keys: string[]) {
+  const record = profile as unknown as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return '';
+}
+
+function getWorkerRoleFilterValue(worker: Profile) {
+  return getProfileFieldValue(worker, ['job_role', 'work_role', 'role']);
+}
+
+function getWorkerAreaFilterValue(worker: Profile) {
+  return getProfileFieldValue(worker, ['area', 'contractor_company']);
+}
+
+function getWorkerPositionFilterValue(worker: Profile) {
+  return getProfileFieldValue(worker, ['position', 'job_role', 'work_role']);
+}
+
+function getWorkerStatusFilterValue(worker: Profile) {
+  return getProfileFieldValue(worker, ['status']);
+}
+
+function buildFilterOptions(workers: Profile[], getter: (worker: Profile) => string) {
+  return Array.from(new Set(workers.map(getter).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, 'es')
+  );
+}
+
+function workerMatchesSearch(worker: Profile, query: string) {
+  if (!query) return true;
+
+  const haystack = [
+    worker.full_name,
+    worker.first_name,
+    worker.last_name,
+    worker.email,
+    worker.job_role,
+    worker.work_role,
+    worker.position,
+    worker.area,
+    worker.employee_code,
+    worker.dni,
+    getProfileFieldValue(worker, ['contractor_company']),
+    getProfileFieldValue(worker, ['status']),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(query);
+}
+
+function workerMatchesFilters(worker: Profile, filters: WorkerFilterState) {
+  if (filters.role && getWorkerRoleFilterValue(worker) !== filters.role) return false;
+  if (filters.area && getWorkerAreaFilterValue(worker) !== filters.area) return false;
+  if (filters.position && getWorkerPositionFilterValue(worker) !== filters.position) return false;
+  if (filters.status && getWorkerStatusFilterValue(worker) !== filters.status) return false;
+
+  return true;
+}
+
+function filterWorkers(workers: Profile[], search: string, filters: WorkerFilterState) {
+  const query = search.trim().toLowerCase();
+
+  return workers.filter(worker =>
+    workerMatchesSearch(worker, query) && workerMatchesFilters(worker, filters)
+  );
+}
+
+function getWorkerFilterOptions(workers: Profile[]) {
+  return {
+    roles: buildFilterOptions(workers, getWorkerRoleFilterValue),
+    areas: buildFilterOptions(workers, getWorkerAreaFilterValue),
+    positions: buildFilterOptions(workers, getWorkerPositionFilterValue),
+    statuses: buildFilterOptions(workers, getWorkerStatusFilterValue),
+  };
+}
+
 async function getAssignedWorkerIdsForLiveTraining(liveTrainingId: string) {
   if (!supabase) {
     throw new Error('Supabase no está configurado.');
@@ -433,9 +533,11 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
 
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [workerSearch, setWorkerSearch] = useState('');
+  const [workerFilters, setWorkerFilters] = useState<WorkerFilterState>(emptyWorkerFilters);
 
   const [editSelectedWorkerIds, setEditSelectedWorkerIds] = useState<string[]>([]);
   const [editWorkerSearch, setEditWorkerSearch] = useState('');
+  const [editWorkerFilters, setEditWorkerFilters] = useState<WorkerFilterState>(emptyWorkerFilters);
 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -447,57 +549,15 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
   const dateOptions = useMemo(() => buildDateOptions(), []);
   const timeOptions = useMemo(() => buildTimeOptions(), []);
 
+  const workerFilterOptions = useMemo(() => getWorkerFilterOptions(workers), [workers]);
+
   const filteredWorkers = useMemo(() => {
-    const query = workerSearch.trim().toLowerCase();
-
-    if (!query) return workers;
-
-    return workers.filter(worker => {
-      const haystack = [
-        worker.full_name,
-        worker.first_name,
-        worker.last_name,
-        worker.email,
-        worker.job_role,
-        worker.work_role,
-        worker.position,
-        worker.area,
-        worker.employee_code,
-        worker.dni,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return haystack.includes(query);
-    });
-  }, [workers, workerSearch]);
+    return filterWorkers(workers, workerSearch, workerFilters);
+  }, [workers, workerSearch, workerFilters]);
 
   const filteredEditWorkers = useMemo(() => {
-    const query = editWorkerSearch.trim().toLowerCase();
-
-    if (!query) return workers;
-
-    return workers.filter(worker => {
-      const haystack = [
-        worker.full_name,
-        worker.first_name,
-        worker.last_name,
-        worker.email,
-        worker.job_role,
-        worker.work_role,
-        worker.position,
-        worker.area,
-        worker.employee_code,
-        worker.dni,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return haystack.includes(query);
-    });
-  }, [workers, editWorkerSearch]);
+    return filterWorkers(workers, editWorkerSearch, editWorkerFilters);
+  }, [workers, editWorkerSearch, editWorkerFilters]);
 
   const upcomingTrainings = useMemo(() => {
     return trainings.filter(training => !isPastTraining(training));
@@ -560,6 +620,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     });
     setSelectedWorkerIds([]);
     setWorkerSearch('');
+    setWorkerFilters(emptyWorkerFilters);
     setError(null);
     setSuccessMessage(null);
   }
@@ -579,6 +640,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setEditForm(trainingToFormState(training));
     setEditSelectedWorkerIds([]);
     setEditWorkerSearch('');
+    setEditWorkerFilters(emptyWorkerFilters);
     setError(null);
     setSuccessMessage(null);
     setEditModalOpen(true);
@@ -614,6 +676,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setEditingTraining(null);
     setEditSelectedWorkerIds([]);
     setEditWorkerSearch('');
+    setEditWorkerFilters(emptyWorkerFilters);
     setIsEditParticipantsLoading(false);
   }
 
@@ -728,6 +791,16 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       return;
     }
 
+    if (selectedWorkerIds.length === 0) {
+      const continueWithoutParticipants = window.confirm(
+        'Actualmente sos el único invitado a esta capacitación en vivo. ¿Querés crearla igual sin invitar workers?'
+      );
+
+      if (!continueWithoutParticipants) {
+        return;
+      }
+    }
+
     setIsSaving(true);
     setError(null);
     setSuccessMessage(null);
@@ -811,6 +884,16 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
       setError('La hora de fin debe ser posterior a la hora de inicio.');
       return;
+    }
+
+    if (selectedWorkerIds.length === 0) {
+      const continueWithoutParticipants = window.confirm(
+        'Actualmente sos el único invitado a esta capacitación en vivo. ¿Querés crearla igual sin invitar workers?'
+      );
+
+      if (!continueWithoutParticipants) {
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -1350,7 +1433,10 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     selectedIds,
     search,
     filteredList,
+    filters,
+    filterOptions,
     onSearchChange,
+    onFiltersChange,
     onToggle,
     onSelectAllFiltered,
     onClear,
@@ -1360,7 +1446,10 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     selectedIds: string[];
     search: string;
     filteredList: Profile[];
+    filters: WorkerFilterState;
+    filterOptions: ReturnType<typeof getWorkerFilterOptions>;
     onSearchChange: (value: string) => void;
+    onFiltersChange: React.Dispatch<React.SetStateAction<WorkerFilterState>>;
     onToggle: (workerId: string) => void;
     onSelectAllFiltered: () => void;
     onClear: () => void;
@@ -1406,6 +1495,74 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             placeholder="Buscar por nombre, email, rol, área, legajo..."
             className="w-full rounded-xl border border-steel-700 bg-steel-900 py-2 pl-9 pr-3 text-sm text-steel-100 outline-none placeholder:text-steel-600 focus:border-cyan-500"
           />
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-steel-500">Rol</span>
+            <select
+              value={filters.role}
+              onChange={event => onFiltersChange(current => ({ ...current, role: event.target.value }))}
+              className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none focus:border-cyan-500"
+            >
+              <option value="">Todos</option>
+              {filterOptions.roles.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-steel-500">Área / Contratista</span>
+            <select
+              value={filters.area}
+              onChange={event => onFiltersChange(current => ({ ...current, area: event.target.value }))}
+              className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none focus:border-cyan-500"
+            >
+              <option value="">Todas</option>
+              {filterOptions.areas.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-steel-500">Puesto</span>
+            <select
+              value={filters.position}
+              onChange={event => onFiltersChange(current => ({ ...current, position: event.target.value }))}
+              className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none focus:border-cyan-500"
+            >
+              <option value="">Todos</option>
+              {filterOptions.positions.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-steel-500">Estado</span>
+            <select
+              value={filters.status}
+              onChange={event => onFiltersChange(current => ({ ...current, status: event.target.value }))}
+              className="w-full rounded-xl border border-steel-700 bg-steel-900 px-3 py-2 text-sm text-steel-100 outline-none focus:border-cyan-500"
+            >
+              <option value="">Todos</option>
+              {filterOptions.statuses.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => onFiltersChange(emptyWorkerFilters)}
+            className="text-xs font-medium text-steel-400 hover:text-steel-200"
+          >
+            Limpiar filtros
+          </button>
         </div>
 
         {isLoading && (
@@ -1705,24 +1862,22 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCreateGoogleMeetEvent}
-                        disabled={isCreatingCalendar || isReadOnly || selectedTraining.calendar_status === 'created'}
-                        className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                        title={
-                          selectedTraining.calendar_status === 'created'
-                            ? 'Calendar/Meet ya fue creado'
-                            : 'Crear evento real de Google Calendar con link de Google Meet'
-                        }
-                      >
-                        {isCreatingCalendar ? (
-                          <Loader2 className="animate-spin" size={14} />
-                        ) : (
-                          <ExternalLink size={14} />
-                        )}
-                        {selectedTraining.calendar_status === 'created' ? 'Meet creado' : 'Crear Calendar/Meet'}
-                      </button>
+                      {selectedTraining.calendar_status !== 'created' && (
+                        <button
+                          type="button"
+                          onClick={handleCreateGoogleMeetEvent}
+                          disabled={isCreatingCalendar || isReadOnly}
+                          className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Crear o reintentar evento real de Google Calendar con link de Google Meet"
+                        >
+                          {isCreatingCalendar ? (
+                            <Loader2 className="animate-spin" size={14} />
+                          ) : (
+                            <ExternalLink size={14} />
+                          )}
+                          Crear Calendar/Meet
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -1835,7 +1990,10 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             selectedIds: selectedWorkerIds,
             search: workerSearch,
             filteredList: filteredWorkers,
+            filters: workerFilters,
+            filterOptions: workerFilterOptions,
             onSearchChange: setWorkerSearch,
+            onFiltersChange: setWorkerFilters,
             onToggle: toggleWorker,
             onSelectAllFiltered: selectAllFilteredWorkers,
             onClear: clearSelectedWorkers,
@@ -1879,7 +2037,10 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             selectedIds: editSelectedWorkerIds,
             search: editWorkerSearch,
             filteredList: filteredEditWorkers,
+            filters: editWorkerFilters,
+            filterOptions: workerFilterOptions,
             onSearchChange: setEditWorkerSearch,
+            onFiltersChange: setEditWorkerFilters,
             onToggle: toggleEditWorker,
             onSelectAllFiltered: selectAllFilteredEditWorkers,
             onClear: clearEditSelectedWorkers,

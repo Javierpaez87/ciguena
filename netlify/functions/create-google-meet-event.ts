@@ -101,7 +101,7 @@ function getWorkerLiveRoomUrl(liveTrainingId: string) {
   return `${getAppBaseUrl()}/?${params.toString()}`;
 }
 
-function formatDateTime(value?: string | null) {
+function formatDateTime(value?: string | null, timezone = 'America/Argentina/Buenos_Aires') {
   if (!value) return 'Fecha no definida';
 
   const parsed = new Date(value);
@@ -114,10 +114,11 @@ function formatDateTime(value?: string | null) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: timezone,
   });
 }
 
-function formatTime(value?: string | null) {
+function formatTime(value?: string | null, timezone = 'America/Argentina/Buenos_Aires') {
   if (!value) return '—';
 
   const parsed = new Date(value);
@@ -126,6 +127,7 @@ function formatTime(value?: string | null) {
   return parsed.toLocaleTimeString('es-AR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: timezone,
   });
 }
 
@@ -179,14 +181,16 @@ function buildLiveTrainingEmailHtml({
     description?: string | null;
     starts_at: string;
     ends_at: string;
+    timezone?: string | null;
   };
   workerRoomUrl: string;
 }) {
   const safeName = escapeHtml(fullName || 'Hola');
   const safeTitle = escapeHtml(training.title || 'Capacitación en vivo');
   const safeDescription = escapeHtml(training.description || '');
-  const safeStart = escapeHtml(formatDateTime(training.starts_at));
-  const safeEnd = escapeHtml(formatTime(training.ends_at));
+  const timezone = training.timezone || 'America/Argentina/Buenos_Aires';
+  const safeStart = escapeHtml(formatDateTime(training.starts_at, timezone));
+  const safeEnd = escapeHtml(formatTime(training.ends_at, timezone));
   const safeWorkerRoomUrl = escapeHtml(workerRoomUrl);
 
   return `
@@ -260,6 +264,7 @@ async function sendCiguenaLiveTrainingInvites({
     description?: string | null;
     starts_at: string;
     ends_at: string;
+    timezone?: string | null;
   };
 }) {
   const workerRoomUrl = getWorkerLiveRoomUrl(training.id);
@@ -471,14 +476,18 @@ export async function handler(event: { httpMethod: string; body?: string | null 
     if (participantsError) throw participantsError;
 
     const participantUserIds = uniqueValues((participants ?? []).map(participant => participant.user_id));
+    const profileIdsToInvite = uniqueValues([
+      training.created_by,
+      ...participantUserIds,
+    ]);
 
     let attendees: Array<{ email: string; displayName?: string }> = [];
 
-    if (participantUserIds.length > 0) {
+    if (profileIdsToInvite.length > 0) {
       const { data: profiles, error: profilesError } = await client
         .from('profiles')
         .select('*')
-        .or(`id.in.(${participantUserIds.join(',')}),auth_user_id.in.(${participantUserIds.join(',')})`);
+        .or(`id.in.(${profileIdsToInvite.join(',')}),auth_user_id.in.(${profileIdsToInvite.join(',')})`);
 
       if (profilesError) throw profilesError;
 
@@ -537,6 +546,8 @@ export async function handler(event: { httpMethod: string; body?: string | null 
         meeting_url: googleEvent.meetingUrl,
         google_event_url: googleEvent.htmlLink ?? null,
         attendee_count: attendees.length,
+        creator_profile_id: training.created_by ?? null,
+        participant_user_count: participantUserIds.length,
         email_invite_count: emailInviteResult.sent,
         email_invite_failed_count: emailInviteResult.failed,
         email_invite_errors: emailInviteResult.errors,
