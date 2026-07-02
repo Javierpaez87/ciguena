@@ -140,62 +140,64 @@ export default function WorkerLiveTrainingRoom({
   const training = participant?.live_training;
 
   useEffect(() => {
-    let ignore = false;
+  let ignore = false;
 
-    async function loadRoom() {
-      if (userIdCandidates.length === 0 || !liveTrainingId) {
-        setError('No encontramos la capacitación en vivo seleccionada.');
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const foundParticipant = await getWorkerLiveTrainingParticipant(liveTrainingId, userIdCandidates);
-
-        if (!foundParticipant) {
-          throw new Error('No tenés acceso asignado a esta capacitación en vivo.');
-        }
-
-        let nextParticipant = foundParticipant;
-
-if (!foundParticipant.room_opened_at) {
-  const updatedParticipant = await markLiveTrainingRoomOpened(foundParticipant.id, {
-    source: 'worker_live_room',
-  });
-
-  nextParticipant = {
-    ...foundParticipant,
-    ...updatedParticipant,
-    live_training: foundParticipant.live_training,
-  };
-
-  setOpenedWasRegistered(true);
-}
-
-if (!ignore) {
-  setParticipant(nextParticipant);
-}
-        }
-      } catch (loadError) {
-        if (!ignore) {
-          setError(getErrorMessage(loadError));
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
-        }
-      }
+  async function loadRoom() {
+    if (userIdCandidates.length === 0 || !liveTrainingId) {
+      setError('No encontramos la capacitación en vivo seleccionada.');
+      setIsLoading(false);
+      return;
     }
 
-    loadRoom();
+    setIsLoading(true);
+    setError(null);
 
-    return () => {
-      ignore = true;
-    };
-  }, [userIdCandidates.join('|'), liveTrainingId]);
+    try {
+      const foundParticipant = await getWorkerLiveTrainingParticipant(
+        liveTrainingId,
+        userIdCandidates
+      );
+
+      if (!foundParticipant) {
+        throw new Error('No tenés acceso asignado a esta capacitación en vivo.');
+      }
+
+      let nextParticipant = foundParticipant;
+
+      if (!foundParticipant.room_opened_at) {
+        const updatedParticipant = await markLiveTrainingRoomOpened(foundParticipant.id, {
+          source: 'worker_live_room',
+        });
+
+        nextParticipant = {
+          ...foundParticipant,
+          ...updatedParticipant,
+          live_training: foundParticipant.live_training,
+        };
+
+        setOpenedWasRegistered(true);
+      }
+
+      if (!ignore) {
+        setParticipant(nextParticipant);
+      }
+    } catch (loadError) {
+      if (!ignore) {
+        setError(getErrorMessage(loadError));
+      }
+    } finally {
+      if (!ignore) {
+        setIsLoading(false);
+      }
+    }
+  }
+
+  loadRoom();
+
+  return () => {
+    ignore = true;
+  };
+}, [userIdCandidates.join('|'), liveTrainingId]);
 
   const handleJoin = async () => {
     if (!participant || !training?.meeting_url) return;
