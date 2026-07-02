@@ -411,6 +411,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isCreatingCalendar, setIsCreatingCalendar] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isEditParticipantsLoading, setIsEditParticipantsLoading] = useState(false);
@@ -876,6 +877,52 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       setError(getErrorMessage(err));
     } finally {
       setIsEvaluating(false);
+    }
+  }
+
+  async function handleCreateGoogleMeetEvent() {
+    if (!selectedTraining) return;
+
+    setIsCreatingCalendar(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch('/.netlify/functions/create-google-meet-event', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          live_training_id: selectedTraining.id,
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'No pudimos crear el evento de Google Calendar/Meet.');
+      }
+
+      const updatedTraining = payload?.training as LiveTraining | undefined;
+
+      if (updatedTraining) {
+        setSelectedTraining(updatedTraining);
+        await loadParticipants(updatedTraining);
+      } else {
+        await loadParticipants(selectedTraining);
+      }
+
+      await loadData();
+      setSuccessMessage(
+        payload?.already_created
+          ? 'Esta capacitación ya tenía Calendar/Meet creado.'
+          : 'Google Calendar/Meet creado correctamente.'
+      );
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsCreatingCalendar(false);
     }
   }
 
@@ -1464,7 +1511,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             </p>
             <p className="mt-1 text-sm text-amber-100/80">
               Esta versión guarda capacitaciones, participantes y trazabilidad de ingreso.
-              La creación automática de Google Calendar + Meet se conecta en el próximo paso con una Netlify Function.
+              La creación automática de Google Calendar + Meet ya puede dispararse desde el detalle de cada capacitación.
             </p>
           </div>
         </div>
@@ -1596,18 +1643,38 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                           <Users size={14} />
                           {participants.length} invitados
                         </span>
+                        {selectedTraining.meeting_url && (
+                          <a
+                            href={selectedTraining.meeting_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-cyan-300 hover:text-cyan-200"
+                          >
+                            <ExternalLink size={14} />
+                            Abrir Meet
+                          </a>
+                        )}
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        disabled
-                        className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-steel-700 bg-steel-800 px-3 py-2 text-xs font-medium text-steel-500"
-                        title="Se conectará en el próximo paso"
+                        onClick={handleCreateGoogleMeetEvent}
+                        disabled={isCreatingCalendar || isReadOnly || selectedTraining.calendar_status === 'created'}
+                        className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={
+                          selectedTraining.calendar_status === 'created'
+                            ? 'Calendar/Meet ya fue creado'
+                            : 'Crear evento real de Google Calendar con link de Google Meet'
+                        }
                       >
-                        <ExternalLink size={14} />
-                        Crear Calendar/Meet
+                        {isCreatingCalendar ? (
+                          <Loader2 className="animate-spin" size={14} />
+                        ) : (
+                          <ExternalLink size={14} />
+                        )}
+                        {selectedTraining.calendar_status === 'created' ? 'Meet creado' : 'Crear Calendar/Meet'}
                       </button>
 
                       <button
