@@ -489,24 +489,6 @@ export async function getLiveTrainingParticipants(
     user: profilesById.get(participant.user_id) ?? undefined,
   })) as LiveTrainingParticipantWithUser[];
 }
-  const client = assertSupabase();
-
-  const { data, error } = await client
-    .from('live_training_participants')
-    .select(`
-      *,
-      user:profiles(*)
-    `)
-    .eq('live_training_id', liveTrainingId)
-    .order('created_at', { ascending: true });
-
-  if (error) {
-    throw error;
-  }
-
-  return (data ?? []) as LiveTrainingParticipantWithUser[];
-}
-
 /**
  * Obtiene capacitaciones en vivo asignadas a un worker.
  */
