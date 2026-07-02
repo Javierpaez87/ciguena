@@ -673,6 +673,35 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     });
   }
 
+  async function createGoogleMeetEventForTraining(liveTrainingId: string) {
+    const response = await fetch('/.netlify/functions/create-google-meet-event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        live_training_id: liveTrainingId,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(payload?.error || 'No pudimos crear el evento de Google Calendar/Meet.');
+    }
+
+    return payload as {
+      already_created?: boolean;
+      training?: LiveTraining;
+      meeting_url?: string;
+      calendar_event_id?: string;
+      attendee_count?: number;
+      email_invite_count?: number;
+      email_invite_failed_count?: number;
+      email_invite_errors?: Array<{ email: string; error: string | null }>;
+    };
+  }
+
   async function handleCreateTraining(event: React.FormEvent) {
     event.preventDefault();
 
@@ -726,10 +755,34 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
         });
       }
 
+      let trainingToSelect: LiveTraining = created;
+
+      try {
+        const calendarPayload = await createGoogleMeetEventForTraining(created.id);
+
+        if (calendarPayload.training) {
+          trainingToSelect = calendarPayload.training;
+        }
+
+        const attendeeCount = calendarPayload.attendee_count ?? 0;
+        const emailInviteCount = calendarPayload.email_invite_count ?? 0;
+        const emailInviteFailedCount = calendarPayload.email_invite_failed_count ?? 0;
+
+        setSuccessMessage(
+          emailInviteFailedCount > 0
+            ? `Capacitación creada, Google Meet generado y ${emailInviteCount} mails Cigüeña enviados. Hubo ${emailInviteFailedCount} mail(s) con error.`
+            : `Capacitación creada, Google Meet generado y ${emailInviteCount} mails Cigüeña enviados. Google Calendar invitó a ${attendeeCount} participante(s).`
+        );
+      } catch (calendarError) {
+        setSuccessMessage('Capacitación en vivo creada correctamente.');
+        setError(
+          `La capacitación fue creada, pero no pudimos crear Google Calendar/Meet automáticamente: ${getErrorMessage(calendarError)}`
+        );
+      }
+
       setCreateModalOpen(false);
-      setSuccessMessage('Capacitación en vivo creada correctamente.');
       await loadData();
-      await loadParticipants(created);
+      await loadParticipants(trainingToSelect);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -888,22 +941,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
     setSuccessMessage(null);
 
     try {
-      const response = await fetch('/.netlify/functions/create-google-meet-event', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          live_training_id: selectedTraining.id,
-        }),
-      });
-
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || 'No pudimos crear el evento de Google Calendar/Meet.');
-      }
-
+      const payload = await createGoogleMeetEventForTraining(selectedTraining.id);
       const updatedTraining = payload?.training as LiveTraining | undefined;
 
       if (updatedTraining) {
@@ -914,11 +952,20 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       }
 
       await loadData();
-      setSuccessMessage(
-        payload?.already_created
-          ? 'Esta capacitación ya tenía Calendar/Meet creado.'
-          : 'Google Calendar/Meet creado correctamente.'
-      );
+
+      if (payload?.already_created) {
+        setSuccessMessage('Esta capacitación ya tenía Calendar/Meet creado.');
+      } else {
+        const attendeeCount = payload?.attendee_count ?? 0;
+        const emailInviteCount = payload?.email_invite_count ?? 0;
+        const emailInviteFailedCount = payload?.email_invite_failed_count ?? 0;
+
+        setSuccessMessage(
+          emailInviteFailedCount > 0
+            ? `Google Calendar/Meet creado. ${emailInviteCount} mails Cigüeña enviados y ${emailInviteFailedCount} con error.`
+            : `Google Calendar/Meet creado. Google Calendar invitó a ${attendeeCount} participante(s) y Cigüeña envió ${emailInviteCount} mail(s).`
+        );
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -1775,7 +1822,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-steel-950 transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-              Crear capacitación
+              {isSaving ? 'Creando capacitación y Meet...' : 'Crear capacitación'}
             </button>
           </div>
         }

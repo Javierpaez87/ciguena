@@ -7,6 +7,17 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
+const resendApiKey = process.env.RESEND_API_KEY;
+
+const appUrl =
+  process.env.CIGUENA_APP_URL ||
+  process.env.URL ||
+  process.env.DEPLOY_PRIME_URL ||
+  'https://ciguena.netlify.app';
+
+const fromEmail =
+  process.env.CIGUENA_FROM_EMAIL ||
+  'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -67,6 +78,226 @@ function uniqueValues(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map(value => value?.trim()).filter(Boolean))) as string[];
 }
 
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function getAppBaseUrl() {
+  return appUrl.replace(/\/$/, '');
+}
+
+function getWorkerLiveRoomUrl(liveTrainingId: string) {
+  const params = new URLSearchParams({
+    view: 'worker-live-room',
+    liveTrainingId,
+  });
+
+  return `${getAppBaseUrl()}/?${params.toString()}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'Fecha no definida';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Fecha no definida';
+
+  return parsed.toLocaleString('es-AR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return '—';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+
+  return parsed.toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+async function sendResendEmail({
+  to,
+  subject,
+  html,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+}) {
+  if (!resendApiKey) {
+    return { ok: false, error: 'RESEND_API_KEY no configurada.' };
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to,
+      subject,
+      html,
+    }),
+  });
+
+  const responseBody = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: responseBody?.message || responseBody?.error || 'No pudimos enviar el email.',
+    };
+  }
+
+  return { ok: true, data: responseBody };
+}
+
+function buildLiveTrainingEmailHtml({
+  fullName,
+  training,
+  workerRoomUrl,
+}: {
+  fullName?: string | null;
+  training: {
+    title: string;
+    description?: string | null;
+    starts_at: string;
+    ends_at: string;
+  };
+  workerRoomUrl: string;
+}) {
+  const safeName = escapeHtml(fullName || 'Hola');
+  const safeTitle = escapeHtml(training.title || 'Capacitación en vivo');
+  const safeDescription = escapeHtml(training.description || '');
+  const safeStart = escapeHtml(formatDateTime(training.starts_at));
+  const safeEnd = escapeHtml(formatTime(training.ends_at));
+  const safeWorkerRoomUrl = escapeHtml(workerRoomUrl);
+
+  return `
+    <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
+      <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
+        <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
+          <div style="margin-bottom:24px;">
+            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">CIGÜEÑA</div>
+            <div style="font-size:13px;color:#94a3b8;">Platform by BondiApps</div>
+          </div>
+
+          <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
+            Tenés una capacitación en vivo asignada
+          </h1>
+
+          <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
+            Hola ${safeName}, te asignaron una capacitación en vivo en Cigüeña.
+          </p>
+
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
+            <p style="font-size:14px;line-height:1.7;color:#cbd5e1;margin:0;">
+              <strong style="color:#f8fafc;">Capacitación:</strong> ${safeTitle}<br/>
+              <strong style="color:#f8fafc;">Fecha y hora:</strong> ${safeStart}<br/>
+              <strong style="color:#f8fafc;">Finaliza:</strong> ${safeEnd}
+            </p>
+            ${safeDescription ? `<p style="font-size:14px;line-height:1.6;color:#94a3b8;margin:12px 0 0;">${safeDescription}</p>` : ''}
+          </div>
+
+          <div style="background:#451a03;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin:20px 0;">
+            <p style="font-size:15px;line-height:1.6;color:#fde68a;margin:0;">
+              <strong>IMPORTANTE:</strong><br/>
+              Para que tu asistencia quede registrada, ingresá siempre desde Cigüeña antes de entrar a Google Meet.
+              No ingreses directo desde el link de Meet o desde Google Calendar.
+            </p>
+          </div>
+
+          <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 20px;">
+            Cigüeña registrará tu ingreso a la sala interna y luego podrás acceder a Google Meet.
+          </p>
+
+          <p style="margin:24px 0;">
+            <a href="${safeWorkerRoomUrl}"
+              style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px;">
+              Ingresar desde Cigüeña
+            </a>
+          </p>
+
+          <p style="font-size:13px;line-height:1.6;color:#94a3b8;margin:0;">
+            También vas a recibir una invitación de Google Calendar. Usala para tener el evento en tu calendario, pero entrá desde Cigüeña para que podamos registrar tu asistencia.
+          </p>
+
+          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
+
+          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
+            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
+          </p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function sendCiguenaLiveTrainingInvites({
+  recipients,
+  training,
+}: {
+  recipients: Array<{ email: string; displayName?: string }>;
+  training: {
+    id: string;
+    title: string;
+    description?: string | null;
+    starts_at: string;
+    ends_at: string;
+  };
+}) {
+  const workerRoomUrl = getWorkerLiveRoomUrl(training.id);
+  const uniqueRecipients = uniqueValues(recipients.map(recipient => recipient.email)).map(email => {
+    const recipient = recipients.find(item => item.email === email);
+    return {
+      email,
+      displayName: recipient?.displayName,
+    };
+  });
+
+  const results = await Promise.all(
+    uniqueRecipients.map(async recipient => {
+      const result = await sendResendEmail({
+        to: recipient.email,
+        subject: `Capacitación en vivo asignada: ${training.title}`,
+        html: buildLiveTrainingEmailHtml({
+          fullName: recipient.displayName,
+          training,
+          workerRoomUrl,
+        }),
+      });
+
+      return {
+        email: recipient.email,
+        ok: result.ok,
+        error: result.ok ? null : result.error,
+      };
+    })
+  );
+
+  return {
+    sent: results.filter(result => result.ok).length,
+    failed: results.filter(result => !result.ok).length,
+    errors: results.filter(result => !result.ok),
+  };
+}
+
 async function getGoogleAccessToken() {
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -125,13 +356,18 @@ async function createGoogleCalendarEvent({
       body: JSON.stringify({
         summary: training.title,
         description: [
-          training.description || '',
+          training.description ? escapeHtml(training.description) : '',
+          '',
+          '<strong>IMPORTANTE:</strong>',
+          '<strong>Ingresá siempre desde Cigüeña para registrar tu asistencia antes de entrar a Google Meet.</strong>',
+          'Si ingresás directo desde el link de Google Meet o desde Google Calendar, Cigüeña podría no registrar correctamente tu asistencia.',
+          '',
+          `<a href="${escapeHtml(getWorkerLiveRoomUrl(training.id))}">Ingresar desde Cigüeña</a>`,
           '',
           'Evento generado automáticamente por Cigüeña | Platform by BondiApps.',
-          'Ingresá siempre desde Cigüeña para registrar tu asistencia antes de entrar a Google Meet.',
         ]
           .filter(Boolean)
-          .join('\n'),
+          .join('<br>'),
         start: {
           dateTime: training.starts_at,
           timeZone: timezone,
@@ -286,6 +522,11 @@ export async function handler(event: { httpMethod: string; body?: string | null 
 
     if (updateError) throw updateError;
 
+    const emailInviteResult = await sendCiguenaLiveTrainingInvites({
+      recipients: attendees,
+      training,
+    });
+
     await client.from('live_training_logs').insert({
       tenant_id: training.tenant_id,
       live_training_id: liveTrainingId,
@@ -296,6 +537,10 @@ export async function handler(event: { httpMethod: string; body?: string | null 
         meeting_url: googleEvent.meetingUrl,
         google_event_url: googleEvent.htmlLink ?? null,
         attendee_count: attendees.length,
+        email_invite_count: emailInviteResult.sent,
+        email_invite_failed_count: emailInviteResult.failed,
+        email_invite_errors: emailInviteResult.errors,
+        worker_room_url: getWorkerLiveRoomUrl(training.id),
         created_at: now,
       },
       created_by: training.created_by,
@@ -307,6 +552,9 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       meeting_url: googleEvent.meetingUrl,
       calendar_event_id: googleEvent.eventId,
       attendee_count: attendees.length,
+      email_invite_count: emailInviteResult.sent,
+      email_invite_failed_count: emailInviteResult.failed,
+      email_invite_errors: emailInviteResult.errors,
     });
   } catch (error) {
     const message = getErrorMessage(error);

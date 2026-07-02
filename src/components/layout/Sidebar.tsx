@@ -30,6 +30,7 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   badge?: number;
+  statusLabel?: string;
 }
 
 interface SidebarProps {
@@ -105,6 +106,7 @@ const adminNav: NavItem[] = [
     id: 'admin-live-trainings',
     label: 'Capacitaciones en Vivo',
     icon: <CalendarClock size={18} />,
+    statusLabel: 'En desarrollo',
   },
   {
     id: 'admin-certificates',
@@ -423,6 +425,12 @@ export default function Sidebar({
               <span className="flex-shrink-0">{item.icon}</span>
 
               {!collapsed && <span className="truncate">{item.label}</span>}
+
+              {!collapsed && item.statusLabel && (
+                <span className="ml-auto rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                  {item.statusLabel}
+                </span>
+              )}
 
               {!collapsed && item.badge !== undefined && item.badge > 0 && (
                 <span className="ml-auto bg-amber-500 text-petroleum-950 text-xs font-bold px-1.5 py-0.5 rounded-full">

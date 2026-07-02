@@ -154,6 +154,22 @@ const DEFAULT_VIEW: Record<string, string> = {
   worker: 'worker-dashboard',
 };
 
+
+function getDeepLinkedView() {
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  const liveTrainingId = params.get('liveTrainingId') || params.get('id');
+
+  if (view === 'worker-live-room' && liveTrainingId) {
+    return {
+      view: 'worker-live-room',
+      data: { liveTrainingId },
+    };
+  }
+
+  return null;
+}
+
 type AuthScreen = 'login' | 'register' | 'forgot-password';
 
 function AppContent() {
@@ -208,6 +224,14 @@ function AppContent() {
         error: null,
       });
 
+      return;
+    }
+
+    const deepLinkedView = getDeepLinkedView();
+
+    if (deepLinkedView) {
+      setActiveView(deepLinkedView.view);
+      setViewData(deepLinkedView.data);
       return;
     }
 
