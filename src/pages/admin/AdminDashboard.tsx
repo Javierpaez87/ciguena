@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Users,
   BookOpen,
+  CalendarClock,
   Award,
   TrendingUp,
   Clock,
@@ -99,6 +100,44 @@ interface Certificate {
   status?: string | null;
   issued_at?: string | null;
   expires_at?: string | null;
+  created_at?: string | null;
+  [key: string]: any;
+}
+
+interface LiveTraining {
+  id: string;
+  tenant_id?: string | null;
+  title?: string | null;
+  status?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  calendar_status?: string | null;
+  meeting_url?: string | null;
+  deleted_at?: string | null;
+  [key: string]: any;
+}
+
+interface LiveTrainingParticipant {
+  id: string;
+  tenant_id?: string | null;
+  live_training_id?: string | null;
+  user_id?: string | null;
+  live_attendance_status?: string | null;
+  certification_status?: string | null;
+  room_opened_at?: string | null;
+  join_clicked_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: any;
+}
+
+interface LiveTrainingCertificate {
+  id: string;
+  tenant_id?: string | null;
+  live_training_id?: string | null;
+  user_id?: string | null;
+  status?: string | null;
+  issued_at?: string | null;
   created_at?: string | null;
   [key: string]: any;
 }
@@ -427,6 +466,9 @@ export default function AdminDashboard() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [attempts, setAttempts] = useState<TestAttempt[]>([]);
+  const [liveTrainings, setLiveTrainings] = useState<LiveTraining[]>([]);
+  const [liveParticipants, setLiveParticipants] = useState<LiveTrainingParticipant[]>([]);
+  const [liveCertificates, setLiveCertificates] = useState<LiveTrainingCertificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -442,23 +484,39 @@ export default function AdminDashboard() {
       setErrorMessage(null);
 
       try {
-        const [usersResult, tenantTrainingsResult, assignmentsResult, certificatesResult] =
-          await Promise.all([
-            supabase.from('profiles').select('*').eq('tenant_id', tenantId),
-            supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
-            supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
-            supabase.from('certificates').select('*').eq('tenant_id', tenantId),
-          ]);
+        const [
+          usersResult,
+          tenantTrainingsResult,
+          assignmentsResult,
+          certificatesResult,
+          liveTrainingsResult,
+          liveParticipantsResult,
+          liveCertificatesResult,
+        ] = await Promise.all([
+          supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+          supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
+          supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
+          supabase.from('certificates').select('*').eq('tenant_id', tenantId),
+          supabase.from('live_trainings').select('*').eq('tenant_id', tenantId).is('deleted_at', null),
+          supabase.from('live_training_participants').select('*').eq('tenant_id', tenantId),
+          supabase.from('live_training_certificates').select('*').eq('tenant_id', tenantId),
+        ]);
 
         if (usersResult.error) throw usersResult.error;
         if (tenantTrainingsResult.error) throw tenantTrainingsResult.error;
         if (assignmentsResult.error) throw assignmentsResult.error;
         if (certificatesResult.error) throw certificatesResult.error;
+        if (liveTrainingsResult.error) throw liveTrainingsResult.error;
+        if (liveParticipantsResult.error) throw liveParticipantsResult.error;
+        if (liveCertificatesResult.error) throw liveCertificatesResult.error;
 
         const loadedUsers = (usersResult.data ?? []) as Profile[];
         const loadedTenantTrainings = (tenantTrainingsResult.data ?? []) as TenantTraining[];
         const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
         const loadedCertificates = (certificatesResult.data ?? []) as Certificate[];
+        const loadedLiveTrainings = (liveTrainingsResult.data ?? []) as LiveTraining[];
+        const loadedLiveParticipants = (liveParticipantsResult.data ?? []) as LiveTrainingParticipant[];
+        const loadedLiveCertificates = (liveCertificatesResult.data ?? []) as LiveTrainingCertificate[];
 
         const userIds = loadedUsers.map((profile) => profile.id).filter(Boolean);
 
@@ -540,6 +598,9 @@ export default function AdminDashboard() {
         setAssignments(loadedAssignments);
         setCertificates(sortedCertificates);
         setAttempts(sortedAttempts);
+        setLiveTrainings(loadedLiveTrainings);
+        setLiveParticipants(loadedLiveParticipants);
+        setLiveCertificates(loadedLiveCertificates);
       } catch (error) {
         console.error('Error loading admin dashboard:', error);
         setErrorMessage(
@@ -633,6 +694,23 @@ export default function AdminDashboard() {
     const expiredCertRate = percent(expiredCerts, Math.max(certificates.length, 1));
     const expiringSoonRate = percent(expiringSoon, Math.max(certificates.length, 1));
 
+    const liveScheduled = liveTrainings.filter((training) =>
+      ['draft', 'scheduled'].includes(normalizeStatus(training.status))
+    ).length;
+    const liveCompleted = liveTrainings.filter((training) =>
+      ['completed', 'closed'].includes(normalizeStatus(training.status))
+    ).length;
+    const liveAttended = liveParticipants.filter((participant) =>
+      ['on_time', 'late'].includes(normalizeStatus(participant.live_attendance_status))
+    ).length;
+    const liveAbsent = liveParticipants.filter((participant) =>
+      ['absent', 'invalid_after_event'].includes(normalizeStatus(participant.live_attendance_status))
+    ).length;
+    const liveInvited = liveParticipants.filter((participant) =>
+      normalizeStatus(participant.live_attendance_status) === 'invited'
+    ).length;
+    const liveAttendanceRate = percent(liveAttended, liveParticipants.length);
+
     return {
       activeUsers,
       notStarted,
@@ -650,13 +728,26 @@ export default function AdminDashboard() {
       validCertRate,
       expiredCertRate,
       expiringSoonRate,
+      liveScheduled,
+      liveCompleted,
+      liveAttended,
+      liveAbsent,
+      liveInvited,
+      liveAttendanceRate,
+      liveCertificates: liveCertificates.length,
     };
-  }, [workerUsers, assignments, certificates, attempts]);
+  }, [workerUsers, assignments, certificates, attempts, liveTrainings, liveParticipants, liveCertificates]);
 
   const trainingStatusItems: ChartItem[] = [
     { label: 'Completados', value: metrics.completed, className: 'text-emerald-400' },
     { label: 'En curso', value: metrics.inProgress, className: 'text-sky-400' },
     { label: 'No iniciados', value: metrics.notStarted, className: 'text-slate-500' },
+  ];
+
+  const liveAttendanceItems: ChartItem[] = [
+    { label: 'Asistieron', value: metrics.liveAttended, className: 'text-emerald-400' },
+    { label: 'Invitados', value: metrics.liveInvited, className: 'text-sky-400' },
+    { label: 'Ausentes', value: metrics.liveAbsent, className: 'text-red-400' },
   ];
 
   const certificateItems: ChartItem[] = [
@@ -806,6 +897,39 @@ export default function AdminDashboard() {
           />
 
           <MiniMetricCard
+            title="Vivos programados"
+            value={metrics.liveScheduled}
+            icon={<CalendarClock size={20} />}
+            accent="blue"
+            subtitle={`${liveTrainings.length} capacitaciones en vivo totales`}
+            chartType="bar"
+            chartValue={percent(metrics.liveScheduled, Math.max(liveTrainings.length, 1))}
+            chartLabel="en agenda"
+          />
+
+          <MiniMetricCard
+            title="Asistencia en vivo"
+            value={`${metrics.liveAttendanceRate}%`}
+            icon={<CheckCircle size={20} />}
+            accent="green"
+            subtitle={`${metrics.liveAttended} de ${liveParticipants.length} invitados`}
+            chartType="donut"
+            chartValue={metrics.liveAttendanceRate}
+            chartLabel="asistencia"
+          />
+
+          <MiniMetricCard
+            title="Certs. vivo"
+            value={metrics.liveCertificates}
+            icon={<Award size={20} />}
+            accent="green"
+            subtitle="certificados emitidos por vivos"
+            chartType="spark"
+            chartValue={percent(metrics.liveCertificates, Math.max(liveParticipants.length, 1))}
+            chartLabel="certificación live"
+          />
+
+          <MiniMetricCard
             title="Certificados vigentes"
             value={metrics.validCerts}
             icon={<Award size={20} />}
@@ -890,6 +1014,23 @@ export default function AdminDashboard() {
             items={trainingStatusItems}
             centerLabel="total"
             centerValue={assignments.length}
+          />
+        </div>
+
+        <div className="card xl:col-span-1">
+          <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
+            <CalendarClock size={16} className="text-amber-400" />
+            Asistencia en vivo
+          </h3>
+
+          <p className="text-xs text-steel-500 mb-5">
+            Distribución de participantes de capacitaciones en vivo.
+          </p>
+
+          <DonutChart
+            items={liveAttendanceItems}
+            centerLabel="invitados"
+            centerValue={liveParticipants.length}
           />
         </div>
 

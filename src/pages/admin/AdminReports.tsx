@@ -18,7 +18,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 
-type ReportType = 'user' | 'training' | 'area';
+type ReportType = 'user' | 'training' | 'area' | 'live';
 type Accent = 'amber' | 'blue' | 'green' | 'red' | 'steel';
 
 interface ChartItem {
@@ -101,6 +101,35 @@ interface Certificate {
   updated_at?: string | null;
   user?: Profile | null;
   training?: TenantTraining | null;
+  [key: string]: any;
+}
+
+interface LiveTraining {
+  id: string;
+  tenant_id?: string | null;
+  title?: string | null;
+  status?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  calendar_status?: string | null;
+  meeting_url?: string | null;
+  deleted_at?: string | null;
+  [key: string]: any;
+}
+
+interface LiveTrainingParticipant {
+  id: string;
+  tenant_id?: string | null;
+  live_training_id?: string | null;
+  user_id?: string | null;
+  live_attendance_status?: string | null;
+  certification_status?: string | null;
+  room_opened_at?: string | null;
+  join_clicked_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  user?: Profile | null;
+  live_training?: LiveTraining | null;
   [key: string]: any;
 }
 
@@ -465,6 +494,8 @@ export default function AdminReports() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [liveTrainings, setLiveTrainings] = useState<LiveTraining[]>([]);
+  const [liveParticipants, setLiveParticipants] = useState<LiveTrainingParticipant[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -480,18 +511,28 @@ export default function AdminReports() {
     setErrorMessage(null);
 
     try {
-      const [usersResult, assignmentsResult, certificatesResult, trainingsResult] =
-        await Promise.all([
-          supabase.from('profiles').select('*').eq('tenant_id', tenantId),
-          supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
-          supabase.from('certificates').select('*').eq('tenant_id', tenantId),
-          supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
-        ]);
+      const [
+        usersResult,
+        assignmentsResult,
+        certificatesResult,
+        trainingsResult,
+        liveTrainingsResult,
+        liveParticipantsResult,
+      ] = await Promise.all([
+        supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+        supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
+        supabase.from('certificates').select('*').eq('tenant_id', tenantId),
+        supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
+        supabase.from('live_trainings').select('*').eq('tenant_id', tenantId).is('deleted_at', null),
+        supabase.from('live_training_participants').select('*').eq('tenant_id', tenantId),
+      ]);
 
       if (usersResult.error) throw usersResult.error;
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (certificatesResult.error) throw certificatesResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
+      if (liveTrainingsResult.error) throw liveTrainingsResult.error;
+      if (liveParticipantsResult.error) throw liveParticipantsResult.error;
 
       const loadedUsers = ((usersResult.data ?? []) as Profile[]).filter(
         (profile) => !isAdminUser(profile)
@@ -499,6 +540,8 @@ export default function AdminReports() {
       const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
       const loadedCertificatesRaw = (certificatesResult.data ?? []) as Certificate[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
+      const loadedLiveTrainings = (liveTrainingsResult.data ?? []) as LiveTraining[];
+      const loadedLiveParticipantsRaw = (liveParticipantsResult.data ?? []) as LiveTrainingParticipant[];
 
       const usersById = new Map<string, Profile>();
       loadedUsers.forEach((profile) => {
@@ -541,6 +584,19 @@ export default function AdminReports() {
         };
       });
 
+      const liveTrainingsById = new Map<string, LiveTraining>();
+      loadedLiveTrainings.forEach((training) => {
+        if (training.id) liveTrainingsById.set(training.id, training);
+      });
+
+      const hydratedLiveParticipants = loadedLiveParticipantsRaw.map((participant) => ({
+        ...participant,
+        user: participant.user_id ? usersById.get(participant.user_id) ?? null : null,
+        live_training: participant.live_training_id
+          ? liveTrainingsById.get(participant.live_training_id) ?? null
+          : null,
+      }));
+
       setUsers(
         loadedUsers.sort((a, b) =>
           getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
@@ -548,6 +604,8 @@ export default function AdminReports() {
       );
       setAssignments(sortByDateDesc(hydratedAssignments));
       setCertificates(sortByDateDesc(hydratedCertificates));
+      setLiveTrainings(sortByDateDesc(loadedLiveTrainings));
+      setLiveParticipants(sortByDateDesc(hydratedLiveParticipants));
     } catch (error) {
       console.error('Error loading reports:', error);
       setErrorMessage(
@@ -731,6 +789,39 @@ export default function AdminReports() {
       };
     });
 
+    const liveTrainingReport = liveTrainings.map((training) => {
+      const trainingParticipants = liveParticipants.filter(
+        (participant) => participant.live_training_id === training.id
+      );
+      const attended = trainingParticipants.filter((participant) =>
+        ['on_time', 'late'].includes(normalize(participant.live_attendance_status))
+      ).length;
+      const absent = trainingParticipants.filter((participant) =>
+        ['absent', 'invalid_after_event'].includes(normalize(participant.live_attendance_status))
+      ).length;
+      const invited = trainingParticipants.filter((participant) =>
+        normalize(participant.live_attendance_status) === 'invited'
+      ).length;
+
+      return {
+        id: training.id,
+        name: training.title || 'Capacitación en vivo',
+        status: training.status || 'draft',
+        calendarStatus: training.calendar_status || 'pending',
+        startsAt: training.starts_at || '',
+        participants: trainingParticipants.length,
+        attended,
+        absent,
+        invited,
+        attendanceRate: percent(attended, trainingParticipants.length),
+      };
+    });
+
+    const liveAttended = liveParticipants.filter((participant) =>
+      ['on_time', 'late'].includes(normalize(participant.live_attendance_status))
+    ).length;
+    const liveAttendanceRate = percent(liveAttended, liveParticipants.length);
+
     const criticalUsers = [...userReport]
       .filter((report) => report.total > 0)
       .sort((a, b) => a.avgProgress - b.avgProgress)
@@ -781,13 +872,16 @@ export default function AdminReports() {
       userReport,
       trainingReport,
       areaReport,
+      liveTrainingReport,
+      liveAttended,
+      liveAttendanceRate,
       criticalUsers,
       criticalTrainings,
       expiringCertificates,
       statusItems,
       certItems,
     };
-  }, [users, assignments, certificates]);
+  }, [users, assignments, certificates, liveTrainings, liveParticipants]);
 
   function downloadCSV() {
     let headers: string[] = [];
@@ -864,6 +958,32 @@ export default function AdminReports() {
         report.pending,
         `${report.completion}%`,
         `${report.progress}%`,
+      ]);
+    }
+
+    if (reportType === 'live') {
+      headers = [
+        'Capacitación en vivo',
+        'Estado',
+        'Calendar',
+        'Fecha inicio',
+        'Invitados',
+        'Asistieron',
+        'Ausentes',
+        'Pendientes',
+        '% Asistencia',
+      ];
+
+      rows = reports.liveTrainingReport.map((report) => [
+        report.name,
+        report.status,
+        report.calendarStatus,
+        report.startsAt,
+        report.participants,
+        report.attended,
+        report.absent,
+        report.invited,
+        `${report.attendanceRate}%`,
       ]);
     }
 
@@ -968,6 +1088,16 @@ export default function AdminReports() {
             accent={reports.expiringSoonCerts + reports.expiredCerts > 0 ? 'red' : 'green'}
             chartType="bar"
             chartValue={reports.certificateRiskRate}
+          />
+
+          <ReportMetricCard
+            title="Asistencia en vivo"
+            value={`${reports.liveAttendanceRate}%`}
+            subtitle={`${reports.liveAttended} de ${liveParticipants.length} invitados a vivos`}
+            icon={<CalendarClock size={20} />}
+            accent="blue"
+            chartType="donut"
+            chartValue={reports.liveAttendanceRate}
           />
 
           <ReportMetricCard
@@ -1173,6 +1303,7 @@ export default function AdminReports() {
               { id: 'user', label: 'Por usuario', icon: <Users size={14} /> },
               { id: 'training', label: 'Por training', icon: <BookOpen size={14} /> },
               { id: 'area', label: 'Por área', icon: <Building size={14} /> },
+              { id: 'live', label: 'Vivos', icon: <CalendarClock size={14} /> },
             ].map((item) => (
               <button
                 key={item.id}
@@ -1354,6 +1485,67 @@ export default function AdminReports() {
             {reports.areaReport.length === 0 && (
               <div className="card text-sm text-steel-500">
                 Todavía no hay áreas cargadas para reportar.
+              </div>
+            )}
+          </div>
+        )}
+
+        {reportType === 'live' && (
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-steel-900 border-b border-steel-700">
+                    <th className="table-header">Capacitación en vivo</th>
+                    <th className="table-header hidden md:table-cell">Estado</th>
+                    <th className="table-header hidden md:table-cell">Calendar</th>
+                    <th className="table-header text-center">Invitados</th>
+                    <th className="table-header text-center">Asistieron</th>
+                    <th className="table-header text-center hidden md:table-cell">Ausentes</th>
+                    <th className="table-header hidden lg:table-cell">Asistencia</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {reports.liveTrainingReport.map((report) => (
+                    <tr key={report.id} className="table-row">
+                      <td className="table-cell font-medium text-steel-100">
+                        <div>{report.name}</div>
+                        <div className="text-xs text-steel-500">{report.startsAt || 'Sin fecha'}</div>
+                      </td>
+                      <td className="table-cell hidden md:table-cell text-steel-300 text-xs">
+                        {report.status}
+                      </td>
+                      <td className="table-cell hidden md:table-cell text-steel-300 text-xs">
+                        {report.calendarStatus}
+                      </td>
+                      <td className="table-cell text-center text-steel-300">{report.participants}</td>
+                      <td className="table-cell text-center">
+                        <span className="text-emerald-400 font-medium">{report.attended}</span>
+                      </td>
+                      <td className="table-cell text-center hidden md:table-cell">
+                        <span className="text-red-400">{report.absent}</span>
+                      </td>
+                      <td className="table-cell hidden lg:table-cell">
+                        <div className="flex items-center gap-2">
+                          <div className="progress-bar flex-1 min-w-[60px]">
+                            <div
+                              className="progress-fill"
+                              style={{ width: `${report.attendanceRate}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-steel-400">{report.attendanceRate}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {reports.liveTrainingReport.length === 0 && (
+              <div className="p-6 text-sm text-steel-500">
+                Todavía no hay capacitaciones en vivo para reportar.
               </div>
             )}
           </div>

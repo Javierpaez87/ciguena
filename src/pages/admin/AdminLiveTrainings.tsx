@@ -117,6 +117,41 @@ function isEndTimeBeforeOrEqualStart(startTime: string, endTime: string) {
   return endTime <= startTime;
 }
 
+function getHourFromTime(time: string) {
+  const [hoursRaw] = time.split(':');
+  const hours = Number(hoursRaw);
+
+  return Number.isNaN(hours) ? null : hours;
+}
+
+function isEarlyMorningTime(time: string) {
+  const hours = getHourFromTime(time);
+
+  return hours !== null && hours >= 0 && hours < 6;
+}
+
+function getAfternoonSuggestion(time: string) {
+  const [hoursRaw, minutesRaw = '00'] = time.split(':');
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || hours >= 12) return '';
+
+  return `${String(hours + 12).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function confirmEarlyMorningSchedule(startTime: string) {
+  if (!isEarlyMorningTime(startTime)) return true;
+
+  const suggestion = getAfternoonSuggestion(startTime);
+
+  return window.confirm(
+    suggestion
+      ? `Estás programando esta capacitación a las ${startTime} hs. ¿Seguro que es correcto? Quizás querías marcarla a las ${suggestion} hs. Presioná Cancelar para volver y editar el horario.`
+      : `Estás programando esta capacitación a las ${startTime} hs. ¿Seguro que es correcto? Presioná Cancelar para volver y editar el horario.`
+  );
+}
+
 function buildTimeOptions() {
   const options: string[] = [];
 
@@ -824,6 +859,10 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       return;
     }
 
+    if (!confirmEarlyMorningSchedule(form.startTime)) {
+      return;
+    }
+
     if (selectedWorkerIds.length === 0) {
       const continueWithoutParticipants = window.confirm(
         'Actualmente sos el único invitado a esta capacitación en vivo. ¿Querés crearla igual sin invitar workers?'
@@ -919,9 +958,13 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       return;
     }
 
-    if (selectedWorkerIds.length === 0) {
+    if (!confirmEarlyMorningSchedule(editForm.startTime)) {
+      return;
+    }
+
+    if (editSelectedWorkerIds.length === 0) {
       const continueWithoutParticipants = window.confirm(
-        'Actualmente sos el único invitado a esta capacitación en vivo. ¿Querés crearla igual sin invitar workers?'
+        'Actualmente sos el único invitado a esta capacitación en vivo. ¿Querés guardarla igual sin invitar workers?'
       );
 
       if (!continueWithoutParticipants) {
@@ -1338,6 +1381,11 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                     </option>
                   ))}
                 </select>
+                {isEarlyMorningTime(state.startTime) && (
+                  <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    Estás marcando una llamada a las {state.startTime} hs. ¿No habrás querido marcarla a las {getAfternoonSuggestion(state.startTime)} hs? Podés corregirlo antes de guardar.
+                  </div>
+                )}
               </label>
 
               <label className="block">

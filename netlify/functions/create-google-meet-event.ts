@@ -182,12 +182,18 @@ function buildLiveTrainingEmailHtml({
     starts_at: string;
     ends_at: string;
     timezone?: string | null;
+    tenant_name?: string | null;
+    creator_name?: string | null;
+    creator_email?: string | null;
   };
   workerRoomUrl: string;
 }) {
   const safeName = escapeHtml(fullName || 'Hola');
   const safeTitle = escapeHtml(training.title || 'Capacitación en vivo');
   const safeDescription = escapeHtml(training.description || '');
+  const safeTenantName = escapeHtml(training.tenant_name || 'Organización no informada');
+  const safeCreatorName = escapeHtml(training.creator_name || 'Administrador Cigüeña');
+  const safeCreatorEmail = escapeHtml(training.creator_email || '');
   const timezone = training.timezone || 'America/Argentina/Buenos_Aires';
   const safeStart = escapeHtml(formatDateTime(training.starts_at, timezone));
   const safeEnd = escapeHtml(formatTime(training.ends_at, timezone));
@@ -212,7 +218,9 @@ function buildLiveTrainingEmailHtml({
 
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
             <p style="font-size:14px;line-height:1.7;color:#cbd5e1;margin:0;">
+              <strong style="color:#f8fafc;">Organización:</strong> ${safeTenantName}<br/>
               <strong style="color:#f8fafc;">Capacitación:</strong> ${safeTitle}<br/>
+              <strong style="color:#f8fafc;">Creada por:</strong> ${safeCreatorName}${safeCreatorEmail ? ` · ${safeCreatorEmail}` : ''}<br/>
               <strong style="color:#f8fafc;">Fecha y hora:</strong> ${safeStart}<br/>
               <strong style="color:#f8fafc;">Finaliza:</strong> ${safeEnd}
             </p>
@@ -265,6 +273,9 @@ async function sendCiguenaLiveTrainingInvites({
     starts_at: string;
     ends_at: string;
     timezone?: string | null;
+    tenant_name?: string | null;
+    creator_name?: string | null;
+    creator_email?: string | null;
   };
 }) {
   const workerRoomUrl = getWorkerLiveRoomUrl(training.id);
@@ -343,10 +354,15 @@ async function createGoogleCalendarEvent({
     starts_at: string;
     ends_at: string;
     timezone?: string | null;
+    tenant_name?: string | null;
+    creator_name?: string | null;
+    creator_email?: string | null;
   };
   attendees: Array<{ email: string; displayName?: string }>;
 }) {
   const timezone = training.timezone || 'America/Argentina/Buenos_Aires';
+  const tenantName = training.tenant_name || 'Organización no informada';
+  const creatorLabel = [training.creator_name, training.creator_email].filter(Boolean).join(' · ') || 'Administrador Cigüeña';
 
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${escapeGoogleCalendarId(
@@ -361,6 +377,9 @@ async function createGoogleCalendarEvent({
       body: JSON.stringify({
         summary: training.title,
         description: [
+          `<strong>Organización:</strong> ${escapeHtml(tenantName)}`,
+          `<strong>Capacitador / creador en Cigüeña:</strong> ${escapeHtml(creatorLabel)}`,
+          '',
           training.description ? escapeHtml(training.description) : '',
           '',
           '<strong>IMPORTANTE:</strong>',
@@ -468,6 +487,14 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       });
     }
 
+    const { data: tenant, error: tenantError } = await client
+      .from('tenants')
+      .select('id,name')
+      .eq('id', training.tenant_id)
+      .maybeSingle();
+
+    if (tenantError) throw tenantError;
+
     const { data: participants, error: participantsError } = await client
       .from('live_training_participants')
       .select('*')
@@ -505,10 +532,31 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       });
     }
 
+    const { data: creatorProfileData, error: creatorProfileError } = await client
+      .from('profiles')
+      .select('*')
+      .or(`id.eq.${training.created_by},auth_user_id.eq.${training.created_by}`)
+      .maybeSingle();
+
+    if (creatorProfileError) throw creatorProfileError;
+
+    const creatorName =
+      creatorProfileData?.full_name ||
+      [creatorProfileData?.first_name, creatorProfileData?.last_name].filter(Boolean).join(' ') ||
+      creatorProfileData?.email ||
+      null;
+
+    const enrichedTraining = {
+      ...training,
+      tenant_name: tenant?.name ?? null,
+      creator_name: creatorName,
+      creator_email: creatorProfileData?.email ?? null,
+    };
+
     const accessToken = await getGoogleAccessToken();
     const googleEvent = await createGoogleCalendarEvent({
       accessToken,
-      training,
+      training: enrichedTraining,
       attendees,
     });
 
@@ -533,7 +581,7 @@ export async function handler(event: { httpMethod: string; body?: string | null 
 
     const emailInviteResult = await sendCiguenaLiveTrainingInvites({
       recipients: attendees,
-      training,
+      training: enrichedTraining,
     });
 
     await client.from('live_training_logs').insert({
@@ -547,6 +595,9 @@ export async function handler(event: { httpMethod: string; body?: string | null 
         google_event_url: googleEvent.htmlLink ?? null,
         attendee_count: attendees.length,
         creator_profile_id: training.created_by ?? null,
+        creator_name: creatorName,
+        creator_email: creatorProfileData?.email ?? null,
+        tenant_name: tenant?.name ?? null,
         participant_user_count: participantUserIds.length,
         email_invite_count: emailInviteResult.sent,
         email_invite_failed_count: emailInviteResult.failed,
