@@ -165,6 +165,17 @@ function normalize(value?: string | null) {
   return (value || '').trim().toLowerCase();
 }
 
+function hasLiveAttendanceEvidence(participant: LiveTrainingParticipant) {
+  const status = normalize(participant.live_attendance_status);
+  return status === 'on_time' || status === 'late' || Boolean(participant.join_clicked_at);
+}
+
+function isLiveParticipantPending(participant: LiveTrainingParticipant) {
+  const status = normalize(participant.live_attendance_status);
+  return status === 'invited' && !participant.join_clicked_at;
+}
+
+
 function percent(value: number, total: number) {
   if (!total) return 0;
   return Math.round((value / total) * 100);
@@ -793,15 +804,11 @@ export default function AdminReports() {
       const trainingParticipants = liveParticipants.filter(
         (participant) => participant.live_training_id === training.id
       );
-      const attended = trainingParticipants.filter((participant) =>
-        ['on_time', 'late'].includes(normalize(participant.live_attendance_status))
-      ).length;
+      const attended = trainingParticipants.filter(hasLiveAttendanceEvidence).length;
       const absent = trainingParticipants.filter((participant) =>
         ['absent', 'invalid_after_event'].includes(normalize(participant.live_attendance_status))
       ).length;
-      const invited = trainingParticipants.filter((participant) =>
-        normalize(participant.live_attendance_status) === 'invited'
-      ).length;
+      const invited = trainingParticipants.filter(isLiveParticipantPending).length;
 
       return {
         id: training.id,
@@ -817,9 +824,7 @@ export default function AdminReports() {
       };
     });
 
-    const liveAttended = liveParticipants.filter((participant) =>
-      ['on_time', 'late'].includes(normalize(participant.live_attendance_status))
-    ).length;
+    const liveAttended = liveParticipants.filter(hasLiveAttendanceEvidence).length;
     const liveAttendanceRate = percent(liveAttended, liveParticipants.length);
 
     const criticalUsers = [...userReport]
@@ -1500,7 +1505,7 @@ export default function AdminReports() {
                     <th className="table-header hidden md:table-cell">Estado</th>
                     <th className="table-header hidden md:table-cell">Calendar</th>
                     <th className="table-header text-center">Invitados</th>
-                    <th className="table-header text-center">Asistieron</th>
+                    <th className="table-header text-center">Click Meet / asistieron</th>
                     <th className="table-header text-center hidden md:table-cell">Ausentes</th>
                     <th className="table-header hidden lg:table-cell">Asistencia</th>
                   </tr>

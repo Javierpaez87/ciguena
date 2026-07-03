@@ -328,6 +328,7 @@ export default function AdminAssignments() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [trainingFilter, setTrainingFilter] = useState('all');
 
   const [remindSent, setRemindSent] = useState<Set<string>>(new Set());
 
@@ -571,8 +572,15 @@ export default function AdminAssignments() {
       const userPosition = assignment.user?.position || '';
       const userRole = getWorkerRole(assignment.user);
       const trainingTitle = getTrainingTitle(assignment.training, assignment);
+      const trainingKey =
+        assignment.training_id ||
+        assignment.tenant_training_id ||
+        assignment.training?.training_id ||
+        assignment.training?.id ||
+        '';
 
       const matchesRole = roleFilter === 'all' || userRole === roleFilter;
+      const matchesTraining = trainingFilter === 'all' || trainingKey === trainingFilter;
 
       const matchesSearch =
         !searchValue ||
@@ -583,9 +591,9 @@ export default function AdminAssignments() {
         normalize(userPosition).includes(searchValue) ||
         normalize(trainingTitle).includes(searchValue);
 
-      return matchesStatus && matchesRole && matchesSearch;
+      return matchesStatus && matchesRole && matchesTraining && matchesSearch;
     });
-  }, [assignments, search, statusFilter, roleFilter]);
+  }, [assignments, search, statusFilter, roleFilter, trainingFilter]);
 
   const filteredUsersFromCurrentView = useMemo(() => {
     const userMap = new Map<string, Profile>();
@@ -1349,6 +1357,12 @@ export default function AdminAssignments() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+        Esta vista muestra asignaciones de trainings asincrónicos. Las capacitaciones en vivo se gestionan desde
+        <span className="mx-1 font-semibold text-cyan-50">Capacitaciones en Vivo</span>
+        y sus métricas aparecen en Dashboard y Reportes.
+      </div>
+
       <div className="flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between">
         <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
           <div className="relative flex-1 sm:min-w-[260px]">
@@ -1370,6 +1384,19 @@ export default function AdminAssignments() {
             {roleOptions.map((roleOption) => (
               <option key={roleOption.role} value={roleOption.role}>
                 {roleOption.role} ({getRoleCount(roleOption.role)})
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={trainingFilter}
+            onChange={(event) => setTrainingFilter(event.target.value)}
+            className="select sm:min-w-[240px]"
+          >
+            <option value="all">Todos los trainings asincrónicos</option>
+            {enabledTrainingOptions.map((training) => (
+              <option key={training.id} value={training.id}>
+                {training.title}
               </option>
             ))}
           </select>

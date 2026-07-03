@@ -231,6 +231,16 @@ function isWorker(profile: Profile) {
   return role === 'worker' || role === 'trabajador' || role === 'employee';
 }
 
+function hasLiveAttendanceEvidence(participant: LiveTrainingParticipant) {
+  const status = normalizeStatus(participant.live_attendance_status);
+  return status === 'on_time' || status === 'late' || Boolean(participant.join_clicked_at);
+}
+
+function isLiveParticipantPending(participant: LiveTrainingParticipant) {
+  const status = normalizeStatus(participant.live_attendance_status);
+  return status === 'invited' && !participant.join_clicked_at;
+}
+
 function DonutChart({
   items,
   centerLabel,
@@ -700,15 +710,11 @@ export default function AdminDashboard() {
     const liveCompleted = liveTrainings.filter((training) =>
       ['completed', 'closed'].includes(normalizeStatus(training.status))
     ).length;
-    const liveAttended = liveParticipants.filter((participant) =>
-      ['on_time', 'late'].includes(normalizeStatus(participant.live_attendance_status))
-    ).length;
+    const liveAttended = liveParticipants.filter(hasLiveAttendanceEvidence).length;
     const liveAbsent = liveParticipants.filter((participant) =>
       ['absent', 'invalid_after_event'].includes(normalizeStatus(participant.live_attendance_status))
     ).length;
-    const liveInvited = liveParticipants.filter((participant) =>
-      normalizeStatus(participant.live_attendance_status) === 'invited'
-    ).length;
+    const liveInvited = liveParticipants.filter(isLiveParticipantPending).length;
     const liveAttendanceRate = percent(liveAttended, liveParticipants.length);
 
     return {
@@ -745,7 +751,7 @@ export default function AdminDashboard() {
   ];
 
   const liveAttendanceItems: ChartItem[] = [
-    { label: 'Asistieron', value: metrics.liveAttended, className: 'text-emerald-400' },
+    { label: 'Click Meet / asistieron', value: metrics.liveAttended, className: 'text-emerald-400' },
     { label: 'Invitados', value: metrics.liveInvited, className: 'text-sky-400' },
     { label: 'Ausentes', value: metrics.liveAbsent, className: 'text-red-400' },
   ];
@@ -924,7 +930,7 @@ export default function AdminDashboard() {
             icon={<Award size={20} />}
             accent="green"
             subtitle="certificados emitidos por vivos"
-            chartType="spark"
+            chartType="bar"
             chartValue={percent(metrics.liveCertificates, Math.max(liveParticipants.length, 1))}
             chartLabel="certificación live"
           />
@@ -946,7 +952,7 @@ export default function AdminDashboard() {
             icon={<TrendingUp size={20} />}
             accent="amber"
             subtitle="promedio de la empresa"
-            chartType="spark"
+            chartType="bar"
             chartValue={metrics.avgProgress}
             chartLabel="avance general"
           />
@@ -968,7 +974,7 @@ export default function AdminDashboard() {
             icon={<Activity size={20} />}
             accent="blue"
             subtitle={`${metrics.inProgressRate}% de asignaciones`}
-            chartType="spark"
+            chartType="bar"
             chartValue={metrics.inProgressRate}
             chartLabel="actividad"
           />

@@ -420,15 +420,19 @@ export default function Sidebar({
               className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive ? styles.activeItem : styles.inactiveItem
               } ${collapsed ? 'justify-center px-2' : ''}`}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? `${item.label}${item.statusLabel ? ` · ${item.statusLabel}` : ''}` : undefined}
             >
               <span className="flex-shrink-0">{item.icon}</span>
 
               {!collapsed && <span className="truncate">{item.label}</span>}
 
               {!collapsed && item.statusLabel && (
-                <span className="ml-auto rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
-                  {item.statusLabel}
+                <span
+                  className="ml-auto inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 text-amber-200"
+                  title={item.statusLabel}
+                  aria-label={item.statusLabel}
+                >
+                  <Wrench size={11} />
                 </span>
               )}
 
