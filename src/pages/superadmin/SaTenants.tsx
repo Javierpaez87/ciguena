@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Search,
@@ -12,11 +12,9 @@ import {
   AlertCircle,
   Building2,
   Award,
-  FileText,
   Download,
   Eye,
   X,
-  CalendarDays,
 } from 'lucide-react';
 
 import { supabase } from '../../lib/supabase';
@@ -40,8 +38,12 @@ type ProfileRow = {
   tenant_id?: string | null;
   role?: string | null;
   status?: string | null;
+  requested_admin?: boolean | null;
   full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   email?: string | null;
+  created_at?: string | null;
 };
 
 type CertificateRow = {
@@ -69,6 +71,7 @@ type TenantWithStats = Tenant & {
   worker_count: number;
   training_count: number;
   certificate_count: number;
+  pending_admin_count: number;
 };
 
 type HydratedCertificate = CertificateRow & {
@@ -103,6 +106,15 @@ function formatDateTime(date?: string | null) {
 
 function isTrainingEnabled(row?: TenantTrainingRow | null) {
   return row?.enabled !== false;
+}
+
+function getProfileDisplayName(profile: ProfileRow) {
+  return (
+    profile.full_name ||
+    [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
+    profile.email ||
+    'Usuario'
+  );
 }
 
 function getCertificateStatus(certificate: CertificateRow) {
@@ -273,6 +285,7 @@ export default function SaTenants() {
   const [savingTenant, setSavingTenant] = useState(false);
   const [updatingTenantId, setUpdatingTenantId] = useState<string | null>(null);
   const [updatingTrainingKey, setUpdatingTrainingKey] = useState<string | null>(null);
+  const [approvingProfileId, setApprovingProfileId] = useState<string | null>(null);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -286,7 +299,11 @@ export default function SaTenants() {
       const [tenantsResult, profilesResult, tenantTrainingsResult, certificatesResult] =
         await Promise.all([
           supabase.from('tenants').select('*').order('created_at', { ascending: false }),
-          supabase.from('profiles').select('id, auth_user_id, tenant_id, role, status, full_name, email'),
+          supabase
+            .from('profiles')
+            .select(
+              'id, auth_user_id, tenant_id, role, status, requested_admin, full_name, first_name, last_name, email, created_at'
+            ),
           supabase.from('tenant_trainings').select('*').order('created_at', { ascending: false }),
           supabase.from('certificates').select('*').order('issued_at', { ascending: false }),
         ]);
@@ -345,6 +362,32 @@ export default function SaTenants() {
     return map;
   }, [certificates]);
 
+  const pendingAdminsByTenant = useMemo(() => {
+    const map: Record<string, ProfileRow[]> = {};
+
+    profiles.forEach((profile) => {
+      if (!profile.tenant_id) return;
+      if (profile.requested_admin !== true) return;
+      if (profile.role === 'admin' || profile.role === 'super_admin') return;
+
+      if (!map[profile.tenant_id]) {
+        map[profile.tenant_id] = [];
+      }
+
+      map[profile.tenant_id].push(profile);
+    });
+
+    Object.values(map).forEach((tenantProfiles) => {
+      tenantProfiles.sort((a, b) => {
+        const dateA = new Date(a.created_at || '').getTime();
+        const dateB = new Date(b.created_at || '').getTime();
+        return dateA - dateB;
+      });
+    });
+
+    return map;
+  }, [profiles]);
+
   const profilesByAnyUserId = useMemo(() => {
     const map = new Map<string, ProfileRow>();
 
@@ -373,6 +416,7 @@ export default function SaTenants() {
       const tenantWorkers = tenantProfiles.filter((profile) => profile.role === 'worker');
       const tenantEnabledTrainings = enabledTrainings[tenant.id]?.size ?? 0;
       const tenantCertificateCount = certificateCountsByTenant[tenant.id] ?? 0;
+      const tenantPendingAdminCount = pendingAdminsByTenant[tenant.id]?.length ?? 0;
 
       return {
         ...tenant,
@@ -380,9 +424,16 @@ export default function SaTenants() {
         worker_count: tenantWorkers.length,
         training_count: tenantEnabledTrainings,
         certificate_count: tenantCertificateCount,
+        pending_admin_count: tenantPendingAdminCount,
       };
     });
-  }, [tenants, profiles, enabledTrainings, certificateCountsByTenant]);
+  }, [
+    tenants,
+    profiles,
+    enabledTrainings,
+    certificateCountsByTenant,
+    pendingAdminsByTenant,
+  ]);
 
   const filtered = tenantStats.filter((tenant) =>
     tenant.name.toLowerCase().includes(search.toLowerCase())
@@ -391,6 +442,10 @@ export default function SaTenants() {
   const detailTenant = showDetail
     ? tenantStats.find((tenant) => tenant.id === showDetail.id) ?? null
     : null;
+
+  const detailPendingAdmins = detailTenant
+    ? pendingAdminsByTenant[detailTenant.id] ?? []
+    : [];
 
   const trainingsTenant = showTrainings
     ? tenantStats.find((tenant) => tenant.id === showTrainings.id) ?? null
@@ -515,6 +570,66 @@ export default function SaTenants() {
       );
     } finally {
       setSavingTenant(false);
+    }
+  }
+
+  async function approveAdminRequest(profile: ProfileRow) {
+    if (!profile.tenant_id) {
+      setErrorMessage('La solicitud no tiene una empresa asociada.');
+      return;
+    }
+
+    setApprovingProfileId(profile.id);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch('/.netlify/functions/approve-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          profileId: profile.id,
+          tenantId: profile.tenant_id,
+          status: 'active',
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'No se pudo aprobar al administrador.');
+      }
+
+      const updatedProfile = result?.profile as ProfileRow | undefined;
+
+      setProfiles((currentProfiles) =>
+        currentProfiles.map((currentProfile) => {
+          if (currentProfile.id !== profile.id) return currentProfile;
+
+          return {
+            ...currentProfile,
+            ...(updatedProfile || {}),
+            role: updatedProfile?.role || 'admin',
+            status: updatedProfile?.status || 'active',
+            requested_admin: false,
+          };
+        })
+      );
+
+      setSuccessMessage(
+        `${getProfileDisplayName(profile)} fue aprobado como administrador correctamente.`
+      );
+    } catch (error) {
+      console.error('Error approving admin request:', error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo aprobar la solicitud de administrador.'
+      );
+    } finally {
+      setApprovingProfileId(null);
     }
   }
 
@@ -684,6 +799,30 @@ export default function SaTenants() {
 
                 <StatusBadge status={tenant.status} />
               </div>
+
+              {tenant.pending_admin_count > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDetail(tenant)}
+                  className="mb-4 flex w-full items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-left transition-colors hover:border-amber-500/50 hover:bg-amber-500/15"
+                >
+                  <AlertCircle size={17} className="flex-shrink-0 text-amber-300" />
+
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-amber-200">
+                      {tenant.pending_admin_count}{' '}
+                      {tenant.pending_admin_count === 1
+                        ? 'solicitud de administrador pendiente'
+                        : 'solicitudes de administrador pendientes'}
+                    </div>
+                    <div className="mt-0.5 text-xs text-amber-200/70">
+                      Revisar y aprobar desde el detalle de la empresa.
+                    </div>
+                  </div>
+
+                  <ChevronRight size={16} className="flex-shrink-0 text-amber-300" />
+                </button>
+              )}
 
               <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="bg-steel-900 rounded-lg p-3 flex items-center gap-2">
@@ -888,6 +1027,79 @@ export default function SaTenants() {
                 <span className="text-steel-400">Creado</span>
                 <span className="text-steel-200">{formatDate(detailTenant.created_at)}</span>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-steel-100">
+                    Solicitudes de administrador
+                  </div>
+                  <div className="mt-1 text-xs text-steel-500">
+                    Las personas que pidieron acceso administrativo aparecen acá hasta que sean
+                    aprobadas.
+                  </div>
+                </div>
+
+                {detailPendingAdmins.length > 0 && (
+                  <span className="inline-flex w-fit rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-200">
+                    {detailPendingAdmins.length} pendiente
+                    {detailPendingAdmins.length === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+
+              {detailPendingAdmins.length === 0 ? (
+                <div className="mt-4 rounded-lg border border-dashed border-steel-700 bg-steel-950/50 px-4 py-5 text-center">
+                  <div className="text-sm font-medium text-steel-300">
+                    No hay solicitudes pendientes
+                  </div>
+                  <div className="mt-1 text-xs text-steel-500">
+                    Cuando alguien se registre solicitando ser admin de esta empresa, aparecerá
+                    aquí.
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {detailPendingAdmins.map((profile) => {
+                    const isApproving = approvingProfileId === profile.id;
+
+                    return (
+                      <div
+                        key={profile.id}
+                        className="flex flex-col gap-3 rounded-xl border border-amber-500/20 bg-steel-950/60 p-3 sm:flex-row sm:items-center"
+                      >
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-bold text-amber-200">
+                          {getProfileDisplayName(profile).charAt(0).toUpperCase()}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-steel-100">
+                            {getProfileDisplayName(profile)}
+                          </div>
+                          <div className="truncate text-xs text-steel-400">
+                            {profile.email || 'Sin email informado'}
+                          </div>
+                          <div className="mt-1 text-[11px] text-steel-500">
+                            Solicitud recibida: {formatDate(profile.created_at)} · Estado:{' '}
+                            {profile.status || 'pending'}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => approveAdminRequest(profile)}
+                          disabled={isApproving}
+                          className="btn-primary justify-center text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Check size={14} />
+                          {isApproving ? 'Aprobando...' : 'Aprobar como admin'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </Modal>
