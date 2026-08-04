@@ -229,6 +229,26 @@ export const handler = async (event: any) => {
     },
   });
 
+  // Primero consultamos el perfil para saber si solicitó acceso como administrador.
+  // El rol no debe venir decidido desde el frontend: la promoción se resuelve acá.
+  const { data: currentProfile, error: currentProfileError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, tenant_id, role, requested_admin')
+    .eq('id', profileId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (currentProfileError || !currentProfile) {
+    console.error('Error buscando profile antes de aprobar:', currentProfileError);
+
+    return json(404, {
+      error: 'No encontramos el usuario solicitado dentro de esa empresa.',
+    });
+  }
+
+  const isAdminApproval =
+    nextStatus === 'active' && currentProfile.requested_admin === true;
+
   const updatePayload: Record<string, unknown> = {
     status: nextStatus,
     updated_at: new Date().toISOString(),
@@ -238,13 +258,20 @@ export const handler = async (event: any) => {
     updatePayload.preapproved = true;
   }
 
+  // Si la persona pidió acceso administrativo y la solicitud es aprobada,
+  // la convertimos realmente en admin y cerramos la solicitud pendiente.
+  if (isAdminApproval) {
+    updatePayload.role = 'admin';
+    updatePayload.requested_admin = false;
+  }
+
   const { data: updatedProfile, error: updateError } = await supabaseAdmin
     .from('profiles')
     .update(updatePayload)
     .eq('id', profileId)
     .eq('tenant_id', tenantId)
     .select(
-      'id, tenant_id, auth_user_id, full_name, first_name, last_name, email, phone, dni, employee_code, job_role, position, area, contractor_company, status, preapproved, source'
+      'id, tenant_id, auth_user_id, full_name, first_name, last_name, email, phone, dni, employee_code, job_role, work_role, position, area, contractor_company, role, status, preapproved, requested_admin, source'
     )
     .single();
 
@@ -282,7 +309,9 @@ export const handler = async (event: any) => {
       status: directoryStatus,
       profile_id: updatedProfile.id,
       registered_at: nextStatus === 'active' ? now : null,
-      source: updatedProfile.source || 'self_register_admin_approved',
+      source:
+        updatedProfile.source ||
+        (isAdminApproval ? 'self_register_admin_approved' : 'self_register_worker_approved'),
       updated_at: now,
     };
 
@@ -364,7 +393,9 @@ export const handler = async (event: any) => {
     email_sent: emailSent,
     message:
       nextStatus === 'active'
-        ? 'Usuario activado correctamente.'
+        ? isAdminApproval
+          ? 'Administrador aprobado correctamente.'
+          : 'Usuario activado correctamente.'
         : 'Usuario actualizado correctamente.',
   });
 };
