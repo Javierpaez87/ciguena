@@ -152,6 +152,27 @@ type CsvPreviewRow = {
   errors: string[];
 };
 
+type InvitationResultStatus = 'accepted' | 'failed' | 'skipped' | 'not_processed';
+
+type InvitationRecipientResult = {
+  email: string;
+  status: InvitationResultStatus;
+  reason?: string;
+  message?: string;
+  providerId?: string;
+};
+
+type InvitationRunResult = {
+  total: number;
+  accepted: number;
+  failed: number;
+  skipped: number;
+  notProcessed: number;
+  results: InvitationRecipientResult[];
+  fatalError?: string | null;
+  trackingWarning?: string | null;
+};
+
 const emptyForm: FormState = {
   first_name: '',
   last_name: '',
@@ -597,15 +618,16 @@ export default function AdminUsers() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [inviteProgress, setInviteProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [invitationResult, setInvitationResult] = useState<InvitationRunResult | null>(null);
 
-  async function loadUsersData() {
+  async function loadUsersData(options?: { silent?: boolean }) {
     if (!tenantId) {
       setLoading(false);
       setErrorMessage('No se encontró tenant_id para el usuario actual.');
       return;
     }
 
-    setLoading(true);
+    if (!options?.silent) setLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -1004,7 +1026,7 @@ export default function AdminUsers() {
     emails: string[];
     allowResend: boolean;
     onProgress?: (processed: number, total: number) => void;
-  }) {
+  }): Promise<InvitationRunResult> {
     if (!tenantId) {
       throw new Error('No se encontró tenant_id para enviar invitaciones.');
     }
@@ -1019,64 +1041,197 @@ export default function AdminUsers() {
       throw new Error('Tu sesión venció. Volvé a ingresar antes de enviar invitaciones.');
     }
 
+    const requestId = crypto.randomUUID();
     const batches: string[][] = [];
 
     for (let index = 0; index < uniqueEmails.length; index += 100) {
       batches.push(uniqueEmails.slice(index, index + 100));
     }
 
-    let sent = 0;
-    let failed = 0;
-    let skipped = 0;
+    const results: InvitationRecipientResult[] = [];
     let processed = 0;
-    const skippedDetails: Array<{ email: string; reason: string }> = [];
+    let fatalError: string | null = null;
+    let trackingWarning: string | null = null;
 
-    for (const batch of batches) {
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      const batch = batches[batchIndex];
       const response = await fetch('/.netlify/functions/send-employee-invitations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ tenantId, emails: batch, allowResend }),
+        body: JSON.stringify({
+          tenantId,
+          emails: batch,
+          allowResend,
+          requestId,
+          batchIndex,
+        }),
       });
 
       const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        const partialMessage = processed > 0 ? ` Se procesaron ${processed} de ${uniqueEmails.length} antes del error.` : '';
-        throw new Error(`${result?.error || 'No pudimos enviar las invitaciones.'}${partialMessage}`);
+      const returnedResults = Array.isArray(result?.results)
+        ? (result.results as InvitationRecipientResult[])
+        : [];
+
+      if (returnedResults.length > 0) {
+        results.push(...returnedResults);
+      } else if (!response.ok) {
+        const message = result?.error || 'No pudimos enviar este lote de invitaciones.';
+        results.push(
+          ...batch.map((email) => ({
+            email,
+            status: 'failed' as const,
+            message,
+          }))
+        );
       }
 
-      sent += Number(result?.sent ?? 0);
-      failed += Number(result?.failed ?? 0);
-      skipped += Number(result?.skipped ?? 0);
-      skippedDetails.push(...((result?.skippedDetails ?? []) as Array<{ email: string; reason: string }>));
       processed += batch.length;
       onProgress?.(processed, uniqueEmails.length);
+
+      if (result?.trackingWarning && !trackingWarning) {
+        trackingWarning = String(result.trackingWarning);
+      }
+
+      if (!response.ok) {
+        fatalError = result?.error || 'El envío se interrumpió por un error del proveedor.';
+
+        const remainingEmails = batches
+          .slice(batchIndex + 1)
+          .flat();
+
+        results.push(
+          ...remainingEmails.map((email) => ({
+            email,
+            status: 'not_processed' as const,
+            message: 'No se intentó enviar porque un lote anterior terminó con error.',
+          }))
+        );
+        break;
+      }
     }
 
-    return { sent, failed, skipped, skippedDetails };
+    const accepted = results.filter((item) => item.status === 'accepted').length;
+    const failed = results.filter((item) => item.status === 'failed').length;
+    const skipped = results.filter((item) => item.status === 'skipped').length;
+    const notProcessed = results.filter((item) => item.status === 'not_processed').length;
+
+    return {
+      total: uniqueEmails.length,
+      accepted,
+      failed,
+      skipped,
+      notProcessed,
+      results,
+      fatalError,
+      trackingWarning,
+    };
   }
 
-  function getSkippedSummary(details: Array<{ email: string; reason: string }>) {
-    if (details.length === 0) return '';
+  function resetInvitationModal() {
+    setInvitationResult(null);
+    setInviteProgress(null);
+    setErrorMessage(null);
+  }
+
+  function getInvitationStatusLabel(result: InvitationRecipientResult) {
+    if (result.status === 'accepted') return 'Aceptado para envío';
+    if (result.status === 'failed') return 'Error';
+    if (result.status === 'not_processed') return 'No procesado';
 
     const labels: Record<string, string> = {
-      registered: 'ya registrados',
-      inactive: 'inactivos',
-      already_invited: 'ya invitados',
-      not_found: 'no encontrados',
-      not_eligible: 'no habilitados',
+      registered: 'Omitido: ya registrado',
+      inactive: 'Omitido: inactivo',
+      already_invited: 'Omitido: ya invitado',
+      not_found: 'Omitido: no encontrado',
+      not_eligible: 'Omitido: no habilitado',
     };
-    const counts = details.reduce<Record<string, number>>((acc, item) => {
-      acc[item.reason] = (acc[item.reason] ?? 0) + 1;
-      return acc;
-    }, {});
-    const parts = Object.entries(counts).map(
-      ([reason, count]) => `${count} ${labels[reason] || reason}`
-    );
 
-    return parts.length > 0 ? ` Omitidos: ${parts.join(', ')}.` : '';
+    return labels[result.reason || ''] || 'Omitido';
+  }
+
+  function InvitationResultsPanel({ result }: { result: InvitationRunResult }) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+            <div className="text-xl font-bold text-emerald-300">{result.accepted}</div>
+            <div className="text-xs text-emerald-100/70">aceptados</div>
+          </div>
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+            <div className="text-xl font-bold text-red-300">{result.failed}</div>
+            <div className="text-xs text-red-100/70">con error</div>
+          </div>
+          <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
+            <div className="text-xl font-bold text-steel-200">{result.skipped}</div>
+            <div className="text-xs text-steel-500">omitidos</div>
+          </div>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+            <div className="text-xl font-bold text-amber-300">{result.notProcessed}</div>
+            <div className="text-xs text-amber-100/70">no procesados</div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-xs text-steel-400">
+          “Aceptado” significa que el proveedor creó el email para su envío. No confirma todavía que haya llegado a la bandeja del destinatario.
+        </div>
+
+        {result.fatalError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {result.fatalError}
+          </div>
+        )}
+
+        {result.trackingWarning && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {result.trackingWarning}
+          </div>
+        )}
+
+        <div className="max-h-80 overflow-auto rounded-xl border border-steel-700">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-steel-900 text-steel-400">
+              <tr>
+                <th className="px-3 py-2 text-left">Email</th>
+                <th className="px-3 py-2 text-left">Resultado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-steel-700/70">
+              {result.results.map((item, index) => (
+                <tr key={`${item.email}-${index}`} className="bg-steel-800/70">
+                  <td className="px-3 py-2 align-top text-steel-200 break-all">{item.email}</td>
+                  <td className="px-3 py-2 align-top">
+                    <div
+                      className={`font-medium ${
+                        item.status === 'accepted'
+                          ? 'text-emerald-300'
+                          : item.status === 'failed'
+                            ? 'text-red-300'
+                            : item.status === 'not_processed'
+                              ? 'text-amber-300'
+                              : 'text-steel-300'
+                      }`}
+                    >
+                      {getInvitationStatusLabel(item)}
+                    </div>
+                    {item.message && (
+                      <div className="mt-1 text-steel-500 leading-4">{item.message}</div>
+                    )}
+                    {item.providerId && (
+                      <div className="mt-1 font-mono text-[10px] text-steel-600">
+                        ID: {item.providerId}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   }
 
   async function handleInviteUsers() {
@@ -1104,6 +1259,7 @@ export default function AdminUsers() {
     }
 
     setSaving(true);
+    setInvitationResult(null);
     setInviteProgress({ processed: 0, total: uniqueEmails.length });
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -1148,12 +1304,8 @@ export default function AdminUsers() {
         onProgress: (processed, total) => setInviteProgress({ processed, total }),
       });
 
-      setShowInvite(false);
-      setInviteEmails('');
-      await loadUsersData();
-      setSuccessMessage(
-        `Invitaciones puntuales: ${result.sent} enviada(s), ${result.failed} con error, ${result.skipped} omitida(s).${getSkippedSummary(result.skippedDetails)}`
-      );
+      setInvitationResult(result);
+      await loadUsersData({ silent: true });
     } catch (error) {
       console.error('Error inviting users:', error);
       setErrorMessage(
@@ -1176,12 +1328,21 @@ export default function AdminUsers() {
       .filter(Boolean);
 
     if (emails.length === 0) {
-      setShowBulkInvite(false);
-      setSuccessMessage('No hay trabajadores nuevos pendientes de invitación.');
+      setInvitationResult({
+        total: 0,
+        accepted: 0,
+        failed: 0,
+        skipped: 0,
+        notProcessed: 0,
+        results: [],
+        fatalError: null,
+        trackingWarning: null,
+      });
       return;
     }
 
     setSaving(true);
+    setInvitationResult(null);
     setInviteProgress({ processed: 0, total: emails.length });
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -1193,11 +1354,8 @@ export default function AdminUsers() {
         onProgress: (processed, total) => setInviteProgress({ processed, total }),
       });
 
-      setShowBulkInvite(false);
-      await loadUsersData();
-      setSuccessMessage(
-        `Envío masivo finalizado para ${tenantName || 'la empresa'}: ${result.sent} enviada(s), ${result.failed} con error y ${result.skipped} omitida(s).${getSkippedSummary(result.skippedDetails)}`
-      );
+      setInvitationResult(result);
+      await loadUsersData({ silent: true });
     } catch (error) {
       console.error('Error sending pending invitations:', error);
       setErrorMessage(error instanceof Error ? error.message : 'No se pudieron enviar invitaciones.');
@@ -1340,7 +1498,7 @@ export default function AdminUsers() {
           <div>
             <div className="text-red-400 font-semibold">No se pudieron cargar los usuarios</div>
             <div className="text-sm text-steel-400 mt-2">{errorMessage}</div>
-            <button onClick={loadUsersData} className="btn-secondary mt-4 text-xs">
+            <button onClick={() => loadUsersData()} className="btn-secondary mt-4 text-xs">
               <RefreshCw size={14} />
               Reintentar
             </button>
@@ -1415,7 +1573,7 @@ export default function AdminUsers() {
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          <button onClick={loadUsersData} className="btn-secondary text-xs">
+          <button onClick={() => loadUsersData()} className="btn-secondary text-xs">
             <RefreshCw size={14} />
             Actualizar
           </button>
@@ -1435,6 +1593,7 @@ export default function AdminUsers() {
             onClick={() => {
               setErrorMessage(null);
               setSuccessMessage(null);
+              resetInvitationModal();
               setShowBulkInvite(true);
             }}
             disabled={saving}
@@ -1448,6 +1607,7 @@ export default function AdminUsers() {
             onClick={() => {
               setErrorMessage(null);
               setSuccessMessage(null);
+              resetInvitationModal();
               setShowInvite(true);
             }}
             className="btn-secondary text-xs"
@@ -2010,140 +2170,204 @@ export default function AdminUsers() {
       <Modal
         open={showBulkInvite}
         onClose={() => {
-          if (!saving) setShowBulkInvite(false);
+          if (!saving) {
+            setShowBulkInvite(false);
+            resetInvitationModal();
+          }
         }}
-        title="Confirmar envío masivo"
+        title={invitationResult ? 'Resultado del envío masivo' : 'Confirmar envío masivo'}
+        size={invitationResult ? 'lg' : 'md'}
         footer={
-          <>
+          invitationResult ? (
             <button
-              onClick={() => setShowBulkInvite(false)}
-              disabled={saving}
-              className="btn-ghost"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSendPendingInvitations}
-              disabled={saving || bulkInvitationRows.length === 0}
+              onClick={() => {
+                setShowBulkInvite(false);
+                resetInvitationModal();
+              }}
               className="btn-primary"
             >
-              <Mail size={15} />
-              {saving
-                ? `Enviando ${inviteProgress?.processed ?? 0}/${inviteProgress?.total ?? bulkInvitationRows.length}`
-                : `Enviar a ${bulkInvitationRows.length}`}
+              Cerrar
             </button>
-          </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setShowBulkInvite(false);
+                  resetInvitationModal();
+                }}
+                disabled={saving}
+                className="btn-ghost"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendPendingInvitations}
+                disabled={saving || bulkInvitationRows.length === 0}
+                className="btn-primary"
+              >
+                <Mail size={15} />
+                {saving
+                  ? `Enviando ${inviteProgress?.processed ?? 0}/${inviteProgress?.total ?? bulkInvitationRows.length}`
+                  : `Enviar a ${bulkInvitationRows.length}`}
+              </button>
+            </>
+          )
         }
       >
-        <div className="space-y-4">
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-            <div className="text-sm font-semibold text-amber-200">
-              Se enviarán invitaciones a {bulkInvitationRows.length} trabajador(es) de {tenantName || 'esta empresa'}.
+        {invitationResult ? (
+          <InvitationResultsPanel result={invitationResult} />
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="text-sm font-semibold text-amber-200">
+                Se enviarán invitaciones a {bulkInvitationRows.length} trabajador(es) de {tenantName || 'esta empresa'}.
+              </div>
+              <p className="mt-2 text-xs leading-5 text-amber-100/70">
+                Solo se incluyen trabajadores preaprobados que todavía no tienen una cuenta registrada y nunca fueron invitados.
+              </p>
             </div>
-            <p className="mt-2 text-xs leading-5 text-amber-100/70">
-              Solo se incluyen trabajadores preaprobados que todavía no tienen una cuenta registrada y nunca fueron invitados.
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+                <div className="text-xl font-bold text-emerald-300">{bulkInvitationRows.length}</div>
+                <div className="text-xs text-emerald-100/70">recibirán invitación</div>
+              </div>
+              <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
+                <div className="text-xl font-bold text-steel-200">{alreadyInvitedCount}</div>
+                <div className="text-xs text-steel-500">ya invitados, no se reenvían</div>
+              </div>
+              <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
+                <div className="text-xl font-bold text-steel-200">{registeredDirectoryCount}</div>
+                <div className="text-xs text-steel-500">ya registrados, no se incluyen</div>
+              </div>
+            </div>
+
+            {errorMessage && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {errorMessage}
+              </div>
+            )}
+
+            {inviteProgress && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs text-steel-400">
+                  <span>Procesando invitaciones</span>
+                  <span>{inviteProgress.processed} / {inviteProgress.total}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-steel-800">
+                  <div
+                    className="h-full bg-amber-500 transition-all"
+                    style={{
+                      width: `${inviteProgress.total > 0
+                        ? Math.round((inviteProgress.processed / inviteProgress.total) * 100)
+                        : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-steel-500">
+              Para enviar o reenviar a destinatarios específicos, cancelá y elegí <strong className="text-steel-300">Invitar emails puntuales</strong>.
             </p>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
-              <div className="text-xl font-bold text-emerald-300">{bulkInvitationRows.length}</div>
-              <div className="text-xs text-emerald-100/70">recibirán invitación</div>
-            </div>
-            <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
-              <div className="text-xl font-bold text-steel-200">{alreadyInvitedCount}</div>
-              <div className="text-xs text-steel-500">ya invitados, no se reenvían</div>
-            </div>
-            <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
-              <div className="text-xl font-bold text-steel-200">{registeredDirectoryCount}</div>
-              <div className="text-xs text-steel-500">ya registrados, no se incluyen</div>
-            </div>
-          </div>
-
-          {errorMessage && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-              {errorMessage}
-            </div>
-          )}
-
-          {inviteProgress && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-steel-400">
-                <span>Procesando invitaciones</span>
-                <span>{inviteProgress.processed} / {inviteProgress.total}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-steel-800">
-                <div
-                  className="h-full bg-amber-500 transition-all"
-                  style={{
-                    width: `${inviteProgress.total > 0
-                      ? Math.round((inviteProgress.processed / inviteProgress.total) * 100)
-                      : 0}%`,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-          <p className="text-xs text-steel-500">
-            Para enviar o reenviar a destinatarios específicos, cancelá y elegí <strong className="text-steel-300">Invitar emails puntuales</strong>.
-          </p>
-        </div>
+        )}
       </Modal>
 
       <Modal
         open={showInvite}
         onClose={() => {
-          if (!saving) setShowInvite(false);
+          if (!saving) {
+            setShowInvite(false);
+            setInviteEmails('');
+            resetInvitationModal();
+          }
         }}
-        title="Invitar usuarios por email"
+        title={invitationResult ? 'Resultado de invitaciones puntuales' : 'Invitar usuarios por email'}
+        size={invitationResult ? 'lg' : 'md'}
         footer={
-          <>
-            <button onClick={() => setShowInvite(false)} disabled={saving} className="btn-ghost">
-              Cancelar
-            </button>
-            <button onClick={handleInviteUsers} disabled={saving} className="btn-primary">
-              <Mail size={15} />
-              {saving
-                ? `Enviando ${inviteProgress?.processed ?? 0}/${inviteProgress?.total ?? 0}`
-                : 'Enviar invitaciones'}
-            </button>
-          </>
+          invitationResult ? (
+            <>
+              <button
+                onClick={() => {
+                  setInvitationResult(null);
+                  setInviteEmails('');
+                }}
+                className="btn-secondary"
+              >
+                Enviar otra tanda
+              </button>
+              <button
+                onClick={() => {
+                  setShowInvite(false);
+                  setInviteEmails('');
+                  resetInvitationModal();
+                }}
+                className="btn-primary"
+              >
+                Cerrar
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setShowInvite(false);
+                  setInviteEmails('');
+                  resetInvitationModal();
+                }}
+                disabled={saving}
+                className="btn-ghost"
+              >
+                Cancelar
+              </button>
+              <button onClick={handleInviteUsers} disabled={saving} className="btn-primary">
+                <Mail size={15} />
+                {saving
+                  ? `Enviando ${inviteProgress?.processed ?? 0}/${inviteProgress?.total ?? 0}`
+                  : 'Enviar invitaciones'}
+              </button>
+            </>
+          )
         }
       >
-        <div className="space-y-3">
-          <p className="text-sm text-steel-400">
-            Ingresá uno o más emails, uno por línea. Los emails nuevos se agregan a la nómina. Si una persona ya fue invitada pero todavía no se registró, la invitación se reenvía.
-          </p>
+        {invitationResult ? (
+          <InvitationResultsPanel result={invitationResult} />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-steel-400">
+              Ingresá uno o más emails, uno por línea. Los emails nuevos se agregan a la nómina. Si una persona ya fue invitada pero todavía no se registró, la invitación se reenvía.
+            </p>
 
-          <p className="text-xs text-steel-500">
-            Los usuarios ya registrados o inactivos se omiten y el resultado se informa al finalizar.
-          </p>
+            <p className="text-xs text-steel-500">
+              Los usuarios ya registrados o inactivos se omiten. Al finalizar se mostrará el resultado individual de cada email.
+            </p>
 
-          {errorMessage && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-              {errorMessage}
-            </div>
-          )}
+            {errorMessage && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {errorMessage}
+              </div>
+            )}
 
-          <textarea
-            value={inviteEmails}
-            onChange={(event) => setInviteEmails(event.target.value)}
-            className="input font-mono text-xs"
-            rows={6}
-            placeholder={'usuario1@empresa.com\nusuario2@empresa.com\nusuario3@empresa.com'}
-          />
+            <textarea
+              value={inviteEmails}
+              onChange={(event) => setInviteEmails(event.target.value)}
+              className="input font-mono text-xs"
+              rows={6}
+              placeholder={'usuario1@empresa.com\nusuario2@empresa.com\nusuario3@empresa.com'}
+            />
 
-          <p className="text-xs text-steel-500">
-            {
-              inviteEmails
-                .split('\n')
-                .map((email) => email.trim())
-                .filter(Boolean).length
-            }{' '}
-            email(s) a cargar
-          </p>
-        </div>
+            <p className="text-xs text-steel-500">
+              {
+                inviteEmails
+                  .split('\n')
+                  .map((email) => email.trim())
+                  .filter(Boolean).length
+              }{' '}
+              email(s) a cargar
+            </p>
+          </div>
+        )}
       </Modal>
 
       {showDetail && (

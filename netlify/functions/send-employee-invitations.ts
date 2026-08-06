@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -55,9 +56,26 @@ type DirectoryRow = {
   profile_id?: string | null;
 };
 
-type SkippedInvitation = {
+type SkipReason =
+  | 'not_found'
+  | 'registered'
+  | 'inactive'
+  | 'already_invited'
+  | 'not_eligible';
+
+type InvitationResult = {
   email: string;
-  reason: 'not_found' | 'registered' | 'inactive' | 'already_invited' | 'not_eligible';
+  status: 'accepted' | 'failed' | 'skipped';
+  reason?: SkipReason;
+  message?: string;
+  providerId?: string;
+};
+
+type ResendBatchResponse = {
+  data?: Array<{ id?: string }>;
+  errors?: Array<{ index?: number; message?: string }>;
+  message?: string;
+  error?: { message?: string };
 };
 
 function getFullName(row: DirectoryRow) {
@@ -121,9 +139,18 @@ function buildInvitationHtml({
   `;
 }
 
-async function sendResendBatch(
-  emails: Array<{ to: string; subject: string; html: string }>
-) {
+function sanitizeRequestId(value: unknown) {
+  const normalized = clean(value).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
+  return normalized || randomUUID();
+}
+
+async function sendResendBatch({
+  emails,
+  idempotencyKey,
+}: {
+  emails: Array<{ to: string; subject: string; html: string }>;
+  idempotencyKey: string;
+}) {
   if (!resendApiKey) {
     return { ok: false as const, error: 'RESEND_API_KEY no configurada.' };
   }
@@ -133,6 +160,8 @@ async function sendResendBatch(
     headers: {
       Authorization: `Bearer ${resendApiKey}`,
       'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+      'x-batch-validation': 'permissive',
     },
     body: JSON.stringify(
       emails.map((email) => ({
@@ -144,36 +173,69 @@ async function sendResendBatch(
     ),
   });
 
-  const responseBody = await response.json().catch(() => null);
+  const responseBody = (await response.json().catch(() => null)) as ResendBatchResponse | null;
 
   if (!response.ok) {
     return {
       ok: false as const,
-      error: responseBody?.message || responseBody?.error?.message || 'No pudimos enviar el lote de emails.',
+      error:
+        responseBody?.message ||
+        responseBody?.error?.message ||
+        'No pudimos enviar el lote de emails.',
     };
   }
 
-  return { ok: true as const, data: responseBody };
+  return {
+    ok: true as const,
+    data: responseBody?.data ?? [],
+    errors: responseBody?.errors ?? [],
+  };
 }
 
 function classifySkipped(
   email: string,
-  rows: DirectoryRow[],
+  row: DirectoryRow | undefined,
   allowResend: boolean
-): SkippedInvitation | null {
-  const row = rows.find((candidate) => normalizeEmail(candidate.email) === email);
-
-  if (!row) return { email, reason: 'not_found' };
-  if (row.profile_id) return { email, reason: 'registered' };
+): InvitationResult | null {
+  if (!row) return { email, status: 'skipped', reason: 'not_found' };
+  if (row.profile_id) return { email, status: 'skipped', reason: 'registered' };
 
   const status = clean(row.status).toLowerCase();
-  if (status === 'inactive') return { email, reason: 'inactive' };
-  if (status === 'invited' && !allowResend) return { email, reason: 'already_invited' };
+  if (status === 'inactive') return { email, status: 'skipped', reason: 'inactive' };
+  if (status === 'invited' && !allowResend) {
+    return { email, status: 'skipped', reason: 'already_invited' };
+  }
   if (status !== 'preapproved' && !(allowResend && status === 'invited')) {
-    return { email, reason: 'not_eligible' };
+    return { email, status: 'skipped', reason: 'not_eligible' };
   }
 
   return null;
+}
+
+async function updateInvitationStatus(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  ids: string[],
+  invitedAt: string
+) {
+  if (ids.length === 0) return null;
+
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { error } = await supabaseAdmin
+      .from('employee_directory')
+      .update({ status: 'invited', invited_at: invitedAt })
+      .in('id', ids);
+
+    if (!error) return null;
+    lastError = error;
+
+    if (attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  return lastError;
 }
 
 export const handler = async (event: any) => {
@@ -199,6 +261,10 @@ export const handler = async (event: any) => {
 
   const tenantId = clean(payload.tenantId);
   const allowResend = payload.allowResend === true;
+  const requestId = sanitizeRequestId(payload.requestId);
+  const batchIndex = Number.isInteger(payload.batchIndex) && payload.batchIndex >= 0
+    ? payload.batchIndex
+    : 0;
   const emails: string[] = Array.isArray(payload.emails)
     ? Array.from(new Set<string>(payload.emails.map(normalizeEmail).filter(Boolean)))
     : [];
@@ -282,26 +348,41 @@ export const handler = async (event: any) => {
   }
 
   const directoryRows = (rows ?? []) as DirectoryRow[];
-  const skipped = emails
-    .map((email) => classifySkipped(email, directoryRows, allowResend))
-    .filter((item): item is SkippedInvitation => Boolean(item));
-  const skippedEmails = new Set(skipped.map((item) => item.email));
-  const eligibleRows = directoryRows.filter((row) => !skippedEmails.has(normalizeEmail(row.email)));
+  const rowByEmail = new Map(
+    directoryRows.map((row) => [normalizeEmail(row.email), row] as const)
+  );
+
+  const results: InvitationResult[] = [];
+  const eligibleRows: DirectoryRow[] = [];
+
+  emails.forEach((email) => {
+    const row = rowByEmail.get(email);
+    const skipped = classifySkipped(email, row, allowResend);
+
+    if (skipped) {
+      results.push(skipped);
+    } else if (row) {
+      eligibleRows.push(row);
+    }
+  });
 
   if (eligibleRows.length === 0) {
     return json(200, {
       ok: true,
-      sent: 0,
+      accepted: 0,
       failed: 0,
-      skipped: skipped.length,
-      skippedDetails: skipped,
+      skipped: results.length,
+      trackingWarning: null,
+      results,
       message: 'No había destinatarios habilitados para recibir la invitación.',
     });
   }
 
   const registerUrl = appUrl.replace(/\/$/, '');
-  const batchResult = await sendResendBatch(
-    eligibleRows.map((row) => ({
+  const idempotencyKey = `ciguena-invite/${tenantId}/${requestId}/${batchIndex}`.slice(0, 256);
+  const batchResult = await sendResendBatch({
+    idempotencyKey,
+    emails: eligibleRows.map((row) => ({
       to: row.email,
       subject: `Invitación a Cigüeña - ${tenantData.name}`,
       html: buildInvitationHtml({
@@ -309,41 +390,102 @@ export const handler = async (event: any) => {
         tenantName: tenantData.name,
         registerUrl,
       }),
-    }))
-  );
+    })),
+  });
 
   if (!batchResult.ok) {
+    const failedResults: InvitationResult[] = eligibleRows.map((row) => ({
+      email: normalizeEmail(row.email),
+      status: 'failed',
+      message: batchResult.error,
+    }));
+
+    const resultByEmail = new Map(
+      [...results, ...failedResults].map((result) => [result.email, result] as const)
+    );
+    const orderedResults = emails
+      .map((email) => resultByEmail.get(email))
+      .filter((result): result is InvitationResult => Boolean(result));
+
     return json(502, {
+      ok: false,
       error: batchResult.error,
-      sent: 0,
-      failed: eligibleRows.length,
-      skipped: skipped.length,
-      skippedDetails: skipped,
+      accepted: 0,
+      failed: failedResults.length,
+      skipped: results.length,
+      trackingWarning: null,
+      results: orderedResults,
     });
   }
 
-  const sentIds = eligibleRows.map((row) => row.id);
+  const errorByIndex = new Map<number, string>();
+  batchResult.errors.forEach((error) => {
+    if (typeof error.index === 'number' && error.index >= 0) {
+      errorByIndex.set(error.index, clean(error.message) || 'El proveedor rechazó este email.');
+    }
+  });
+
+  const acceptedRows: DirectoryRow[] = [];
+  let providerDataIndex = 0;
+
+  eligibleRows.forEach((row, index) => {
+    const validationError = errorByIndex.get(index);
+
+    if (validationError) {
+      results.push({
+        email: normalizeEmail(row.email),
+        status: 'failed',
+        message: validationError,
+      });
+      return;
+    }
+
+    const providerId = clean(batchResult.data[providerDataIndex]?.id);
+    providerDataIndex += 1;
+
+    if (!providerId) {
+      results.push({
+        email: normalizeEmail(row.email),
+        status: 'failed',
+        message: 'El proveedor no devolvió una confirmación individual para este email.',
+      });
+      return;
+    }
+
+    acceptedRows.push(row);
+    results.push({
+      email: normalizeEmail(row.email),
+      status: 'accepted',
+      providerId,
+    });
+  });
+
   const invitedAt = new Date().toISOString();
-  const { error: updateError } = await supabaseAdmin
-    .from('employee_directory')
-    .update({ status: 'invited', invited_at: invitedAt })
-    .in('id', sentIds);
+  const updateError = await updateInvitationStatus(
+    supabaseAdmin,
+    acceptedRows.map((row) => row.id),
+    invitedAt
+  );
 
-  if (updateError) {
-    return json(500, {
-      error: 'Los emails fueron enviados, pero no pudimos actualizar el estado de invitación.',
-      sent: sentIds.length,
-      failed: 0,
-      skipped: skipped.length,
-      skippedDetails: skipped,
-    });
-  }
+  const trackingWarning = updateError
+    ? 'Los emails fueron aceptados por el proveedor, pero Cigüeña no pudo actualizar su estado. No repitas el envío sin revisar el panel de Resend.'
+    : null;
+
+  const resultByEmail = new Map(results.map((result) => [result.email, result] as const));
+  const orderedResults = emails
+    .map((email) => resultByEmail.get(email))
+    .filter((result): result is InvitationResult => Boolean(result));
+
+  const accepted = orderedResults.filter((result) => result.status === 'accepted').length;
+  const failed = orderedResults.filter((result) => result.status === 'failed').length;
+  const skipped = orderedResults.filter((result) => result.status === 'skipped').length;
 
   return json(200, {
-    ok: true,
-    sent: sentIds.length,
-    failed: 0,
-    skipped: skipped.length,
-    skippedDetails: skipped,
+    ok: failed === 0 && !trackingWarning,
+    accepted,
+    failed,
+    skipped,
+    trackingWarning,
+    results: orderedResults,
   });
 };
