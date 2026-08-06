@@ -205,7 +205,10 @@ function classifySkipped(
   if (status === 'invited' && !allowResend) {
     return { email, status: 'skipped', reason: 'already_invited' };
   }
-  if (status !== 'preapproved' && !(allowResend && status === 'invited')) {
+  const canReceiveFirstInvitation = ['preapproved', 'pending', 'active'].includes(status);
+  const canReceiveResend = allowResend && status === 'invited';
+
+  if (!canReceiveFirstInvitation && !canReceiveResend) {
     return { email, status: 'skipped', reason: 'not_eligible' };
   }
 

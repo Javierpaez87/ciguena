@@ -809,12 +809,15 @@ export default function AdminUsers() {
 
   const bulkInvitationRows = useMemo(
     () =>
-      employeeDirectory.filter(
-        (row) =>
+      employeeDirectory.filter((row) => {
+        const status = normalize(row.status);
+
+        return (
           Boolean(row.email) &&
           !row.profile_id &&
-          normalize(row.status) === 'preapproved'
-      ),
+          ['preapproved', 'pending', 'active'].includes(status)
+        );
+      }),
     [employeeDirectory]
   );
 
@@ -828,6 +831,14 @@ export default function AdminUsers() {
 
   const registeredDirectoryCount = useMemo(
     () => employeeDirectory.filter((row) => Boolean(row.profile_id)).length,
+    [employeeDirectory]
+  );
+
+  const inactiveDirectoryCount = useMemo(
+    () =>
+      employeeDirectory.filter(
+        (row) => !row.profile_id && normalize(row.status) === 'inactive'
+      ).length,
     [employeeDirectory]
   );
 
@@ -2223,11 +2234,11 @@ export default function AdminUsers() {
                 Se enviarán invitaciones a {bulkInvitationRows.length} trabajador(es) de {tenantName || 'esta empresa'}.
               </div>
               <p className="mt-2 text-xs leading-5 text-amber-100/70">
-                Solo se incluyen trabajadores preaprobados que todavía no tienen una cuenta registrada y nunca fueron invitados.
+                Se incluyen trabajadores preaprobados o activos que todavía no tienen una cuenta registrada y nunca fueron invitados.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
                 <div className="text-xl font-bold text-emerald-300">{bulkInvitationRows.length}</div>
                 <div className="text-xs text-emerald-100/70">recibirán invitación</div>
@@ -2239,6 +2250,10 @@ export default function AdminUsers() {
               <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
                 <div className="text-xl font-bold text-steel-200">{registeredDirectoryCount}</div>
                 <div className="text-xs text-steel-500">ya registrados, no se incluyen</div>
+              </div>
+              <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
+                <div className="text-xl font-bold text-steel-200">{inactiveDirectoryCount}</div>
+                <div className="text-xs text-steel-500">inactivos, no se incluyen</div>
               </div>
             </div>
 
