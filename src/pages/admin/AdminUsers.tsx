@@ -34,6 +34,15 @@ interface Profile {
   area?: string | null;
   contractor_company?: string | null;
   employee_code?: string | null;
+  supervisor?: string | null;
+  shift?: string | null;
+  hire_date?: string | null;
+  base?: string | null;
+  site?: string | null;
+  region?: string | null;
+  oilfield?: string | null;
+  custom_fields?: Record<string, string> | null;
+  raw_payload?: Record<string, unknown> | null;
   dni?: string | null;
   phone?: string | null;
   status?: string | null;
@@ -61,6 +70,15 @@ interface EmployeeDirectory {
   position?: string | null;
   contractor_company?: string | null;
   department?: string | null;
+  supervisor?: string | null;
+  shift?: string | null;
+  hire_date?: string | null;
+  base?: string | null;
+  site?: string | null;
+  region?: string | null;
+  oilfield?: string | null;
+  custom_fields?: Record<string, string> | null;
+  raw_payload?: Record<string, unknown> | null;
   status?: string | null;
   invited_at?: string | null;
   registered_at?: string | null;
@@ -102,6 +120,7 @@ type FormState = {
   email: string;
   dni: string;
   phone: string;
+  work_role: string;
   position: string;
   area: string;
   contractor_company: string;
@@ -121,6 +140,14 @@ type CsvPreviewRow = {
   area: string;
   contractor_company: string;
   employee_code: string;
+  supervisor: string;
+  shift: string;
+  hire_date: string;
+  base: string;
+  site: string;
+  region: string;
+  oilfield: string;
+  custom_fields: Record<string, string>;
   status: string;
   errors: string[];
 };
@@ -206,6 +233,17 @@ function directoryRowToProfile(row: EmployeeDirectory): Profile {
     area: row.area || row.department,
     contractor_company: row.contractor_company,
     employee_code: row.employee_code || row.external_id,
+    supervisor: row.supervisor || getRawPayloadString(row.raw_payload, 'supervisor'),
+    shift: row.shift || getRawPayloadString(row.raw_payload, 'shift'),
+    hire_date: row.hire_date || getRawPayloadString(row.raw_payload, 'hire_date'),
+    base: row.base || getRawPayloadString(row.raw_payload, 'base'),
+    site: row.site || getRawPayloadString(row.raw_payload, 'site'),
+    region: row.region || getRawPayloadString(row.raw_payload, 'region'),
+    oilfield: row.oilfield || getRawPayloadString(row.raw_payload, 'oilfield'),
+    custom_fields:
+      row.custom_fields ||
+      ((row.raw_payload?.custom_fields as Record<string, string> | undefined) ?? null),
+    raw_payload: row.raw_payload,
     dni: row.dni,
     phone: row.phone,
     status: row.status || 'preapproved',
@@ -291,11 +329,27 @@ function parseCsvLine(line: string, delimiter = ',') {
 
 function normalizeHeader(header: string) {
   return header
+    .replace(/^\uFEFF/, '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, '_');
+}
+
+function getRawPayloadString(
+  payload: Record<string, unknown> | null | undefined,
+  key: string
+) {
+  const value = payload?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function isValidIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function getColumnValue(row: Record<string, string>, keys: string[]) {
@@ -355,14 +409,14 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
     ]).toLowerCase();
     const dni = getColumnValue(row, ['dni', 'documento', 'documento_nacional']);
     const phone = getColumnValue(row, ['telefono', 'phone', 'celular', 'mobile']);
-    const position = getColumnValue(row, [
+    const workRole = getColumnValue(row, [
+      'rol_operativo',
+      'work_role',
       'job_role',
       'rol',
-      'rol_operativo',
-      'puesto',
-      'position',
-      'cargo',
     ]);
+    const position =
+      getColumnValue(row, ['puesto', 'position', 'cargo']) || workRole;
     const area = getColumnValue(row, ['area', 'sector', 'departamento', 'department']);
     const employeeCode = getColumnValue(row, ['legajo', 'employee_code', 'codigo_empleado']);
     const contractorCompany = getColumnValue(row, [
@@ -372,6 +426,19 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
       'empresa',
     ]);
     const status = mapStatus(getColumnValue(row, ['estado', 'status']));
+    const supervisor = getColumnValue(row, ['supervisor', 'responsable']);
+    const shift = getColumnValue(row, ['turno', 'shift', 'diagrama']);
+    const hireDate = getColumnValue(row, ['fecha_ingreso', 'hire_date', 'fecha_de_ingreso']);
+    const base = getColumnValue(row, ['base', 'base_operativa']);
+    const site = getColumnValue(row, ['sede', 'site']);
+    const region = getColumnValue(row, ['region', 'región']);
+    const oilfield = getColumnValue(row, ['yacimiento', 'locacion', 'locación', 'oilfield']);
+    const customFields = Object.fromEntries(
+      Array.from({ length: 5 }, (_, customIndex) => {
+        const key = `campo_personalizado_${customIndex + 1}`;
+        return [key, getColumnValue(row, [key])];
+      }).filter(([, value]) => Boolean(value))
+    );
 
     const fullNameFromCsv = getColumnValue(row, ['nombre_completo', 'full_name']);
     const fullName = fullNameFromCsv || [firstName, lastName].filter(Boolean).join(' ');
@@ -383,6 +450,8 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
     if (email && existingEmails.has(email)) errors.push('Email ya existe');
     if (email && emailsInCsv.has(email)) errors.push('Email duplicado en el CSV');
     if (!fullName) errors.push('Falta nombre');
+    if (!['active', 'inactive', 'preapproved'].includes(status)) errors.push('Estado inválido');
+    if (hireDate && !isValidIsoDate(hireDate)) errors.push('Fecha de ingreso inválida');
 
     if (email) {
       emailsInCsv.add(email);
@@ -396,10 +465,19 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
       email,
       dni,
       phone,
+      work_role: workRole,
       position,
       area,
       contractor_company: contractorCompany,
       employee_code: employeeCode,
+      supervisor,
+      shift,
+      hire_date: hireDate,
+      base,
+      site,
+      region,
+      oilfield,
+      custom_fields: customFields,
       status,
       errors,
     };
@@ -428,6 +506,19 @@ function downloadCsvTemplate() {
     'legajo',
     'empresa_contratista',
     'estado',
+    'puesto',
+    'supervisor',
+    'turno',
+    'fecha_ingreso',
+    'base',
+    'sede',
+    'region',
+    'yacimiento',
+    'campo_personalizado_1',
+    'campo_personalizado_2',
+    'campo_personalizado_3',
+    'campo_personalizado_4',
+    'campo_personalizado_5',
   ];
 
   const exampleRows = [
@@ -442,18 +533,19 @@ function downloadCsvTemplate() {
       'EMP001',
       'Contratista SA',
       'pending',
-    ],
-    [
-      'Maria',
-      'Gomez',
-      'maria.gomez@empresa.com',
-      '30999888',
-      '+54 9 11 6677-8899',
-      'supervisor',
-      'Seguridad e Higiene',
-      'EMP002',
+      'Operador de campo',
+      'Ana López',
+      '14x14',
+      '2024-01-15',
+      'Base Norte',
+      'Sede Neuquén',
+      'Patagonia Norte',
+      'Loma Campana',
+      'Diagrama 14x14',
+      'CC-100',
+      'Cuadrilla A',
       '',
-      'pending',
+      '',
     ],
   ];
 
@@ -461,7 +553,7 @@ function downloadCsvTemplate() {
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     .join('\n');
 
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
 
   const link = document.createElement('a');
@@ -470,7 +562,6 @@ function downloadCsvTemplate() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-
   URL.revokeObjectURL(url);
 }
 
@@ -563,6 +654,18 @@ export default function AdminUsers() {
           area: profile.area || directoryRow.area || directoryRow.department,
           contractor_company: profile.contractor_company || directoryRow.contractor_company,
           employee_code: profile.employee_code || directoryRow.employee_code || directoryRow.external_id,
+          supervisor: profile.supervisor || directoryRow.supervisor || getRawPayloadString(directoryRow.raw_payload, 'supervisor'),
+          shift: profile.shift || directoryRow.shift || getRawPayloadString(directoryRow.raw_payload, 'shift'),
+          hire_date: profile.hire_date || directoryRow.hire_date || getRawPayloadString(directoryRow.raw_payload, 'hire_date'),
+          base: profile.base || directoryRow.base || getRawPayloadString(directoryRow.raw_payload, 'base'),
+          site: profile.site || directoryRow.site || getRawPayloadString(directoryRow.raw_payload, 'site'),
+          region: profile.region || directoryRow.region || getRawPayloadString(directoryRow.raw_payload, 'region'),
+          oilfield: profile.oilfield || directoryRow.oilfield || getRawPayloadString(directoryRow.raw_payload, 'oilfield'),
+          custom_fields:
+            profile.custom_fields ||
+            directoryRow.custom_fields ||
+            ((directoryRow.raw_payload?.custom_fields as Record<string, string> | undefined) ?? null),
+          raw_payload: directoryRow.raw_payload,
           preapproved: profile.preapproved ?? true,
           source: profile.source || directoryRow.source,
           directory_status: directoryRow.status,
@@ -1025,6 +1128,7 @@ export default function AdminUsers() {
       const now = new Date().toISOString();
 
       const directoryRowsToInsert = validRows.map((row) => {
+        const cleanWorkRole = clean(row.work_role);
         const cleanPosition = clean(row.position);
 
         return {
@@ -1037,8 +1141,8 @@ export default function AdminUsers() {
           email: row.email,
           dni: clean(row.dni),
           phone: clean(row.phone),
-          work_role: cleanPosition,
-          position: cleanPosition,
+          work_role: cleanWorkRole || cleanPosition,
+          position: cleanPosition || cleanWorkRole,
           area: clean(row.area),
           contractor_company: clean(row.contractor_company),
           employee_code: clean(row.employee_code),
@@ -1046,6 +1150,16 @@ export default function AdminUsers() {
           raw_payload: {
             source: 'csv',
             row_number: row.rowNumber,
+            work_role: clean(row.work_role),
+            position: clean(row.position),
+            supervisor: clean(row.supervisor),
+            shift: clean(row.shift),
+            hire_date: clean(row.hire_date),
+            base: clean(row.base),
+            site: clean(row.site),
+            region: clean(row.region),
+            oilfield: clean(row.oilfield),
+            custom_fields: row.custom_fields,
           },
           created_at: now,
           updated_at: now,
@@ -1070,7 +1184,7 @@ export default function AdminUsers() {
 
       setCsvRows([]);
       setShowCsvModal(false);
-      setSuccessMessage(`${directoryRowsToInsert.length} trabajador(es) importado(s) a la nómina desde CSV.`);
+      setSuccessMessage(`${createdRows.length} trabajador(es) importado(s) a la nómina desde CSV.`);
     } catch (error) {
       console.error('Error importing CSV:', error);
       setErrorMessage(error instanceof Error ? error.message : 'No se pudo importar el CSV.');
@@ -1645,6 +1759,9 @@ export default function AdminUsers() {
                     <li>legajo</li>
                     <li>empresa_contratista</li>
                     <li>estado: pending, active o inactive</li>
+                    <li>puesto, supervisor, turno y fecha_ingreso</li>
+                    <li>base, sede, region y yacimiento</li>
+                    <li>campo_personalizado_1 a 5</li>
                   </ul>
                 </div>
               </div>
@@ -1679,6 +1796,8 @@ export default function AdminUsers() {
                     <th className="table-header">DNI</th>
                     <th className="table-header">Rol / puesto</th>
                     <th className="table-header">Área</th>
+                    <th className="table-header">Base / sede</th>
+                    <th className="table-header">Región / yacimiento</th>
                     <th className="table-header">Legajo</th>
                     <th className="table-header">Estado</th>
                   </tr>
@@ -1703,8 +1822,18 @@ export default function AdminUsers() {
                       </td>
                       <td className="table-cell text-steel-300">{row.email || '—'}</td>
                       <td className="table-cell text-steel-300">{row.dni || '—'}</td>
-                      <td className="table-cell text-steel-300">{row.position || '—'}</td>
+                      <td className="table-cell text-steel-300">
+                        {[row.work_role, row.position !== row.work_role ? row.position : '']
+                          .filter(Boolean)
+                          .join(' / ') || '—'}
+                      </td>
                       <td className="table-cell text-steel-300">{row.area || '—'}</td>
+                      <td className="table-cell text-steel-300">
+                        {[row.base, row.site].filter(Boolean).join(' / ') || '—'}
+                      </td>
+                      <td className="table-cell text-steel-300">
+                        {[row.region, row.oilfield].filter(Boolean).join(' / ') || '—'}
+                      </td>
                       <td className="table-cell text-steel-300">{row.employee_code || '—'}</td>
                       <td className="table-cell">
                         <StatusBadge status={row.status || 'pending'} />
@@ -1817,6 +1946,13 @@ export default function AdminUsers() {
                 { label: 'Área', value: showDetail.area },
                 { label: 'Legajo', value: showDetail.employee_code },
                 { label: 'Contratista', value: showDetail.contractor_company },
+                { label: 'Supervisor', value: showDetail.supervisor },
+                { label: 'Turno', value: showDetail.shift },
+                { label: 'Fecha de ingreso', value: showDetail.hire_date },
+                { label: 'Base', value: showDetail.base },
+                { label: 'Sede', value: showDetail.site },
+                { label: 'Región', value: showDetail.region },
+                { label: 'Yacimiento', value: showDetail.oilfield },
                 { label: 'Origen', value: showDetail.source },
               ].map((item) => (
                 <div key={item.label} className="bg-steel-900 rounded-lg p-3">

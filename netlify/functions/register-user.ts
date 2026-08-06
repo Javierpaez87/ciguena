@@ -331,6 +331,12 @@ export const handler = async (event: any) => {
     });
   }
 
+  if (clean(tenantData.status).toLowerCase() !== 'active') {
+    return json(403, {
+      error: 'La empresa seleccionada no está habilitada para registrar usuarios.',
+    });
+  }
+
   const tenantName = tenantData.name || 'Empresa seleccionada';
 
   // Evita duplicados en profiles. Supabase Auth también exige email único.
@@ -371,7 +377,11 @@ export const handler = async (event: any) => {
     return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
   }
 
-  const isPreapprovedWorker = Boolean(employeeDirectoryEntry) && !requestedAdmin;
+  const directoryStatus = clean(employeeDirectoryEntry?.status).toLowerCase();
+  const isDirectoryEntryEligible =
+    Boolean(employeeDirectoryEntry) &&
+    !['inactive', 'inactivo', 'disabled', 'deshabilitado'].includes(directoryStatus);
+  const isPreapprovedWorker = isDirectoryEntryEligible && !requestedAdmin;
   const initialStatus = isPreapprovedWorker ? 'active' : 'pending';
 
   const rosterFullName = [employeeDirectoryEntry?.first_name, employeeDirectoryEntry?.last_name]
