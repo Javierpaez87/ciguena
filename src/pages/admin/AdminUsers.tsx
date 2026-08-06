@@ -159,6 +159,7 @@ const emptyForm: FormState = {
   email: '',
   dni: '',
   phone: '',
+  work_role: '',
   position: '',
   area: '',
   contractor_company: '',
@@ -572,7 +573,8 @@ export default function AdminUsers() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [users, setUsers] = useState<Profile[]>([]);
-  const [, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
+  const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
+  const [tenantName, setTenantName] = useState('');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTraining[]>([]);
 
@@ -583,6 +585,7 @@ export default function AdminUsers() {
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Profile | null>(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
 
   const [inviteEmails, setInviteEmails] = useState('');
@@ -593,6 +596,7 @@ export default function AdminUsers() {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [inviteProgress, setInviteProgress] = useState<{ processed: number; total: number } | null>(null);
 
   async function loadUsersData() {
     if (!tenantId) {
@@ -606,11 +610,12 @@ export default function AdminUsers() {
     setSuccessMessage(null);
 
     try {
-      const [usersResult, directoryResult, assignmentsResult, tenantTrainingsResult] = await Promise.all([
+      const [usersResult, directoryResult, assignmentsResult, tenantTrainingsResult, tenantResult] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
         supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
         supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
+        supabase.from('tenants').select('id, name').eq('id', tenantId).maybeSingle(),
       ]);
 
       if (usersResult.error) throw usersResult.error;
@@ -712,6 +717,7 @@ export default function AdminUsers() {
       });
 
       setEmployeeDirectory(directoryRows);
+      setTenantName(tenantResult.data?.name || '');
       setUsers(loadedUsers);
       setAssignments(sortByCreatedAtDesc(loadedAssignments));
       setTenantTrainings(loadedTenantTrainings);
@@ -778,6 +784,30 @@ export default function AdminUsers() {
   const activeCount = users.filter(isActive).length;
   const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
   const pendingCount = users.filter((profile) => normalize(profile.status) === 'pending').length;
+
+  const bulkInvitationRows = useMemo(
+    () =>
+      employeeDirectory.filter(
+        (row) =>
+          Boolean(row.email) &&
+          !row.profile_id &&
+          normalize(row.status) === 'preapproved'
+      ),
+    [employeeDirectory]
+  );
+
+  const alreadyInvitedCount = useMemo(
+    () =>
+      employeeDirectory.filter(
+        (row) => !row.profile_id && normalize(row.status) === 'invited'
+      ).length,
+    [employeeDirectory]
+  );
+
+  const registeredDirectoryCount = useMemo(
+    () => employeeDirectory.filter((row) => Boolean(row.profile_id)).length,
+    [employeeDirectory]
+  );
 
   const assignmentsByUser = useMemo(() => {
     return assignments.reduce<Record<string, Assignment[]>>((acc, assignment) => {
@@ -966,30 +996,120 @@ export default function AdminUsers() {
     }
   }
 
+  async function sendInvitationBatches({
+    emails,
+    allowResend,
+    onProgress,
+  }: {
+    emails: string[];
+    allowResend: boolean;
+    onProgress?: (processed: number, total: number) => void;
+  }) {
+    if (!tenantId) {
+      throw new Error('No se encontró tenant_id para enviar invitaciones.');
+    }
+
+    const uniqueEmails = Array.from(
+      new Set(emails.map((email) => normalize(email)).filter(Boolean))
+    );
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      throw new Error('Tu sesión venció. Volvé a ingresar antes de enviar invitaciones.');
+    }
+
+    const batches: string[][] = [];
+
+    for (let index = 0; index < uniqueEmails.length; index += 100) {
+      batches.push(uniqueEmails.slice(index, index + 100));
+    }
+
+    let sent = 0;
+    let failed = 0;
+    let skipped = 0;
+    let processed = 0;
+    const skippedDetails: Array<{ email: string; reason: string }> = [];
+
+    for (const batch of batches) {
+      const response = await fetch('/.netlify/functions/send-employee-invitations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ tenantId, emails: batch, allowResend }),
+      });
+
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        const partialMessage = processed > 0 ? ` Se procesaron ${processed} de ${uniqueEmails.length} antes del error.` : '';
+        throw new Error(`${result?.error || 'No pudimos enviar las invitaciones.'}${partialMessage}`);
+      }
+
+      sent += Number(result?.sent ?? 0);
+      failed += Number(result?.failed ?? 0);
+      skipped += Number(result?.skipped ?? 0);
+      skippedDetails.push(...((result?.skippedDetails ?? []) as Array<{ email: string; reason: string }>));
+      processed += batch.length;
+      onProgress?.(processed, uniqueEmails.length);
+    }
+
+    return { sent, failed, skipped, skippedDetails };
+  }
+
+  function getSkippedSummary(details: Array<{ email: string; reason: string }>) {
+    if (details.length === 0) return '';
+
+    const labels: Record<string, string> = {
+      registered: 'ya registrados',
+      inactive: 'inactivos',
+      already_invited: 'ya invitados',
+      not_found: 'no encontrados',
+      not_eligible: 'no habilitados',
+    };
+    const counts = details.reduce<Record<string, number>>((acc, item) => {
+      acc[item.reason] = (acc[item.reason] ?? 0) + 1;
+      return acc;
+    }, {});
+    const parts = Object.entries(counts).map(
+      ([reason, count]) => `${count} ${labels[reason] || reason}`
+    );
+
+    return parts.length > 0 ? ` Omitidos: ${parts.join(', ')}.` : '';
+  }
+
   async function handleInviteUsers() {
     if (!tenantId) {
       setErrorMessage('No se encontró tenant_id para invitar usuarios.');
       return;
     }
 
-    const emails = inviteEmails
+    const emails: string[] = inviteEmails
       .split('\n')
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean);
 
-    const uniqueEmails = Array.from(new Set(emails));
+    const uniqueEmails: string[] = Array.from(new Set<string>(emails));
 
     if (uniqueEmails.length === 0) {
       setErrorMessage('Ingresá al menos un email.');
       return;
     }
 
+    const invalidEmails = uniqueEmails.filter((email) => !isValidEmail(email));
+    if (invalidEmails.length > 0) {
+      setErrorMessage(`Hay ${invalidEmails.length} email(s) inválido(s). Revisalos antes de enviar.`);
+      return;
+    }
+
     setSaving(true);
+    setInviteProgress({ processed: 0, total: uniqueEmails.length });
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const existingEmails = new Set(users.map((profile) => normalize(profile.email)));
+      const existingEmails = new Set<string>(users.map((profile) => normalize(profile.email)));
       const now = new Date().toISOString();
 
       const newDirectoryRows = uniqueEmails
@@ -1022,23 +1142,18 @@ export default function AdminUsers() {
         );
       }
 
-      const response = await fetch('/.netlify/functions/send-employee-invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, emails: uniqueEmails }),
+      const result = await sendInvitationBatches({
+        emails: uniqueEmails,
+        allowResend: true,
+        onProgress: (processed, total) => setInviteProgress({ processed, total }),
       });
-
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(result?.error || 'No pudimos enviar las invitaciones.');
-      }
 
       setShowInvite(false);
       setInviteEmails('');
-      setSuccessMessage(
-        `Invitaciones procesadas: ${result?.sent ?? 0} enviada(s), ${result?.failed ?? 0} con error.`
-      );
       await loadUsersData();
+      setSuccessMessage(
+        `Invitaciones puntuales: ${result.sent} enviada(s), ${result.failed} con error, ${result.skipped} omitida(s).${getSkippedSummary(result.skippedDetails)}`
+      );
     } catch (error) {
       console.error('Error inviting users:', error);
       setErrorMessage(
@@ -1046,6 +1161,7 @@ export default function AdminUsers() {
       );
     } finally {
       setSaving(false);
+      setInviteProgress(null);
     }
   }
 
@@ -1055,31 +1171,39 @@ export default function AdminUsers() {
       return;
     }
 
+    const emails = bulkInvitationRows
+      .map((row) => normalize(row.email))
+      .filter(Boolean);
+
+    if (emails.length === 0) {
+      setShowBulkInvite(false);
+      setSuccessMessage('No hay trabajadores nuevos pendientes de invitación.');
+      return;
+    }
+
     setSaving(true);
+    setInviteProgress({ processed: 0, total: emails.length });
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const response = await fetch('/.netlify/functions/send-employee-invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId }),
+      const result = await sendInvitationBatches({
+        emails,
+        allowResend: false,
+        onProgress: (processed, total) => setInviteProgress({ processed, total }),
       });
 
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(result?.error || 'No pudimos enviar las invitaciones.');
-      }
-
-      setSuccessMessage(
-        `Invitaciones procesadas: ${result?.sent ?? 0} enviada(s), ${result?.failed ?? 0} con error.`
-      );
+      setShowBulkInvite(false);
       await loadUsersData();
+      setSuccessMessage(
+        `Envío masivo finalizado para ${tenantName || 'la empresa'}: ${result.sent} enviada(s), ${result.failed} con error y ${result.skipped} omitida(s).${getSkippedSummary(result.skippedDetails)}`
+      );
     } catch (error) {
       console.error('Error sending pending invitations:', error);
       setErrorMessage(error instanceof Error ? error.message : 'No se pudieron enviar invitaciones.');
     } finally {
       setSaving(false);
+      setInviteProgress(null);
     }
   }
 
@@ -1089,7 +1213,7 @@ export default function AdminUsers() {
 
     try {
       const text = await file.text();
-      const existingEmails = new Set(users.map((profile) => normalize(profile.email)));
+      const existingEmails = new Set<string>(users.map((profile) => normalize(profile.email)));
       const parsedRows = parseCsv(text, existingEmails);
 
       if (parsedRows.length === 0) {
@@ -1307,12 +1431,27 @@ export default function AdminUsers() {
             Cargar CSV
           </button>
 
-          <button onClick={handleSendPendingInvitations} disabled={saving} className="btn-secondary text-xs">
+          <button
+            onClick={() => {
+              setErrorMessage(null);
+              setSuccessMessage(null);
+              setShowBulkInvite(true);
+            }}
+            disabled={saving}
+            className="btn-secondary text-xs"
+          >
             <Mail size={14} />
-            Enviar invitaciones
+            Enviar invitaciones{bulkInvitationRows.length > 0 ? ` (${bulkInvitationRows.length})` : ''}
           </button>
 
-          <button onClick={() => setShowInvite(true)} className="btn-secondary text-xs">
+          <button
+            onClick={() => {
+              setErrorMessage(null);
+              setSuccessMessage(null);
+              setShowInvite(true);
+            }}
+            className="btn-secondary text-xs"
+          >
             <Mail size={14} />
             Invitar emails puntuales
           </button>
@@ -1869,25 +2008,123 @@ export default function AdminUsers() {
       </Modal>
 
       <Modal
+        open={showBulkInvite}
+        onClose={() => {
+          if (!saving) setShowBulkInvite(false);
+        }}
+        title="Confirmar envío masivo"
+        footer={
+          <>
+            <button
+              onClick={() => setShowBulkInvite(false)}
+              disabled={saving}
+              className="btn-ghost"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSendPendingInvitations}
+              disabled={saving || bulkInvitationRows.length === 0}
+              className="btn-primary"
+            >
+              <Mail size={15} />
+              {saving
+                ? `Enviando ${inviteProgress?.processed ?? 0}/${inviteProgress?.total ?? bulkInvitationRows.length}`
+                : `Enviar a ${bulkInvitationRows.length}`}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="text-sm font-semibold text-amber-200">
+              Se enviarán invitaciones a {bulkInvitationRows.length} trabajador(es) de {tenantName || 'esta empresa'}.
+            </div>
+            <p className="mt-2 text-xs leading-5 text-amber-100/70">
+              Solo se incluyen trabajadores preaprobados que todavía no tienen una cuenta registrada y nunca fueron invitados.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+              <div className="text-xl font-bold text-emerald-300">{bulkInvitationRows.length}</div>
+              <div className="text-xs text-emerald-100/70">recibirán invitación</div>
+            </div>
+            <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
+              <div className="text-xl font-bold text-steel-200">{alreadyInvitedCount}</div>
+              <div className="text-xs text-steel-500">ya invitados, no se reenvían</div>
+            </div>
+            <div className="rounded-xl border border-steel-700 bg-steel-900 p-3">
+              <div className="text-xl font-bold text-steel-200">{registeredDirectoryCount}</div>
+              <div className="text-xs text-steel-500">ya registrados, no se incluyen</div>
+            </div>
+          </div>
+
+          {errorMessage && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {errorMessage}
+            </div>
+          )}
+
+          {inviteProgress && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs text-steel-400">
+                <span>Procesando invitaciones</span>
+                <span>{inviteProgress.processed} / {inviteProgress.total}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-steel-800">
+                <div
+                  className="h-full bg-amber-500 transition-all"
+                  style={{
+                    width: `${inviteProgress.total > 0
+                      ? Math.round((inviteProgress.processed / inviteProgress.total) * 100)
+                      : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-steel-500">
+            Para enviar o reenviar a destinatarios específicos, cancelá y elegí <strong className="text-steel-300">Invitar emails puntuales</strong>.
+          </p>
+        </div>
+      </Modal>
+
+      <Modal
         open={showInvite}
-        onClose={() => setShowInvite(false)}
+        onClose={() => {
+          if (!saving) setShowInvite(false);
+        }}
         title="Invitar usuarios por email"
         footer={
           <>
-            <button onClick={() => setShowInvite(false)} className="btn-ghost">
+            <button onClick={() => setShowInvite(false)} disabled={saving} className="btn-ghost">
               Cancelar
             </button>
             <button onClick={handleInviteUsers} disabled={saving} className="btn-primary">
               <Mail size={15} />
-              {saving ? 'Enviando...' : 'Enviar invitaciones'}
+              {saving
+                ? `Enviando ${inviteProgress?.processed ?? 0}/${inviteProgress?.total ?? 0}`
+                : 'Enviar invitaciones'}
             </button>
           </>
         }
       >
         <div className="space-y-3">
           <p className="text-sm text-steel-400">
-            Ingresá uno o más emails, uno por línea. Se agregan a la nómina preaprobada y se les envía invitación.
+            Ingresá uno o más emails, uno por línea. Los emails nuevos se agregan a la nómina. Si una persona ya fue invitada pero todavía no se registró, la invitación se reenvía.
           </p>
+
+          <p className="text-xs text-steel-500">
+            Los usuarios ya registrados o inactivos se omiten y el resultado se informa al finalizar.
+          </p>
+
+          {errorMessage && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {errorMessage}
+            </div>
+          )}
 
           <textarea
             value={inviteEmails}

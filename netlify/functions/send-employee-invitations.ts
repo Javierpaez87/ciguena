@@ -10,9 +10,11 @@ const appUrl =
   process.env.URL ||
   'https://ciguena-product.netlify.app';
 
+const MAX_BATCH_SIZE = 100;
+
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
 };
@@ -51,6 +53,11 @@ type DirectoryRow = {
   full_name?: string | null;
   status?: string | null;
   profile_id?: string | null;
+};
+
+type SkippedInvitation = {
+  email: string;
+  reason: 'not_found' | 'registered' | 'inactive' | 'already_invited' | 'not_eligible';
 };
 
 function getFullName(row: DirectoryRow) {
@@ -114,35 +121,59 @@ function buildInvitationHtml({
   `;
 }
 
-async function sendResendEmail({ to, subject, html }: { to: string; subject: string; html: string }) {
+async function sendResendBatch(
+  emails: Array<{ to: string; subject: string; html: string }>
+) {
   if (!resendApiKey) {
-    return { ok: false, error: 'RESEND_API_KEY no configurada.' };
+    return { ok: false as const, error: 'RESEND_API_KEY no configurada.' };
   }
 
-  const response = await fetch('https://api.resend.com/emails', {
+  const response = await fetch('https://api.resend.com/emails/batch', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${resendApiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: fromEmail,
-      to,
-      subject,
-      html,
-    }),
+    body: JSON.stringify(
+      emails.map((email) => ({
+        from: fromEmail,
+        to: [email.to],
+        subject: email.subject,
+        html: email.html,
+      }))
+    ),
   });
 
   const responseBody = await response.json().catch(() => null);
 
   if (!response.ok) {
     return {
-      ok: false,
-      error: responseBody?.message || 'No pudimos enviar el email.',
+      ok: false as const,
+      error: responseBody?.message || responseBody?.error?.message || 'No pudimos enviar el lote de emails.',
     };
   }
 
-  return { ok: true, data: responseBody };
+  return { ok: true as const, data: responseBody };
+}
+
+function classifySkipped(
+  email: string,
+  rows: DirectoryRow[],
+  allowResend: boolean
+): SkippedInvitation | null {
+  const row = rows.find((candidate) => normalizeEmail(candidate.email) === email);
+
+  if (!row) return { email, reason: 'not_found' };
+  if (row.profile_id) return { email, reason: 'registered' };
+
+  const status = clean(row.status).toLowerCase();
+  if (status === 'inactive') return { email, reason: 'inactive' };
+  if (status === 'invited' && !allowResend) return { email, reason: 'already_invited' };
+  if (status !== 'preapproved' && !(allowResend && status === 'invited')) {
+    return { email, reason: 'not_eligible' };
+  }
+
+  return null;
 }
 
 export const handler = async (event: any) => {
@@ -167,12 +198,25 @@ export const handler = async (event: any) => {
   }
 
   const tenantId = clean(payload.tenantId);
-  const emails = Array.isArray(payload.emails)
-    ? Array.from(new Set(payload.emails.map(normalizeEmail).filter(Boolean)))
+  const allowResend = payload.allowResend === true;
+  const emails: string[] = Array.isArray(payload.emails)
+    ? Array.from(new Set<string>(payload.emails.map(normalizeEmail).filter(Boolean)))
     : [];
 
   if (!tenantId) {
     return json(400, { error: 'Falta tenantId.' });
+  }
+
+  if (emails.length === 0) {
+    return json(400, {
+      error: 'Falta indicar los destinatarios. El envío masivo debe confirmarse desde la aplicación.',
+    });
+  }
+
+  if (emails.length > MAX_BATCH_SIZE) {
+    return json(400, {
+      error: `Cada lote puede contener como máximo ${MAX_BATCH_SIZE} destinatarios.`,
+    });
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
@@ -181,6 +225,41 @@ export const handler = async (event: any) => {
       persistSession: false,
     },
   });
+
+  const authorizationHeader = clean(event.headers?.authorization || event.headers?.Authorization);
+  const accessToken = authorizationHeader.toLowerCase().startsWith('bearer ')
+    ? authorizationHeader.slice(7).trim()
+    : '';
+
+  if (!accessToken) {
+    return json(401, { error: 'Sesión no autorizada.' });
+  }
+
+  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+  const authUser = authData?.user;
+
+  if (authError || !authUser) {
+    return json(401, { error: 'La sesión no es válida o venció.' });
+  }
+
+  const { data: requesterProfile, error: requesterError } = await supabaseAdmin
+    .from('profiles')
+    .select('tenant_id, role, status')
+    .eq('auth_user_id', authUser.id)
+    .maybeSingle();
+
+  const requesterRole = clean(requesterProfile?.role).toLowerCase();
+  const isSuperAdmin = requesterRole === 'super_admin' || requesterRole === 'superadmin';
+  const isTenantAdmin = requesterRole === 'admin' && requesterProfile?.tenant_id === tenantId;
+
+  if (
+    requesterError ||
+    !requesterProfile ||
+    clean(requesterProfile.status).toLowerCase() !== 'active' ||
+    (!isSuperAdmin && !isTenantAdmin)
+  ) {
+    return json(403, { error: 'No tenés permisos para enviar invitaciones de esta empresa.' });
+  }
 
   const { data: tenantData, error: tenantError } = await supabaseAdmin
     .from('tenants')
@@ -192,41 +271,37 @@ export const handler = async (event: any) => {
     return json(400, { error: 'No pudimos verificar la empresa.' });
   }
 
-  let query = supabaseAdmin
+  const { data: rows, error: rowsError } = await supabaseAdmin
     .from('employee_directory')
     .select('id, tenant_id, email, first_name, last_name, full_name, status, profile_id')
     .eq('tenant_id', tenantId)
-    .is('profile_id', null)
-    .in('status', ['preapproved', 'invited']);
-
-  if (emails.length > 0) {
-    query = query.in('email', emails);
-  }
-
-  const { data: rows, error: rowsError } = await query;
+    .in('email', emails);
 
   if (rowsError) {
     return json(500, { error: 'No pudimos leer la nómina de empleados.' });
   }
 
   const directoryRows = (rows ?? []) as DirectoryRow[];
+  const skipped = emails
+    .map((email) => classifySkipped(email, directoryRows, allowResend))
+    .filter((item): item is SkippedInvitation => Boolean(item));
+  const skippedEmails = new Set(skipped.map((item) => item.email));
+  const eligibleRows = directoryRows.filter((row) => !skippedEmails.has(normalizeEmail(row.email)));
 
-  if (directoryRows.length === 0) {
+  if (eligibleRows.length === 0) {
     return json(200, {
       ok: true,
       sent: 0,
       failed: 0,
-      skipped: 0,
-      message: 'No había trabajadores pendientes de invitación.',
+      skipped: skipped.length,
+      skippedDetails: skipped,
+      message: 'No había destinatarios habilitados para recibir la invitación.',
     });
   }
 
   const registerUrl = appUrl.replace(/\/$/, '');
-  const results = [] as Array<{ id: string; email: string; ok: boolean; error?: string }>;
-
-  // Envío secuencial para evitar rate limits y timeouts bruscos.
-  for (const row of directoryRows) {
-    const result = await sendResendEmail({
+  const batchResult = await sendResendBatch(
+    eligibleRows.map((row) => ({
       to: row.email,
       subject: `Invitación a Cigüeña - ${tenantData.name}`,
       html: buildInvitationHtml({
@@ -234,31 +309,41 @@ export const handler = async (event: any) => {
         tenantName: tenantData.name,
         registerUrl,
       }),
-    });
+    }))
+  );
 
-    results.push({
-      id: row.id,
-      email: row.email,
-      ok: result.ok,
-      error: result.ok ? undefined : result.error,
+  if (!batchResult.ok) {
+    return json(502, {
+      error: batchResult.error,
+      sent: 0,
+      failed: eligibleRows.length,
+      skipped: skipped.length,
+      skippedDetails: skipped,
     });
   }
 
-  const sentIds = results.filter((result) => result.ok).map((result) => result.id);
+  const sentIds = eligibleRows.map((row) => row.id);
+  const invitedAt = new Date().toISOString();
+  const { error: updateError } = await supabaseAdmin
+    .from('employee_directory')
+    .update({ status: 'invited', invited_at: invitedAt })
+    .in('id', sentIds);
 
-  if (sentIds.length > 0) {
-    await supabaseAdmin
-      .from('employee_directory')
-      .update({ status: 'invited', invited_at: new Date().toISOString() })
-      .in('id', sentIds);
+  if (updateError) {
+    return json(500, {
+      error: 'Los emails fueron enviados, pero no pudimos actualizar el estado de invitación.',
+      sent: sentIds.length,
+      failed: 0,
+      skipped: skipped.length,
+      skippedDetails: skipped,
+    });
   }
-
-  const failed = results.filter((result) => !result.ok);
 
   return json(200, {
     ok: true,
     sent: sentIds.length,
-    failed: failed.length,
-    errors: failed,
+    failed: 0,
+    skipped: skipped.length,
+    skippedDetails: skipped,
   });
 };
