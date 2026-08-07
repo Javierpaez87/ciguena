@@ -24,6 +24,14 @@ import {
 } from '../../data/trainingTests';
 import type { Profile, Training } from '../../types';
 import Modal from '../../components/ui/Modal';
+import {
+  EmployeeDirectoryRecord,
+  getOperationalRole,
+  isDirectoryOnlyWorker,
+  isWorkerActive,
+  isWorkerRecord,
+  mergeProfilesWithDirectory,
+} from '../../lib/workerRoster';
 
 type AssignMode = 'all' | 'role' | 'individual';
 
@@ -48,13 +56,7 @@ type EmailNotificationRow = {
 };
 
 function getWorkerRole(profile: Profile) {
-  const workerJobRole = (profile as any).job_role as string | null | undefined;
-
-  return (
-    workerJobRole?.trim() ||
-    profile.position?.trim() ||
-    'Sin rol definido'
-  );
+  return getOperationalRole(profile as any);
 }
 
 function formatDate(value?: string | null) {
@@ -207,6 +209,7 @@ export default function AdminTrainings() {
   const [assignError, setAssignError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [unpreparedWorkerCount, setUnpreparedWorkerCount] = useState(0);
 
   useEffect(() => {
     const loadAdminTrainings = async () => {
@@ -245,23 +248,46 @@ export default function AdminTrainings() {
 
       setTrainings(enabledTrainings);
 
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .eq('role', 'worker')
-        .eq('status', 'active')
-        .order('full_name', { ascending: true });
+      const [profilesResult, directoryResult] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .order('full_name', { ascending: true }),
+        supabase
+          .from('employee_directory')
+          .select('*')
+          .eq('tenant_id', tenantId),
+      ]);
 
-      if (profilesError) {
-        console.error('profilesError:', profilesError);
+      if (profilesResult.error) {
+        console.error('profilesError:', profilesResult.error);
         setUsers([]);
         setLoadError('Cargamos los trainings, pero no pudimos cargar los usuarios de tu empresa.');
         setIsLoading(false);
         return;
       }
 
-      setUsers((profiles ?? []) as Profile[]);
+      if (directoryResult.error) {
+        console.error('employeeDirectoryError:', directoryResult.error);
+        setUsers([]);
+        setLoadError('Cargamos los trainings, pero no pudimos leer la nómina de tu empresa.');
+        setIsLoading(false);
+        return;
+      }
+
+      const mergedWorkers = mergeProfilesWithDirectory(
+        (profilesResult.data ?? []) as any[],
+        (directoryResult.data ?? []) as EmployeeDirectoryRecord[]
+      );
+
+      const activeWorkers = mergedWorkers.filter(
+        (worker) => isWorkerRecord(worker) && isWorkerActive(worker)
+      );
+      const assignableWorkers = activeWorkers.filter((worker) => !isDirectoryOnlyWorker(worker));
+
+      setUnpreparedWorkerCount(activeWorkers.length - assignableWorkers.length);
+      setUsers(assignableWorkers as Profile[]);
       setIsLoading(false);
     };
 
@@ -1379,7 +1405,7 @@ export default function AdminTrainings() {
               >
                 <div className="text-sm font-semibold text-steel-100">Todos</div>
                 <div className="text-xs text-steel-400 mt-1">
-                  {users.length} usuarios activos · {users.filter(worker => !assignedUserIds.has(worker.id)).length} nuevos
+                  {users.length} usuarios asignables · {users.filter(worker => !assignedUserIds.has(worker.id)).length} nuevos
                 </div>
               </button>
 
@@ -1423,10 +1449,17 @@ export default function AdminTrainings() {
               </button>
             </div>
 
+            {unpreparedWorkerCount > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                Hay {unpreparedWorkerCount} trabajador(es) en la nómina que todavía no tienen un profile asignable.
+                Ejecutá la sincronización de nómina → profiles antes de asignar trainings a toda la empresa.
+              </div>
+            )}
+
             {assignMode === 'role' && (
               <div className="space-y-3">
                 <div>
-                  <label className="label">Rol / puesto</label>
+                  <label className="label">Rol operativo</label>
                   <select
                     value={selectedRole}
                     onChange={event => setSelectedRole(event.target.value)}
@@ -1472,7 +1505,7 @@ export default function AdminTrainings() {
 
                 {users.length === 0 && (
                   <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
-                    No hay usuarios activos para asignar en esta empresa.
+                    No hay trabajadores asignables para este tenant.
                   </div>
                 )}
 

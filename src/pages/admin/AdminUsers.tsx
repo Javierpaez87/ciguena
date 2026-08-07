@@ -30,6 +30,7 @@ interface Profile {
   email?: string | null;
   role?: string | null;
   job_role?: string | null;
+  work_role?: string | null;
   position?: string | null;
   area?: string | null;
   contractor_company?: string | null;
@@ -793,6 +794,7 @@ export default function AdminUsers() {
         !searchValue ||
         normalize(getFullName(profile)).includes(searchValue) ||
         normalize(profile.email).includes(searchValue) ||
+        normalize(profile.work_role).includes(searchValue) ||
         normalize(profile.job_role).includes(searchValue) ||
         normalize(profile.position).includes(searchValue) ||
         normalize(profile.area).includes(searchValue) ||
@@ -1769,7 +1771,8 @@ export default function AdminUsers() {
             <thead>
               <tr className="bg-steel-900 border-b border-steel-700">
                 <th className="table-header">Nombre</th>
-                <th className="table-header hidden md:table-cell">Rol / puesto</th>
+                <th className="table-header hidden md:table-cell">Rol operativo</th>
+                <th className="table-header hidden xl:table-cell">Puesto</th>
                 <th className="table-header hidden lg:table-cell">Área</th>
                 <th className="table-header hidden lg:table-cell">Legajo</th>
                 <th className="table-header hidden xl:table-cell">DNI</th>
@@ -1809,6 +1812,10 @@ export default function AdminUsers() {
 
                     <td className="table-cell hidden md:table-cell text-steel-300">
                       {getWorkerRole(profile)}
+                    </td>
+
+                    <td className="table-cell hidden xl:table-cell text-steel-300">
+                      {profile.position || '—'}
                     </td>
 
                     <td className="table-cell hidden lg:table-cell text-steel-300">
@@ -2216,7 +2223,8 @@ export default function AdminUsers() {
                     <th className="table-header">Nombre</th>
                     <th className="table-header">Email</th>
                     <th className="table-header">DNI</th>
-                    <th className="table-header">Rol / puesto</th>
+                    <th className="table-header">Rol operativo</th>
+                    <th className="table-header">Puesto</th>
                     <th className="table-header">Área</th>
                     <th className="table-header">Base / sede</th>
                     <th className="table-header">Región / yacimiento</th>
@@ -2244,11 +2252,8 @@ export default function AdminUsers() {
                       </td>
                       <td className="table-cell text-steel-300">{row.email || '—'}</td>
                       <td className="table-cell text-steel-300">{row.dni || '—'}</td>
-                      <td className="table-cell text-steel-300">
-                        {[row.work_role, row.position !== row.work_role ? row.position : '']
-                          .filter(Boolean)
-                          .join(' / ') || '—'}
-                      </td>
+                      <td className="table-cell text-steel-300">{row.work_role || '—'}</td>
+                      <td className="table-cell text-steel-300">{row.position || '—'}</td>
                       <td className="table-cell text-steel-300">{row.area || '—'}</td>
                       <td className="table-cell text-steel-300">
                         {[row.base, row.site].filter(Boolean).join(' / ') || '—'}
@@ -2530,7 +2535,8 @@ export default function AdminUsers() {
                 { label: 'Apellido', value: showDetail.last_name },
                 { label: 'DNI', value: showDetail.dni },
                 { label: 'Teléfono', value: showDetail.phone },
-                { label: 'Rol / puesto', value: getWorkerRole(showDetail) },
+                { label: 'Rol operativo', value: getWorkerRole(showDetail) },
+                { label: 'Puesto', value: showDetail.position },
                 { label: 'Área', value: showDetail.area },
                 { label: 'Legajo', value: showDetail.employee_code },
                 { label: 'Contratista', value: showDetail.contractor_company },
