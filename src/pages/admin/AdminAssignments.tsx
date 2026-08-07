@@ -17,7 +17,7 @@ import {
   XCircle,
   CalendarClock,
   Mail,
-  CheckCircle2,
+  Download,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -26,6 +26,13 @@ import { baseTrainings } from '../../data/baseTrainings';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 import Modal from '../../components/ui/Modal';
+import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
+import {
+  EmployeeDirectoryRecord,
+  getOperationalRole,
+  isDirectoryOnlyWorker,
+  mergeProfilesWithDirectory,
+} from '../../lib/workerRoster';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -51,12 +58,15 @@ interface Profile {
   last_name?: string | null;
   email?: string | null;
   role?: string | null;
+  work_role?: string | null;
   job_role?: string | null;
   position?: string | null;
   area?: string | null;
   employee_code?: string | null;
   dni?: string | null;
   status?: string | null;
+  is_directory_only?: boolean;
+  employee_directory_id?: string | null;
   [key: string]: any;
 }
 
@@ -158,11 +168,7 @@ function getInitial(profile?: Profile | null) {
 }
 
 function getWorkerRole(profile?: Profile | null) {
-  return (
-    profile?.job_role?.trim() ||
-    profile?.position?.trim() ||
-    'Sin rol definido'
-  );
+  return getOperationalRole(profile as any);
 }
 
 function getTrainingTitle(training?: TenantTraining | null, assignment?: Assignment | null) {
@@ -289,7 +295,10 @@ function isWorker(profile: Profile) {
 
 function isActiveProfile(profile: Profile) {
   const status = normalize(profile.status);
-  return !status || status === 'active' || status === 'enabled';
+  return (
+    !status ||
+    ['active', 'enabled', 'preapproved', 'pending', 'invited', 'registered'].includes(status)
+  );
 }
 
 function getDeadlineVisualClass(assignment: Assignment) {
@@ -352,6 +361,7 @@ export default function AdminAssignments() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   async function loadAssignments() {
     if (!tenantId) {
@@ -365,21 +375,25 @@ export default function AdminAssignments() {
     setSuccessMessage(null);
 
     try {
-      const [assignmentsResult, usersResult, trainingsResult, certificatesResult] =
+      const [assignmentsResult, usersResult, directoryResult, trainingsResult, certificatesResult] =
         await Promise.all([
           supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
           supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+          supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
           supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
           supabase.from('certificates').select('*').eq('tenant_id', tenantId),
         ]);
 
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (usersResult.error) throw usersResult.error;
+      if (directoryResult.error) throw directoryResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
       if (certificatesResult.error) throw certificatesResult.error;
 
       const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
-      const loadedUsers = (usersResult.data ?? []) as Profile[];
+      const rawUsers = (usersResult.data ?? []) as Profile[];
+      const directoryRows = (directoryResult.data ?? []) as EmployeeDirectoryRecord[];
+      const loadedUsers = mergeProfilesWithDirectory(rawUsers as any, directoryRows) as Profile[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
       const loadedCertificates = (certificatesResult.data ?? []) as Certificate[];
 
@@ -518,6 +532,13 @@ export default function AdminAssignments() {
     return users.filter((profile) => isWorker(profile) && isActiveProfile(profile));
   }, [users]);
 
+  const assignableWorkerUsers = useMemo(
+    () => workerUsers.filter((profile) => !isDirectoryOnlyWorker(profile as any)),
+    [workerUsers]
+  );
+
+  const unsyncedRosterCount = workerUsers.length - assignableWorkerUsers.length;
+
   const roleOptions = useMemo(() => {
     const counts = new Map<string, number>();
 
@@ -608,13 +629,13 @@ export default function AdminAssignments() {
   }, [filtered]);
 
   const assignTargets = useMemo(() => {
-    if (assignTargetMode === 'all_workers') return workerUsers;
+    if (assignTargetMode === 'all_workers') return assignableWorkerUsers;
     if (assignTargetMode === 'role') {
       if (assignRole === 'all') return [];
-      return workerUsers.filter((profile) => getWorkerRole(profile) === assignRole);
+      return assignableWorkerUsers.filter((profile) => getWorkerRole(profile) === assignRole);
     }
     return filteredUsersFromCurrentView;
-  }, [assignTargetMode, assignRole, workerUsers, filteredUsersFromCurrentView]);
+  }, [assignTargetMode, assignRole, assignableWorkerUsers, filteredUsersFromCurrentView]);
 
   const selectedTraining = useMemo(() => {
     return enabledTrainingOptions.find((training) => training.id === selectedTrainingId) ?? null;
@@ -750,10 +771,25 @@ export default function AdminAssignments() {
     return assignments.filter((assignment) => normalize(assignment.status) === statusValue).length;
   }
 
-  function getRoleCount(roleValue: string) {
-    if (roleValue === 'all') return assignments.length;
-    return assignments.filter((assignment) => getWorkerRole(assignment.user) === roleValue).length;
-  }
+
+  const assignmentExportColumns = useMemo<CsvExportColumn<Assignment>[]>(
+    () => [
+      { key: 'name', label: 'Trabajador', getValue: (item) => getFullName(item.user) },
+      { key: 'email', label: 'Email', getValue: (item) => item.user?.email || '' },
+      { key: 'role', label: 'Rol operativo', getValue: (item) => getWorkerRole(item.user) },
+      { key: 'position', label: 'Puesto', getValue: (item) => item.user?.position || '' },
+      { key: 'area', label: 'Área', getValue: (item) => item.user?.area || '' },
+      { key: 'training', label: 'Training', getValue: (item) => getTrainingTitle(item.training, item) },
+      { key: 'status', label: 'Estado', getValue: (item) => item.status || '' },
+      { key: 'progress', label: 'Progreso %', getValue: (item) => getAssignmentProgress(item) },
+      { key: 'assigned_at', label: 'Fecha asignación', getValue: (item) => formatDate(getAssignedDate(item)) },
+      { key: 'due_date', label: 'Deadline', getValue: (item) => formatDate(item.due_date) },
+      { key: 'completed_at', label: 'Fecha finalización', getValue: (item) => formatDate(item.completed_at) },
+      { key: 'employee_code', label: 'Legajo', getValue: (item) => item.user?.employee_code || '' },
+      { key: 'dni', label: 'DNI', getValue: (item) => item.user?.dni || '', defaultSelected: false },
+    ],
+    []
+  );
 
   function openAssignModal() {
     setErrorMessage(null);
@@ -1363,6 +1399,13 @@ export default function AdminAssignments() {
         y sus métricas aparecen en Dashboard y Reportes.
       </div>
 
+      {unsyncedRosterCount > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+          Hay {unsyncedRosterCount} trabajador(es) visibles en la nómina que todavía no tienen un perfil interno preparado para asignaciones.
+          Los roles igualmente aparecen en los filtros, pero esas personas no se incluirán en una asignación masiva hasta sincronizar la nómina.
+        </div>
+      )}
+
       <div className="flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between">
         <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
           <div className="relative flex-1 sm:min-w-[260px]">
@@ -1380,10 +1423,10 @@ export default function AdminAssignments() {
             onChange={(event) => setRoleFilter(event.target.value)}
             className="select sm:min-w-[220px]"
           >
-            <option value="all">Todos los roles ({assignments.length})</option>
+            <option value="all">Todos los roles ({workerUsers.length} trabajadores)</option>
             {roleOptions.map((roleOption) => (
               <option key={roleOption.role} value={roleOption.role}>
-                {roleOption.role} ({getRoleCount(roleOption.role)})
+                {roleOption.role} ({roleOption.count} trabajadores)
               </option>
             ))}
           </select>
@@ -1406,6 +1449,11 @@ export default function AdminAssignments() {
           <button onClick={loadAssignments} className="btn-secondary text-xs flex-shrink-0">
             <RefreshCw size={14} />
             Actualizar
+          </button>
+
+          <button onClick={() => setShowExportModal(true)} className="btn-secondary text-xs flex-shrink-0">
+            <Download size={14} />
+            Exportar CSV
           </button>
 
           <button onClick={openAssignModal} className="btn-primary text-xs flex-shrink-0">
@@ -1738,7 +1786,7 @@ export default function AdminAssignments() {
 
               {assignTargetMode === 'role' && (
                 <div>
-                  <label className="label">Rol / puesto *</label>
+                  <label className="label">Rol operativo *</label>
                   <select
                     value={assignRole}
                     onChange={(event) => setAssignRole(event.target.value)}
@@ -1909,6 +1957,16 @@ export default function AdminAssignments() {
           )}
         </div>
       </Modal>
+
+      <CsvExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        title="Exportar asignaciones"
+        filename="asignaciones-ciguena.csv"
+        rows={filtered}
+        columns={assignmentExportColumns}
+        description={`Se exportarán ${filtered.length} asignación(es) respetando los filtros actuales de rol, training, estado y búsqueda.`}
+      />
 
       <Modal
         open={Boolean(assignmentAction && selectedAssignment)}

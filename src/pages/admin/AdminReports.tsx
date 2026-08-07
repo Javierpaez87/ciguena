@@ -17,9 +17,11 @@ import {
 
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
 
 type ReportType = 'user' | 'training' | 'area' | 'live';
 type Accent = 'amber' | 'blue' | 'green' | 'red' | 'steel';
+type ReportExportRow = Record<string, string | number | null | undefined>;
 
 interface ChartItem {
   label: string;
@@ -256,11 +258,6 @@ function getCertificateStatus(certificate: Certificate) {
   if (expiresAt <= now + thirtyDays) return 'expiring_soon';
 
   return 'valid';
-}
-
-function csvEscape(value: string | number | null | undefined) {
-  const safeValue = value === null || value === undefined ? '' : String(value);
-  return `"${safeValue.replace(/"/g, '""')}"`;
 }
 
 function sortByDateDesc<T extends { created_at?: string | null; updated_at?: string | null; issued_at?: string | null; assigned_at?: string | null }>(
@@ -510,6 +507,7 @@ export default function AdminReports() {
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   async function loadReportsData() {
     if (!tenantId) {
@@ -888,126 +886,113 @@ export default function AdminReports() {
     };
   }, [users, assignments, certificates, liveTrainings, liveParticipants]);
 
-  function downloadCSV() {
-    let headers: string[] = [];
-    let rows: Array<Array<string | number | null | undefined>> = [];
+  const reportExportConfig = useMemo(() => {
+    let rows: ReportExportRow[] = [];
+    let columns: CsvExportColumn<ReportExportRow>[] = [];
 
     if (reportType === 'user') {
-      headers = [
-        'Nombre',
-        'Puesto',
-        'Área',
-        'Contratista',
-        'Total',
-        'Completados',
-        'En curso',
-        'Pendientes',
-        'Progreso promedio',
-        'Certificados',
+      rows = reports.userReport.map((report) => ({
+        name: report.name,
+        position: report.position ?? '',
+        area: report.area ?? '',
+        contractor: report.contractor ?? '',
+        total: report.total,
+        completed: report.completed,
+        inProgress: report.inProgress,
+        pending: report.pending,
+        avgProgress: report.avgProgress,
+        certificates: report.certificates,
+      }));
+      columns = [
+        { key: 'name', label: 'Nombre', getValue: (row) => row.name },
+        { key: 'position', label: 'Puesto', getValue: (row) => row.position },
+        { key: 'area', label: 'Área', getValue: (row) => row.area },
+        { key: 'contractor', label: 'Contratista', getValue: (row) => row.contractor },
+        { key: 'total', label: 'Total', getValue: (row) => row.total },
+        { key: 'completed', label: 'Completados', getValue: (row) => row.completed },
+        { key: 'inProgress', label: 'En curso', getValue: (row) => row.inProgress },
+        { key: 'pending', label: 'Pendientes', getValue: (row) => row.pending },
+        { key: 'avgProgress', label: 'Progreso promedio %', getValue: (row) => row.avgProgress },
+        { key: 'certificates', label: 'Certificados', getValue: (row) => row.certificates },
       ];
-
-      rows = reports.userReport.map((report) => [
-        report.name,
-        report.position ?? '',
-        report.area ?? '',
-        report.contractor ?? '',
-        report.total,
-        report.completed,
-        report.inProgress,
-        report.pending,
-        `${report.avgProgress}%`,
-        report.certificates,
-      ]);
     }
 
     if (reportType === 'training') {
-      headers = [
-        'Training',
-        'Categoría',
-        'Asignados',
-        'Completados',
-        'En curso',
-        'Pendientes',
-        'Fallidos',
-        'Avance promedio',
+      rows = reports.trainingReport.map((report) => ({
+        name: report.name,
+        category: report.category,
+        assigned: report.assigned,
+        completed: report.completed,
+        inProgress: report.inProgress,
+        pending: report.pending,
+        failed: report.failed,
+        avgProgress: report.avgProgress,
+      }));
+      columns = [
+        { key: 'name', label: 'Training', getValue: (row) => row.name },
+        { key: 'category', label: 'Categoría', getValue: (row) => row.category },
+        { key: 'assigned', label: 'Asignados', getValue: (row) => row.assigned },
+        { key: 'completed', label: 'Completados', getValue: (row) => row.completed },
+        { key: 'inProgress', label: 'En curso', getValue: (row) => row.inProgress },
+        { key: 'pending', label: 'Pendientes', getValue: (row) => row.pending },
+        { key: 'failed', label: 'Fallidos', getValue: (row) => row.failed },
+        { key: 'avgProgress', label: 'Avance promedio %', getValue: (row) => row.avgProgress },
       ];
-
-      rows = reports.trainingReport.map((report) => [
-        report.name,
-        report.category,
-        report.assigned,
-        report.completed,
-        report.inProgress,
-        report.pending,
-        report.failed,
-        `${report.avgProgress}%`,
-      ]);
     }
 
     if (reportType === 'area') {
-      headers = [
-        'Área',
-        'Usuarios',
-        'Asignaciones',
-        'Completados',
-        'Pendientes',
-        '% Completitud',
-        'Avance promedio',
+      rows = reports.areaReport.map((report) => ({
+        name: report.name,
+        users: report.users,
+        assignments: report.assignments,
+        completed: report.completed,
+        pending: report.pending,
+        completion: report.completion,
+        progress: report.progress,
+      }));
+      columns = [
+        { key: 'name', label: 'Área', getValue: (row) => row.name },
+        { key: 'users', label: 'Usuarios', getValue: (row) => row.users },
+        { key: 'assignments', label: 'Asignaciones', getValue: (row) => row.assignments },
+        { key: 'completed', label: 'Completados', getValue: (row) => row.completed },
+        { key: 'pending', label: 'Pendientes', getValue: (row) => row.pending },
+        { key: 'completion', label: 'Completitud %', getValue: (row) => row.completion },
+        { key: 'progress', label: 'Avance promedio %', getValue: (row) => row.progress },
       ];
-
-      rows = reports.areaReport.map((report) => [
-        report.name,
-        report.users,
-        report.assignments,
-        report.completed,
-        report.pending,
-        `${report.completion}%`,
-        `${report.progress}%`,
-      ]);
     }
 
     if (reportType === 'live') {
-      headers = [
-        'Capacitación en vivo',
-        'Estado',
-        'Calendar',
-        'Fecha inicio',
-        'Invitados',
-        'Asistieron',
-        'Ausentes',
-        'Pendientes',
-        '% Asistencia',
+      rows = reports.liveTrainingReport.map((report) => ({
+        name: report.name,
+        status: report.status,
+        calendarStatus: report.calendarStatus,
+        startsAt: report.startsAt,
+        participants: report.participants,
+        attended: report.attended,
+        absent: report.absent,
+        invited: report.invited,
+        attendanceRate: report.attendanceRate,
+      }));
+      columns = [
+        { key: 'name', label: 'Capacitación en vivo', getValue: (row) => row.name },
+        { key: 'status', label: 'Estado', getValue: (row) => row.status },
+        { key: 'calendarStatus', label: 'Calendar', getValue: (row) => row.calendarStatus },
+        { key: 'startsAt', label: 'Fecha inicio', getValue: (row) => row.startsAt },
+        { key: 'participants', label: 'Invitados', getValue: (row) => row.participants },
+        { key: 'attended', label: 'Asistieron', getValue: (row) => row.attended },
+        { key: 'absent', label: 'Ausentes', getValue: (row) => row.absent },
+        { key: 'invited', label: 'Pendientes', getValue: (row) => row.invited },
+        { key: 'attendanceRate', label: 'Asistencia %', getValue: (row) => row.attendanceRate },
       ];
-
-      rows = reports.liveTrainingReport.map((report) => [
-        report.name,
-        report.status,
-        report.calendarStatus,
-        report.startsAt,
-        report.participants,
-        report.attended,
-        report.absent,
-        report.invited,
-        `${report.attendanceRate}%`,
-      ]);
     }
 
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => csvEscape(cell)).join(','))
-      .join('\n');
+    return {
+      rows,
+      columns,
+      filename: `reporte-${reportType}-ciguena.csv`,
+    };
+  }, [reportType, reports]);
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `reporte-${reportType}-ciguena.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
-  }
 
   if (loading) {
     return (
@@ -1057,7 +1042,7 @@ export default function AdminReports() {
               Actualizar
             </button>
 
-            <button onClick={downloadCSV} className="btn-secondary text-xs w-fit">
+            <button onClick={() => setShowExportModal(true)} className="btn-secondary text-xs w-fit">
               <Download size={14} />
               Exportar CSV
             </button>
@@ -1556,6 +1541,16 @@ export default function AdminReports() {
           </div>
         )}
       </section>
+      <CsvExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        title="Exportar reporte"
+        filename={reportExportConfig.filename}
+        rows={reportExportConfig.rows}
+        columns={reportExportConfig.columns}
+        description="Elegí las columnas a incluir. Se exportará el tipo de reporte que estás viendo actualmente."
+      />
+
     </div>
   );
 }

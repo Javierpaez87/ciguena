@@ -339,12 +339,12 @@ export const handler = async (event: any) => {
 
   const tenantName = tenantData.name || 'Empresa seleccionada';
 
-  // Evita duplicados en profiles. Supabase Auth también exige email único.
-  const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
+  // Un trabajador precargado puede tener un profile sin auth_user_id para permitir
+  // asignaciones antes de su primer login. Ese profile se reutiliza al registrarse.
+  const { data: existingProfiles, error: existingProfileError } = await supabaseAdmin
     .from('profiles')
-    .select('id')
-    .eq('email', email)
-    .maybeSingle();
+    .select('id, tenant_id, auth_user_id, role, status')
+    .eq('email', email);
 
   if (existingProfileError) {
     return json(500, {
@@ -352,8 +352,21 @@ export const handler = async (event: any) => {
     });
   }
 
-  if (existingProfile) {
+  const matchingProfiles = existingProfiles ?? [];
+  const registeredProfile = matchingProfiles.find((profile: any) => Boolean(profile.auth_user_id));
+
+  if (registeredProfile) {
     return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
+  }
+
+  const placeholderProfile = matchingProfiles.find(
+    (profile: any) => profile.tenant_id === companyId && !profile.auth_user_id
+  );
+
+  if (matchingProfiles.length > 0 && !placeholderProfile) {
+    return json(409, {
+      error: 'Ese email ya está asociado a otra empresa. Contactá a BondiApps para revisar el acceso.',
+    });
   }
 
   // Busca si el usuario estaba precargado por nómina/CSV/API.
@@ -444,19 +457,29 @@ export const handler = async (event: any) => {
     requested_admin: requestedAdmin,
   };
 
-  // Crear perfil en Cigüeña.
-  const { data: profileData, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .insert(profilePayload)
-    .select('id')
-    .single();
+  // Crear o vincular perfil en Cigüeña. Si la persona ya estaba precargada,
+  // reutilizamos el profile sin auth_user_id para conservar asignaciones previas.
+  const profileMutation = placeholderProfile?.id
+    ? supabaseAdmin
+        .from('profiles')
+        .update(profilePayload)
+        .eq('id', placeholderProfile.id)
+        .select('id')
+        .single()
+    : supabaseAdmin
+        .from('profiles')
+        .insert(profilePayload)
+        .select('id')
+        .single();
+
+  const { data: profileData, error: profileError } = await profileMutation;
 
   if (profileError || !profileData?.id) {
     // Si falla el profile, eliminamos el usuario Auth para no dejar cuentas huérfanas.
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
 
     return json(400, {
-      error: 'No pudimos crear el perfil de usuario. Intentá nuevamente.',
+      error: 'No pudimos vincular el perfil de usuario. Intentá nuevamente.',
     });
   }
 

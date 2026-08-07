@@ -136,6 +136,7 @@ type CsvPreviewRow = {
   email: string;
   dni: string;
   phone: string;
+  work_role: string;
   position: string;
   area: string;
   contractor_company: string;
@@ -227,6 +228,7 @@ function getInitials(profile: Profile) {
 
 function getWorkerRole(profile?: Profile | null) {
   return (
+    profile?.work_role?.trim() ||
     profile?.job_role?.trim() ||
     profile?.position?.trim() ||
     'Sin rol definido'
@@ -978,7 +980,8 @@ export default function AdminUsers() {
         throw new Error('Ya existe un usuario con ese email en esta empresa.');
       }
 
-      const cleanPosition = clean(form.position);
+      const cleanWorkRole = clean(form.work_role) || clean(form.position);
+      const cleanPosition = clean(form.position) || cleanWorkRole;
 
       const newDirectoryEntry = {
         tenant_id: tenantId,
@@ -990,7 +993,7 @@ export default function AdminUsers() {
         email: cleanEmail,
         dni: clean(form.dni),
         phone: clean(form.phone),
-        work_role: cleanPosition,
+        work_role: cleanWorkRole,
         position: cleanPosition,
         area: clean(form.area),
         contractor_company: clean(form.contractor_company),
@@ -1007,7 +1010,43 @@ export default function AdminUsers() {
 
       if (error) throw error;
 
-      const newProfile = directoryRowToProfile(data as EmployeeDirectory);
+      const { data: placeholderProfile, error: placeholderError } = await supabase
+        .from('profiles')
+        .insert({
+          tenant_id: tenantId,
+          auth_user_id: null,
+          first_name: clean(form.first_name),
+          last_name: clean(form.last_name),
+          full_name: fullName,
+          email: cleanEmail,
+          phone: clean(form.phone),
+          dni: clean(form.dni),
+          work_role: cleanWorkRole,
+          position: cleanPosition,
+          area: clean(form.area),
+          contractor_company: clean(form.contractor_company),
+          employee_code: clean(form.employee_code),
+          role: 'worker',
+          status: form.status === 'inactive' ? 'inactive' : 'active',
+          preapproved: true,
+        })
+        .select('*')
+        .single();
+
+      if (placeholderError || !placeholderProfile) {
+        await supabase.from('employee_directory').delete().eq('id', data.id);
+        throw placeholderError || new Error('No se pudo crear el perfil precargado del trabajador.');
+      }
+
+      const newProfile: Profile = {
+        ...(placeholderProfile as Profile),
+        employee_directory_id: data.id,
+        directory_status: data.status,
+        work_role: (placeholderProfile as Profile).work_role || data.work_role,
+        job_role: (placeholderProfile as Profile).job_role || data.work_role || data.position,
+        position: (placeholderProfile as Profile).position || data.position || data.work_role,
+        source: data.source,
+      };
 
       setEmployeeDirectory((currentRows) => [...currentRows, data as EmployeeDirectory]);
       setUsers((currentUsers) =>
@@ -1467,17 +1506,76 @@ export default function AdminUsers() {
       if (error) throw error;
 
       const createdRows = (data ?? []) as EmployeeDirectory[];
+      const rowByEmail = new Map(validRows.map((row) => [normalize(row.email), row]));
+
+      const placeholderProfilesPayload = createdRows.map((directoryRow) => {
+        const sourceRow = rowByEmail.get(normalize(directoryRow.email));
+        const workRole = clean(sourceRow?.work_role) || clean(sourceRow?.position);
+        const position = clean(sourceRow?.position) || workRole;
+
+        return {
+          tenant_id: tenantId,
+          auth_user_id: null,
+          first_name: clean(directoryRow.first_name),
+          last_name: clean(directoryRow.last_name),
+          full_name:
+            directoryRow.full_name ||
+            [directoryRow.first_name, directoryRow.last_name].filter(Boolean).join(' '),
+          email: normalize(directoryRow.email),
+          phone: clean(directoryRow.phone),
+          dni: clean(directoryRow.dni),
+          work_role: workRole,
+          position,
+          area: clean(directoryRow.area),
+          contractor_company: clean(directoryRow.contractor_company),
+          employee_code: clean(directoryRow.employee_code || directoryRow.external_id),
+          role: 'worker',
+          status: normalize(directoryRow.status) === 'inactive' ? 'inactive' : 'active',
+          preapproved: true,
+        };
+      });
+
+      const { data: placeholderProfiles, error: placeholderError } = await supabase
+        .from('profiles')
+        .insert(placeholderProfilesPayload)
+        .select('*');
+
+      if (placeholderError) {
+        if (createdRows.length > 0) {
+          await supabase
+            .from('employee_directory')
+            .delete()
+            .in('id', createdRows.map((row) => row.id));
+        }
+        throw placeholderError;
+      }
+
+      const directoryByEmail = new Map(createdRows.map((row) => [normalize(row.email), row]));
+      const createdProfiles = ((placeholderProfiles ?? []) as Profile[]).map((profile) => {
+        const directoryRow = directoryByEmail.get(normalize(profile.email));
+        return {
+          ...profile,
+          employee_directory_id: directoryRow?.id,
+          directory_status: directoryRow?.status,
+          work_role: profile.work_role || directoryRow?.work_role,
+          job_role: profile.job_role || profile.work_role || directoryRow?.work_role || directoryRow?.position,
+          position: profile.position || directoryRow?.position || directoryRow?.work_role,
+          source: directoryRow?.source || 'csv',
+        };
+      });
 
       setEmployeeDirectory((currentRows) => [...currentRows, ...createdRows]);
       setUsers((currentUsers) =>
-        [...currentUsers, ...createdRows.map(directoryRowToProfile)].sort((a, b) =>
+        [...currentUsers, ...createdProfiles].sort((a, b) =>
           getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
         )
       );
 
       setCsvRows([]);
       setShowCsvModal(false);
-      setSuccessMessage(`${createdRows.length} trabajador(es) importado(s) a la nómina desde CSV.`);
+      setSuccessMessage(
+        `${createdRows.length} trabajador(es) importado(s) a la nómina y preparados para asignaciones antes del primer login.`
+      );
     } catch (error) {
       console.error('Error importing CSV:', error);
       setErrorMessage(error instanceof Error ? error.message : 'No se pudo importar el CSV.');
@@ -1904,17 +2002,31 @@ export default function AdminUsers() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="label">Rol / puesto</label>
+              <label className="label">Rol operativo</label>
               <input
-                value={form.position}
+                value={form.work_role}
                 onChange={(event) =>
-                  setForm((currentForm) => ({ ...currentForm, position: event.target.value }))
+                  setForm((currentForm) => ({ ...currentForm, work_role: event.target.value }))
                 }
                 className="input"
                 placeholder="Ej: operador, supervisor, hse"
               />
             </div>
 
+            <div>
+              <label className="label">Puesto</label>
+              <input
+                value={form.position}
+                onChange={(event) =>
+                  setForm((currentForm) => ({ ...currentForm, position: event.target.value }))
+                }
+                className="input"
+                placeholder="Ej: Operador de campo"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Área</label>
               <input

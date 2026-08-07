@@ -50,7 +50,6 @@ export default function AdminSignatures() {
 
     setLoading(true);
     setErrorMessage(null);
-    setSuccessMessage(null);
 
     const { data, error } = await supabase
       .from('tenant_signatures')
@@ -81,10 +80,16 @@ export default function AdminSignatures() {
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    const previousDefaultIds = signatures
+      .filter((item) => item.is_default && item.id !== signature.id)
+      .map((item) => item.id);
+    const now = new Date().toISOString();
+
     const { error: resetError } = await supabase
       .from('tenant_signatures')
-      .update({ is_default: false, updated_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId);
+      .update({ is_default: false, updated_at: now })
+      .eq('tenant_id', tenantId)
+      .eq('is_default', true);
 
     if (resetError) {
       setSavingId(null);
@@ -94,18 +99,25 @@ export default function AdminSignatures() {
 
     const { error: updateError } = await supabase
       .from('tenant_signatures')
-      .update({ is_default: true, updated_at: new Date().toISOString() })
-      .eq('id', signature.id);
-
-    setSavingId(null);
+      .update({ is_default: true, updated_at: now })
+      .eq('id', signature.id)
+      .eq('tenant_id', tenantId);
 
     if (updateError) {
-      setErrorMessage(updateError.message);
+      if (previousDefaultIds.length > 0) {
+        await supabase
+          .from('tenant_signatures')
+          .update({ is_default: true, updated_at: new Date().toISOString() })
+          .in('id', previousDefaultIds);
+      }
+      setSavingId(null);
+      setErrorMessage(`No pudimos cambiar la firma predeterminada: ${updateError.message}`);
       return;
     }
 
-    setSuccessMessage(`La firma de ${signature.signer_name} quedó como predeterminada para nuevos certificados.`);
+    setSavingId(null);
     await loadSignatures();
+    setSuccessMessage(`La firma de ${signature.signer_name} quedó como predeterminada para nuevos certificados.`);
   }
 
   async function deactivateSignature(signature: TenantSignature) {
@@ -140,9 +152,19 @@ export default function AdminSignatures() {
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    const anotherActiveDefaultExists = signatures.some(
+      (item) => item.id !== signature.id && item.is_active && item.is_default
+    );
+
     const { error } = await supabase
       .from('tenant_signatures')
-      .update({ is_active: true, updated_at: new Date().toISOString() })
+      .update({
+        is_active: true,
+        // Compatibilidad con datos legacy: si esta firma quedó default estando inactiva
+        // y ya existe otra default activa, se reactiva sin disputar la predeterminada.
+        is_default: signature.is_default && anotherActiveDefaultExists ? false : signature.is_default,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', signature.id);
 
     setSavingId(null);
@@ -157,7 +179,8 @@ export default function AdminSignatures() {
   }
 
   const activeSignatures = signatures.filter(signature => signature.is_active);
-  const defaultSignature = signatures.find(signature => signature.is_default && signature.is_active);
+  const activeDefaultSignatures = signatures.filter(signature => signature.is_default && signature.is_active);
+  const defaultSignature = activeDefaultSignatures[0];
 
   if (loading) {
     return (
@@ -196,6 +219,47 @@ export default function AdminSignatures() {
         </div>
       </div>
 
+      {activeDefaultSignatures.length > 1 && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+          <div className="font-semibold">Atención: hay {activeDefaultSignatures.length} firmas marcadas como predeterminadas.</div>
+          <div className="text-xs text-red-200/80 mt-1">
+            Seleccioná nuevamente la firma correcta. También recomendamos ejecutar la query de integridad incluida con este cambio.
+          </div>
+        </div>
+      )}
+
+      {defaultSignature ? (
+        <div className="rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 p-5 shadow-lg shadow-amber-500/5">
+          <div className="flex flex-col md:flex-row md:items-center gap-5">
+            <div className="w-full md:w-56 min-h-[110px] rounded-xl border border-amber-500/30 bg-steel-950/70 p-4 flex items-center justify-center">
+              <img
+                src={defaultSignature.signature_image_url}
+                alt={`Firma predeterminada de ${defaultSignature.signer_name}`}
+                className="max-h-24 max-w-full object-contain"
+              />
+            </div>
+            <div className="flex-1">
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-amber-200">
+                <Star size={14} className="fill-current" />
+                Firma que saldrá en los nuevos certificados
+              </div>
+              <div className="text-xl font-bold text-steel-100 mt-3">{defaultSignature.signer_name}</div>
+              <div className="text-sm text-steel-300 mt-1">{defaultSignature.signer_role || 'Sin cargo informado'}</div>
+              <div className="text-xs text-steel-500 mt-3">
+                Si cambiás la predeterminada, solo afecta certificados emitidos a partir de ese momento.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <div className="font-semibold">No hay una firma predeterminada activa.</div>
+          <div className="text-xs text-steel-400 mt-1">
+            Elegí una firma activa antes de emitir nuevos certificados para evitar que salgan sin firma responsable.
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="metric-card text-center">
           <UserCheck size={20} className="text-emerald-400 mx-auto mb-2" />
@@ -227,7 +291,7 @@ export default function AdminSignatures() {
           {signatures.map(signature => (
             <div
               key={signature.id}
-              className={`card ${signature.is_default ? 'border-amber-500/50' : ''} ${!signature.is_active ? 'opacity-70' : ''}`}
+              className={`card ${signature.is_default && signature.is_active ? 'border-2 border-amber-500/70 ring-1 ring-amber-500/20' : ''} ${!signature.is_active ? 'opacity-70' : ''}`}
             >
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
@@ -237,7 +301,7 @@ export default function AdminSignatures() {
 
                 <div className="flex gap-2 flex-wrap justify-end">
                   {signature.is_default && signature.is_active && (
-                    <span className="badge badge-warning">Predeterminada</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-amber-200"><Star size={12} className="fill-current" /> Firma de certificados</span>
                   )}
                   <span className={`badge ${signature.is_active ? 'badge-success' : 'badge-error'}`}>
                     {signature.is_active ? 'Activa' : 'Inactiva'}
@@ -265,7 +329,7 @@ export default function AdminSignatures() {
                   className="btn-secondary justify-center text-xs py-2 disabled:opacity-40"
                 >
                   <Star size={13} />
-                  {signature.is_default ? 'Ya es predeterminada' : 'Marcar predeterminada'}
+                  {signature.is_default ? 'Seleccionada para certificados' : 'Usar en certificados'}
                 </button>
 
                 {signature.is_active ? (
