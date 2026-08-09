@@ -1087,6 +1087,94 @@ export default function AdminUsers() {
     }, {});
   }, [assignments]);
 
+  function exportRosterCsv() {
+    const headers = [
+      'nombre',
+      'apellido',
+      'email',
+      'dni',
+      'telefono',
+      'rol_operativo',
+      'area',
+      'legajo',
+      'empresa_contratista',
+      'estado',
+      'puesto',
+      'supervisor',
+      'turno',
+      'fecha_ingreso',
+      'base',
+      'sede',
+      'region',
+      'yacimiento',
+      'campo_personalizado_1',
+      'campo_personalizado_2',
+      'campo_personalizado_3',
+      'campo_personalizado_4',
+      'campo_personalizado_5',
+    ];
+
+    const rows = users.map((profile) => {
+      const customFields =
+        profile.custom_fields ||
+        ((profile.raw_payload?.custom_fields as Record<string, string> | undefined) ?? {});
+
+      const rosterStatus =
+        normalize(profile.status) === 'inactive' || normalize(profile.directory_status) === 'inactive'
+          ? 'inactive'
+          : 'active';
+
+      return [
+        profile.first_name || '',
+        profile.last_name || '',
+        profile.email || '',
+        profile.dni || '',
+        profile.phone || '',
+        profile.work_role || profile.job_role || '',
+        profile.area || '',
+        profile.employee_code || '',
+        profile.contractor_company || '',
+        rosterStatus,
+        profile.position || '',
+        profile.supervisor || '',
+        profile.shift || '',
+        profile.hire_date || '',
+        profile.base || '',
+        profile.site || '',
+        profile.region || '',
+        profile.oilfield || '',
+        customFields.campo_personalizado_1 || '',
+        customFields.campo_personalizado_2 || '',
+        customFields.campo_personalizado_3 || '',
+        customFields.campo_personalizado_4 || '',
+        customFields.campo_personalizado_5 || '',
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeTenantName = (tenantName || 'empresa')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const today = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `nomina_ciguena_${safeTenantName || 'empresa'}_${today}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   async function toggleStatus(profile: Profile) {
     if (!profile.id || !tenantId) return;
 
@@ -1966,6 +2054,11 @@ export default function AdminUsers() {
           >
             <Upload size={14} />
             Cargar / actualizar nómina
+          </button>
+
+          <button onClick={exportRosterCsv} className="btn-secondary text-xs">
+            <Download size={14} />
+            Exportar nómina
           </button>
 
           <button
