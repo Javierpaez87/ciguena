@@ -271,38 +271,36 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
     setIsLoading(true);
     setLoadError(null);
 
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !authData.user) {
-      console.error('authError:', authError);
+    if (!user?.id) {
       setAssignments([]);
       setCertificates([]);
-      setLoadError('No pudimos identificar tu sesión.');
+      setLoadError('No pudimos identificar el perfil del trabajador.');
       setIsLoading(false);
       return;
     }
 
-    const authUserId = authData.user.id;
-
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, auth_user_id, email, full_name, tenant_id')
-      .eq('auth_user_id', authUserId)
+      .select('id, auth_user_id, tenant_id')
+      .eq('id', user.id)
       .single();
 
     if (profileError || !profile) {
       console.error('profileError:', profileError);
       setAssignments([]);
       setCertificates([]);
-      setLoadError('No pudimos encontrar tu perfil de trabajador.');
+      setLoadError('No pudimos encontrar el perfil del trabajador.');
       setIsLoading(false);
       return;
     }
 
     const profileId = profile.id as string;
+    const authUserId = profile.auth_user_id as string | null;
     const tenantId = profile.tenant_id as string | null;
 
-    const userIds = Array.from(new Set([profileId, authUserId].filter(Boolean)));
+    const userIds = Array.from(
+      new Set([profileId, authUserId].filter(Boolean) as string[])
+    );
 
     const [assignmentsResult, certificatesResult] = await Promise.all([
       supabase

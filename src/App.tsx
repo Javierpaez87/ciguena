@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import AppLayout from './components/layout/AppLayout';
 
 // Super Admin
@@ -12,6 +13,7 @@ import SaTrainings from './pages/superadmin/SaTrainings';
 import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
 import SaFeedback from './pages/superadmin/SaFeedback';
+import SaGhost from './pages/superadmin/SaGhost';
 
 // Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -19,6 +21,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminTrainings from './pages/admin/AdminTrainings';
 import AdminTrainingCatalog from './pages/admin/AdminTrainingCatalog';
 import AdminAssignments from './pages/admin/AdminAssignments';
+import AdminLiveTrainings from './pages/admin/AdminLiveTrainings';
 import AdminCertificates from './pages/admin/AdminCertificates';
 import AdminReports from './pages/admin/AdminReports';
 import AdminFeedback from './pages/admin/AdminFeedback';
@@ -28,6 +31,8 @@ import AdminSignatureConsent from './pages/admin/AdminSignatureConsent';
 // Worker
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import WorkerTrainings from './pages/worker/WorkerTrainings';
+import WorkerLiveTrainings from './pages/worker/WorkerLiveTrainings';
+import WorkerLiveTrainingRoom from './pages/worker/WorkerLiveTrainingRoom';
 import WorkerPlayer from './pages/worker/WorkerPlayer';
 import WorkerTest from './pages/worker/WorkerTest';
 import WorkerCertificates from './pages/worker/WorkerCertificates';
@@ -36,6 +41,7 @@ import EthicsSignaturePage from './pages/worker/EthicsSignaturePage';
 import { getEthicsRequirement } from './lib/ethics';
 import { getAdminSignatureRequirement } from './lib/adminSignatures';
 import type { EthicsAcceptance, EthicsCode } from './types';
+import GhostReadOnlyBoundary from './components/layout/GhostReadOnlyBoundary';
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-dashboard': {
@@ -62,6 +68,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     title: 'Feedback Global',
     subtitle: 'Opiniones de usuarios de todos los tenants',
   },
+  'sa-ghost': {
+    title: 'Ghost View',
+    subtitle: 'Observá la plataforma como cualquier admin o trabajador, sin realizar cambios',
+  },
 
   'admin-dashboard': {
     title: 'Dashboard',
@@ -82,6 +92,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-assignments': {
     title: 'Asignaciones',
     subtitle: 'Estado y seguimiento de trainings asignados',
+  },
+  'admin-live-trainings': {
+    title: 'Capacitaciones en Vivo',
+    subtitle: 'Creación, calendarización, asistencia y certificación de capacitaciones sincrónicas',
   },
   'admin-certificates': {
     title: 'Certificados',
@@ -108,6 +122,14 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     title: 'Mis Trainings',
     subtitle: 'Todos tus trainings asignados',
   },
+  'worker-live-trainings': {
+    title: 'Mis capacitaciones en vivo',
+    subtitle: 'Capacitaciones sincrónicas asignadas y registro de asistencia',
+  },
+  'worker-live-room': {
+    title: 'Sala de capacitación',
+    subtitle: 'Ingreso interno desde Cigüeña para registrar asistencia',
+  },
   'worker-player': {
     title: 'Player de Training',
     subtitle: 'Visualizá el contenido y marcá lecciones como completadas',
@@ -132,10 +154,26 @@ const DEFAULT_VIEW: Record<string, string> = {
   worker: 'worker-dashboard',
 };
 
+
+function getDeepLinkedView() {
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  const liveTrainingId = params.get('liveTrainingId') || params.get('id');
+
+  if (view === 'worker-live-room' && liveTrainingId) {
+    return {
+      view: 'worker-live-room',
+      data: { liveTrainingId },
+    };
+  }
+
+  return null;
+}
+
 type AuthScreen = 'login' | 'register' | 'forgot-password';
 
 function AppContent() {
-  const { user } = useAuth();
+  const { user, isGhostMode } = useAuth();
 
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [activeView, setActiveView] = useState(
@@ -189,6 +227,14 @@ function AppContent() {
       return;
     }
 
+    const deepLinkedView = getDeepLinkedView();
+
+    if (deepLinkedView) {
+      setActiveView(deepLinkedView.view);
+      setViewData(deepLinkedView.data);
+      return;
+    }
+
     const defaultView = DEFAULT_VIEW[user.role] ?? 'worker-dashboard';
     setActiveView(defaultView);
     setViewData(null);
@@ -198,7 +244,7 @@ function AppContent() {
     let ignore = false;
 
     async function checkAdminSignatureGate() {
-      if (!user || user.role !== 'admin') {
+      if (!user || user.role !== 'admin' || isGhostMode) {
         setAdminSignatureGate({
           mustSign: false,
           tenant: null,
@@ -227,13 +273,13 @@ function AppContent() {
     return () => {
       ignore = true;
     };
-  }, [user?.id, user?.role, user?.tenant_id]);
+  }, [user?.id, user?.role, user?.tenant_id, isGhostMode]);
 
   useEffect(() => {
     let ignore = false;
 
     async function checkEthicsGate() {
-      if (!user || user.role !== 'worker') {
+      if (!user || user.role !== 'worker' || isGhostMode) {
         setEthicsGate({
           mustSign: false,
           tenant: null,
@@ -259,7 +305,7 @@ function AppContent() {
     return () => {
       ignore = true;
     };
-  }, [user?.id, user?.role, user?.tenant_id]);
+  }, [user?.id, user?.role, user?.tenant_id, isGhostMode]);
 
   const navigate = (view: string, data?: unknown) => {
     setActiveView(view);
@@ -270,6 +316,16 @@ function AppContent() {
       setViewData(null);
     }
   };
+
+  if (window.location.pathname === '/reset-password') {
+    return (
+      <ResetPasswordPage
+        onPasswordUpdated={() => {
+          window.location.href = '/';
+        }}
+      />
+    );
+  }
 
   if (!user) {
     if (authScreen === 'register') {
@@ -318,7 +374,7 @@ function AppContent() {
   if (user?.role === 'worker' && isCheckingEthics) {
     return (
       <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
-        Verificando onboarding...
+        Verificando usuario...
       </div>
     );
   }
@@ -364,6 +420,8 @@ function AppContent() {
         return <SaTests />;
       case 'sa-feedback':
         return <SaFeedback />;
+      case 'sa-ghost':
+        return <SaGhost />;
 
       // Admin
       case 'admin-dashboard':
@@ -376,6 +434,8 @@ function AppContent() {
         return <AdminTrainingCatalog />;
       case 'admin-assignments':
         return <AdminAssignments />;
+      case 'admin-live-trainings':
+        return <AdminLiveTrainings onNavigate={navigate} />;
       case 'admin-certificates':
         return <AdminCertificates />;
       case 'admin-reports':
@@ -390,6 +450,15 @@ function AppContent() {
         return <WorkerDashboard onNavigate={navigate} />;
       case 'worker-trainings':
         return <WorkerTrainings onNavigate={navigate} />;
+      case 'worker-live-trainings':
+        return <WorkerLiveTrainings onNavigate={navigate} />;
+      case 'worker-live-room':
+        return (
+          <WorkerLiveTrainingRoom
+            liveTrainingId={(viewData as any)?.liveTrainingId}
+            onNavigate={navigate}
+          />
+        );
       case 'worker-player':
         return (
           <WorkerPlayer
@@ -425,7 +494,7 @@ function AppContent() {
       title={meta.title}
       subtitle={meta.subtitle}
     >
-      {renderView()}
+      <GhostReadOnlyBoundary>{renderView()}</GhostReadOnlyBoundary>
     </AppLayout>
   );
 }

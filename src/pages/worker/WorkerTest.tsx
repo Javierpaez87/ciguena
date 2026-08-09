@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   ChevronLeft,
   ClipboardList,
@@ -96,6 +97,7 @@ const shuffleArray = <T,>(items: T[]) => {
 };
 
 export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) {
+  const { isReadOnly } = useAuth();
   const trainingId = assignment?.training_id ?? '';
   const test = getTrainingTestByTrainingId(trainingId);
 
@@ -393,6 +395,10 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   };
 
   const submitTest = async () => {
+    if (isReadOnly) {
+      setSaveWarning('Ghost View está en modo solo lectura. No se registrarán intentos ni certificados.');
+      return;
+    }
     if (!test || questionsForAttempt.length === 0) return;
 
     setSaveWarning(null);
