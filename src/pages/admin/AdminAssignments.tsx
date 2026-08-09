@@ -46,6 +46,14 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'unassigned', label: 'Desasignado' },
 ];
 
+const REMINDER_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: 'all_pending', label: 'Todos los pendientes' },
+  { value: 'not_started', label: 'Asignado / no iniciado' },
+  { value: 'in_progress', label: 'En curso' },
+  { value: 'pending_test', label: 'Pendiente test' },
+  { value: 'expired', label: 'Vencido' },
+];
+
 type AssignTargetMode = 'filtered' | 'role' | 'all_workers';
 type AssignmentAction = 'deadline' | 'unassign' | 'reassign' | null;
 type NotificationType = 'assignment' | 'reminder' | 'unassignment' | 'reassignment';
@@ -62,6 +70,9 @@ interface Profile {
   job_role?: string | null;
   position?: string | null;
   area?: string | null;
+  supervisor?: string | null;
+  base?: string | null;
+  site?: string | null;
   employee_code?: string | null;
   dni?: string | null;
   status?: string | null;
@@ -139,6 +150,13 @@ interface EmailEvidence {
   error?: string;
   type?: NotificationType;
   provider_response?: unknown;
+}
+
+interface BulkReminderResult {
+  assignments: number;
+  workers: number;
+  withEmail: number;
+  evidence: EmailEvidence;
 }
 
 interface AssignmentReviewItem {
@@ -280,9 +298,28 @@ function isActiveAssignment(assignment: Assignment) {
 }
 
 function isReminderEligible(status?: string | null) {
-  return ['not_started', 'in_progress', 'pending_test', 'assigned', 'started'].includes(
+  return ['not_started', 'in_progress', 'pending_test', 'assigned', 'started', 'expired'].includes(
     normalize(status)
   );
+}
+
+function matchesReminderStatus(status: string | null | undefined, filter: string) {
+  const normalizedStatus = normalize(status);
+
+  if (filter === 'all_pending') return isReminderEligible(normalizedStatus);
+  if (filter === 'not_started') return ['not_started', 'assigned'].includes(normalizedStatus);
+  if (filter === 'in_progress') return ['in_progress', 'started'].includes(normalizedStatus);
+  return normalizedStatus === filter;
+}
+
+function getReminderStatusLabel(status?: string | null) {
+  const normalizedStatus = normalize(status);
+
+  if (['not_started', 'assigned'].includes(normalizedStatus)) return 'Asignado / no iniciado';
+  if (['in_progress', 'started'].includes(normalizedStatus)) return 'En curso';
+  if (normalizedStatus === 'pending_test') return 'Pendiente test';
+  if (normalizedStatus === 'expired') return 'Vencido';
+  return status || 'Pendiente';
 }
 
 function isCompletedAssignmentStatus(status?: string | null) {
@@ -362,6 +399,16 @@ export default function AdminAssignments() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+
+  const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
+  const [isSendingBulkReminder, setIsSendingBulkReminder] = useState(false);
+  const [bulkReminderResult, setBulkReminderResult] = useState<BulkReminderResult | null>(null);
+  const [reminderSearch, setReminderSearch] = useState('');
+  const [reminderRoleFilter, setReminderRoleFilter] = useState('all');
+  const [reminderPositionFilter, setReminderPositionFilter] = useState('all');
+  const [reminderAreaFilter, setReminderAreaFilter] = useState('all');
+  const [reminderTrainingFilter, setReminderTrainingFilter] = useState('all');
+  const [reminderStatusFilter, setReminderStatusFilter] = useState('all_pending');
 
   async function loadAssignments() {
     if (!tenantId) {
@@ -552,6 +599,28 @@ export default function AdminAssignments() {
       .sort((a, b) => a.role.localeCompare(b.role));
   }, [workerUsers]);
 
+  const reminderPositionOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        assignments
+          .filter((assignment) => isActiveAssignment(assignment) && isReminderEligible(assignment.status))
+          .map((assignment) => assignment.user?.position?.trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [assignments]);
+
+  const reminderAreaOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        assignments
+          .filter((assignment) => isActiveAssignment(assignment) && isReminderEligible(assignment.status))
+          .map((assignment) => assignment.user?.area?.trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [assignments]);
+
   const enabledTrainingOptions = useMemo<TrainingOption[]>(() => {
     const enabledRows = tenantTrainings.filter((training) => {
       if (!training.training_id) return false;
@@ -615,6 +684,65 @@ export default function AdminAssignments() {
       return matchesStatus && matchesRole && matchesTraining && matchesSearch;
     });
   }, [assignments, search, statusFilter, roleFilter, trainingFilter]);
+
+  const bulkReminderTargets = useMemo(() => {
+    const searchValue = normalize(reminderSearch);
+
+    return assignments.filter((assignment) => {
+      if (!isActiveAssignment(assignment) || !isReminderEligible(assignment.status)) return false;
+
+      const profile = assignment.user;
+      if (!profile || !isWorker(profile) || !isActiveProfile(profile)) return false;
+
+      const trainingKey =
+        assignment.training_id ||
+        assignment.tenant_training_id ||
+        assignment.training?.training_id ||
+        assignment.training?.id ||
+        '';
+
+      const matchesRole =
+        reminderRoleFilter === 'all' || getWorkerRole(profile) === reminderRoleFilter;
+      const matchesPosition =
+        reminderPositionFilter === 'all' || (profile.position || '') === reminderPositionFilter;
+      const matchesArea = reminderAreaFilter === 'all' || (profile.area || '') === reminderAreaFilter;
+      const matchesTraining = reminderTrainingFilter === 'all' || trainingKey === reminderTrainingFilter;
+      const matchesStatus = matchesReminderStatus(assignment.status, reminderStatusFilter);
+
+      const matchesSearch =
+        !searchValue ||
+        normalize(getFullName(profile)).includes(searchValue) ||
+        normalize(profile.email).includes(searchValue) ||
+        normalize(profile.employee_code).includes(searchValue) ||
+        normalize(profile.dni).includes(searchValue) ||
+        normalize(profile.supervisor).includes(searchValue) ||
+        normalize(profile.base).includes(searchValue) ||
+        normalize(profile.site).includes(searchValue) ||
+        normalize(getTrainingTitle(assignment.training, assignment)).includes(searchValue);
+
+      return matchesRole && matchesPosition && matchesArea && matchesTraining && matchesStatus && matchesSearch;
+    });
+  }, [
+    assignments,
+    reminderSearch,
+    reminderRoleFilter,
+    reminderPositionFilter,
+    reminderAreaFilter,
+    reminderTrainingFilter,
+    reminderStatusFilter,
+  ]);
+
+  const bulkReminderWorkerCount = useMemo(() => {
+    return new Set(
+      bulkReminderTargets
+        .map((assignment) => assignment.user?.id || assignment.user_id)
+        .filter(Boolean)
+    ).size;
+  }, [bulkReminderTargets]);
+
+  const bulkReminderWithEmailCount = useMemo(() => {
+    return bulkReminderTargets.filter((assignment) => Boolean(assignment.user?.email)).length;
+  }, [bulkReminderTargets]);
 
   const filteredUsersFromCurrentView = useMemo(() => {
     const userMap = new Map<string, Profile>();
@@ -790,6 +918,30 @@ export default function AdminAssignments() {
     ],
     []
   );
+
+  function openBulkReminderModal() {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setLastEmailEvidence(null);
+    setBulkReminderResult(null);
+    setReminderSearch(search);
+    setReminderRoleFilter(roleFilter);
+    setReminderPositionFilter('all');
+    setReminderAreaFilter('all');
+    setReminderTrainingFilter(trainingFilter);
+    setReminderStatusFilter(
+      ['not_started', 'in_progress', 'pending_test', 'expired'].includes(statusFilter)
+        ? statusFilter
+        : 'all_pending'
+    );
+    setShowBulkReminderModal(true);
+  }
+
+  function closeBulkReminderModal() {
+    if (isSendingBulkReminder) return;
+    setShowBulkReminderModal(false);
+    setBulkReminderResult(null);
+  }
 
   function openAssignModal() {
     setErrorMessage(null);
@@ -1133,58 +1285,77 @@ export default function AdminAssignments() {
   }
 
   async function sendBulkReminder() {
-    const eligible = filtered.filter(
-      (assignment) => isActiveAssignment(assignment) && isReminderEligible(assignment.status)
-    );
+    const eligible = bulkReminderTargets;
 
     if (eligible.length === 0) {
-      setErrorMessage('No hay asignaciones pendientes en este filtro para enviar reminder.');
+      setErrorMessage('No hay asignaciones pendientes con estos filtros para enviar recordatorios.');
       setSuccessMessage(null);
       return;
     }
 
-    const evidence = await notifyAssignmentsByEmail({
-      assignmentsToNotify: eligible,
-      type: 'reminder',
-    });
+    if (bulkReminderWithEmailCount === 0) {
+      setErrorMessage('Los trabajadores seleccionados no tienen emails válidos para notificar.');
+      setSuccessMessage(null);
+      return;
+    }
 
-    await Promise.all(
-      eligible.map((assignment) =>
-        createAssignmentEvent({
-          assignment,
-          eventType: 'bulk_reminder_requested',
-          eventDetail: 'Reminder masivo solicitado desde la pantalla de asignaciones.',
-        })
-      )
-    );
+    setIsSendingBulkReminder(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setBulkReminderResult(null);
 
-    setLastEmailEvidence(evidence);
-
-    if (evidence.sent) {
-      setErrorMessage(null);
-      setSuccessMessage(
-        `Reminder masivo enviado a ${evidence.recipient_count} persona(s).`
-      );
-
-      setRemindSent((previous) => {
-        const next = new Set(previous);
-        eligible.forEach((assignment) => next.add(assignment.id));
-        return next;
+    try {
+      const evidence = await notifyAssignmentsByEmail({
+        assignmentsToNotify: eligible,
+        type: 'reminder',
       });
 
-      setTimeout(() => {
+      await Promise.all(
+        eligible.map((assignment) =>
+          createAssignmentEvent({
+            assignment,
+            eventType: 'bulk_reminder_requested',
+            eventDetail: 'Reminder masivo solicitado desde el modal de asignaciones.',
+          })
+        )
+      );
+
+      setLastEmailEvidence(evidence);
+      setBulkReminderResult({
+        assignments: eligible.length,
+        workers: bulkReminderWorkerCount,
+        withEmail: bulkReminderWithEmailCount,
+        evidence,
+      });
+
+      if (evidence.sent) {
+        setErrorMessage(null);
+        setSuccessMessage(
+          `Recordatorios enviados: ${evidence.recipient_count} email(s) correspondientes a ${bulkReminderWorkerCount} trabajador(es).`
+        );
+
         setRemindSent((previous) => {
           const next = new Set(previous);
-          eligible.forEach((assignment) => next.delete(assignment.id));
+          eligible.forEach((assignment) => next.add(assignment.id));
           return next;
         });
-      }, 3000);
-    } else {
-      setSuccessMessage(null);
-      setErrorMessage(
-        evidence.error ||
-          'No se pudo confirmar el envío real del reminder masivo por email.'
-      );
+
+        setTimeout(() => {
+          setRemindSent((previous) => {
+            const next = new Set(previous);
+            eligible.forEach((assignment) => next.delete(assignment.id));
+            return next;
+          });
+        }, 3000);
+      } else {
+        setSuccessMessage(null);
+        setErrorMessage(
+          evidence.error ||
+            'No se pudo confirmar el envío real del reminder masivo por email.'
+        );
+      }
+    } finally {
+      setIsSendingBulkReminder(false);
     }
   }
 
@@ -1461,7 +1632,7 @@ export default function AdminAssignments() {
             Asignar curso masivo
           </button>
 
-          <button onClick={sendBulkReminder} className="btn-secondary text-xs flex-shrink-0">
+          <button onClick={openBulkReminderModal} className="btn-secondary text-xs flex-shrink-0">
             <BellRing size={14} />
             Reminder masivo
           </button>
@@ -1956,6 +2127,246 @@ export default function AdminAssignments() {
             </>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        open={showBulkReminderModal}
+        onClose={closeBulkReminderModal}
+        title={bulkReminderResult ? 'Resultado de recordatorios' : 'Enviar recordatorios masivos'}
+        size="xl"
+        footer={
+          bulkReminderResult ? (
+            <button onClick={closeBulkReminderModal} className="btn-primary">
+              <CheckCircle size={15} />
+              Listo
+            </button>
+          ) : (
+            <>
+              <button onClick={closeBulkReminderModal} disabled={isSendingBulkReminder} className="btn-ghost">
+                Cancelar
+              </button>
+              <button
+                onClick={sendBulkReminder}
+                disabled={isSendingBulkReminder || bulkReminderTargets.length === 0 || bulkReminderWithEmailCount === 0}
+                className="btn-primary disabled:opacity-50"
+              >
+                <Send size={15} />
+                {isSendingBulkReminder ? 'Enviando...' : `Enviar ${bulkReminderWithEmailCount} recordatorio(s)`}
+              </button>
+            </>
+          )
+        }
+      >
+        {bulkReminderResult ? (
+          <div className="space-y-4">
+            <div
+              className={`rounded-xl border p-4 ${
+                bulkReminderResult.evidence.sent
+                  ? 'border-emerald-500/30 bg-emerald-500/10'
+                  : 'border-amber-500/30 bg-amber-500/10'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {bulkReminderResult.evidence.sent ? (
+                  <CheckCircle size={20} className="text-emerald-300 mt-0.5" />
+                ) : (
+                  <AlertTriangle size={20} className="text-amber-300 mt-0.5" />
+                )}
+                <div>
+                  <div className="text-base font-semibold text-steel-100">
+                    {bulkReminderResult.evidence.sent
+                      ? 'Recordatorios procesados'
+                      : 'No se pudo confirmar el envío'}
+                  </div>
+                  <div className="text-sm text-steel-300 mt-1">
+                    {bulkReminderResult.evidence.message ||
+                      bulkReminderResult.evidence.error ||
+                      'Proceso finalizado.'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+                <div className="text-xs text-steel-500">Asignaciones seleccionadas</div>
+                <div className="text-xl font-bold text-steel-100 mt-1">{bulkReminderResult.assignments}</div>
+              </div>
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+                <div className="text-xs text-steel-500">Trabajadores</div>
+                <div className="text-xl font-bold text-steel-100 mt-1">{bulkReminderResult.workers}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <div className="text-xs text-emerald-300">Emails enviados</div>
+                <div className="text-xl font-bold text-emerald-200 mt-1">{bulkReminderResult.evidence.recipient_count}</div>
+              </div>
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+                <div className="text-xs text-steel-500">Con email</div>
+                <div className="text-xl font-bold text-steel-100 mt-1">{bulkReminderResult.withEmail}</div>
+              </div>
+            </div>
+
+            {bulkReminderResult.evidence.error && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                {bulkReminderResult.evidence.error}
+              </div>
+            )}
+
+            <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-xs text-steel-400">
+              El envío quedó registrado en training_assignment_events y email_notifications, como el resto de las notificaciones de asignaciones.
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-3">
+                <BellRing size={19} className="text-amber-300 mt-0.5" />
+                <div>
+                  <div className="text-sm font-semibold text-amber-200">Revisá a quiénes vas a avisar</div>
+                  <div className="text-xs text-steel-400 mt-1">
+                    Los filtros de este modal definen exactamente qué asignaciones pendientes recibirán un recordatorio. No se modifican asignaciones, deadlines ni progreso.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div>
+                <label className="label">Estado de asignación</label>
+                <select
+                  value={reminderStatusFilter}
+                  onChange={(event) => setReminderStatusFilter(event.target.value)}
+                  className="select"
+                >
+                  {REMINDER_STATUS_FILTERS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Rol operativo</label>
+                <select
+                  value={reminderRoleFilter}
+                  onChange={(event) => setReminderRoleFilter(event.target.value)}
+                  className="select"
+                >
+                  <option value="all">Todos los roles</option>
+                  {roleOptions.map((option) => (
+                    <option key={option.role} value={option.role}>{option.role}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Puesto</label>
+                <select
+                  value={reminderPositionFilter}
+                  onChange={(event) => setReminderPositionFilter(event.target.value)}
+                  className="select"
+                >
+                  <option value="all">Todos los puestos</option>
+                  {reminderPositionOptions.map((position) => (
+                    <option key={position} value={position}>{position}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Área</label>
+                <select
+                  value={reminderAreaFilter}
+                  onChange={(event) => setReminderAreaFilter(event.target.value)}
+                  className="select"
+                >
+                  <option value="all">Todas las áreas</option>
+                  {reminderAreaOptions.map((area) => (
+                    <option key={area} value={area}>{area}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Training</label>
+                <select
+                  value={reminderTrainingFilter}
+                  onChange={(event) => setReminderTrainingFilter(event.target.value)}
+                  className="select"
+                >
+                  <option value="all">Todos los trainings</option>
+                  {enabledTrainingOptions.map((training) => (
+                    <option key={training.id} value={training.id}>{training.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Buscar</label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
+                  <input
+                    value={reminderSearch}
+                    onChange={(event) => setReminderSearch(event.target.value)}
+                    className="input pl-9"
+                    placeholder="Nombre, email, legajo, supervisor..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+                <div className="text-xs text-steel-500">Asignaciones</div>
+                <div className="text-xl font-bold text-steel-100 mt-1">{bulkReminderTargets.length}</div>
+              </div>
+              <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+                <div className="text-xs text-steel-500">Trabajadores</div>
+                <div className="text-xl font-bold text-steel-100 mt-1">{bulkReminderWorkerCount}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <div className="text-xs text-emerald-300">Emails a enviar</div>
+                <div className="text-xl font-bold text-emerald-200 mt-1">{bulkReminderWithEmailCount}</div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-steel-700 overflow-hidden">
+              <div className="px-3 py-2 bg-steel-900 text-xs font-semibold text-steel-300">
+                Vista previa de destinatarios
+              </div>
+              <div className="max-h-72 overflow-auto divide-y divide-steel-700/70">
+                {bulkReminderTargets.slice(0, 150).map((assignment) => (
+                  <div key={assignment.id} className="grid grid-cols-1 md:grid-cols-4 gap-2 px-3 py-2 bg-steel-800/60 text-xs">
+                    <div>
+                      <div className="text-steel-200 font-medium">{getFullName(assignment.user)}</div>
+                      <div className="text-steel-500">{assignment.user?.email || 'Sin email'}</div>
+                    </div>
+                    <div>
+                      <div className="text-steel-400">{getWorkerRole(assignment.user)}</div>
+                      <div className="text-steel-500">{assignment.user?.area || assignment.user?.position || '—'}</div>
+                    </div>
+                    <div className="text-steel-300">{getTrainingTitle(assignment.training, assignment)}</div>
+                    <div className="text-steel-400">{getReminderStatusLabel(assignment.status)}</div>
+                  </div>
+                ))}
+
+                {bulkReminderTargets.length === 0 && (
+                  <div className="p-4 text-sm text-steel-500">No hay destinatarios con estos filtros.</div>
+                )}
+              </div>
+              {bulkReminderTargets.length > 150 && (
+                <div className="px-3 py-2 bg-steel-900 text-xs text-steel-500">
+                  Mostrando los primeros 150 de {bulkReminderTargets.length}.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-xs text-steel-400">
+              Si un trabajador tiene más de una asignación pendiente seleccionada, el sistema actual enviará un recordatorio por cada asignación/training.
+            </div>
+          </div>
+        )}
       </Modal>
 
       <CsvExportModal
