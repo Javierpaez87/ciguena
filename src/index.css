@@ -4,6 +4,13 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --brand-primary: #F59E0B;
+  --brand-accent: #FBBF24;
+  --brand-primary-rgb: 245 158 11;
+  --brand-accent-rgb: 251 191 36;
+}
+
 @layer base {
   * {
     box-sizing: border-box;

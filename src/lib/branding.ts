@@ -99,8 +99,7 @@ function normalizeOptionalText(
   value: string | null | undefined,
 ): string | null {
   const normalized = value?.trim();
-
-  return normalized ? normalized : null;
+  return normalized || null;
 }
 
 /**
@@ -130,12 +129,10 @@ export function resolveBranding(
     logoUrl,
 
     logoCompactUrl:
-      normalizeOptionalText(row.logo_compact_url) ??
-      logoUrl,
+      normalizeOptionalText(row.logo_compact_url) ?? logoUrl,
 
     logoNegativeUrl:
-      normalizeOptionalText(row.logo_negative_url) ??
-      logoUrl,
+      normalizeOptionalText(row.logo_negative_url) ?? logoUrl,
 
     faviconUrl:
       normalizeOptionalText(row.favicon_url) ??
@@ -151,11 +148,9 @@ export function resolveBranding(
       DEFAULT_CIGUENA_BRANDING.accentColor,
     ),
 
-    customDomain:
-      normalizeOptionalText(row.custom_domain),
+    customDomain: normalizeOptionalText(row.custom_domain),
 
-    isCustomBranding:
-      row.is_custom_branding ?? false,
+    isCustomBranding: row.is_custom_branding ?? false,
 
     showPoweredByBondiApps:
       row.show_powered_by_bondiapps ?? true,
@@ -165,11 +160,8 @@ export function resolveBranding(
 /**
  * Convierte HEX a canales RGB.
  *
- * Nos servirá después para generar variables CSS
- * que soporten transparencias.
- *
- * Ejemplo:
- * #F59E0B → "245 158 11"
+ * Nos servirá para variables CSS que soporten alpha.
+ * Ejemplo: #F59E0B -> "245 158 11"
  */
 export function hexToRgbChannels(hex: string): string {
   const normalized = normalizeHexColor(
@@ -177,10 +169,7 @@ export function hexToRgbChannels(hex: string): string {
     DEFAULT_CIGUENA_BRANDING.primaryColor,
   );
 
-  const numericValue = Number.parseInt(
-    normalized.slice(1),
-    16,
-  );
+  const numericValue = Number.parseInt(normalized.slice(1), 16);
 
   const red = (numericValue >> 16) & 255;
   const green = (numericValue >> 8) & 255;
