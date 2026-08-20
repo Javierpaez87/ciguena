@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BrandingProvider } from './contexts/BrandingContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -9,6 +10,7 @@ import AppLayout from './components/layout/AppLayout';
 // Super Admin
 import SaDashboard from './pages/superadmin/SaDashboard';
 import SaTenants from './pages/superadmin/SaTenants';
+import SaWhiteLabel from './pages/superadmin/SaWhiteLabel';
 import SaTrainings from './pages/superadmin/SaTrainings';
 import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
@@ -51,6 +53,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-tenants': {
     title: 'Empresas / Tenants',
     subtitle: 'Gestión de empresas cliente y habilitación de trainings',
+  },
+  'sa-white-label': {
+    title: 'White Label',
+    subtitle: 'Identidad visual y configuración de marca por cliente',
   },
   'sa-trainings': {
     title: 'Catálogo de Trainings',
@@ -412,6 +418,8 @@ function AppContent() {
         return <SaDashboard />;
       case 'sa-tenants':
         return <SaTenants />;
+      case 'sa-white-label':
+        return <SaWhiteLabel />;
       case 'sa-trainings':
         return <SaTrainings />;
       case 'sa-builder':
@@ -502,7 +510,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <BrandingProvider>
+        <AppContent />
+      </BrandingProvider>
     </AuthProvider>
   );
 }

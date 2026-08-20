@@ -21,6 +21,7 @@ import {
   LibraryBig,
   Eye,
   ArrowLeft,
+  Palette,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -48,6 +49,11 @@ const superAdminNav: NavItem[] = [
     id: 'sa-tenants',
     label: 'Empresas / Tenants',
     icon: <Building2 size={18} />,
+  },
+  {
+    id: 'sa-white-label',
+    label: 'White Label',
+    icon: <Palette size={18} />,
   },
   {
     id: 'sa-trainings',
