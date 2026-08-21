@@ -18,6 +18,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
 import type { EthicsAcceptance } from '../../types';
+import type { WorkerSignatureConsent } from '../../lib/workerOnboarding';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -77,6 +78,7 @@ export default function WorkerCertificates() {
 
   const [certificates, setCertificates] = useState<SupabaseCertificate[]>([]);
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
+  const [workerSignatureConsent, setWorkerSignatureConsent] = useState<WorkerSignatureConsent | null>(null);
   const [isEthicsModalOpen, setIsEthicsModalOpen] = useState(false);
   const [selectedCertificate, setSelectedCertificate] = useState<SupabaseCertificate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,6 +98,7 @@ export default function WorkerCertificates() {
     if (!user?.id) {
       setCertificates([]);
       setEthicsAcceptance(null);
+      setWorkerSignatureConsent(null);
       setIsLoading(false);
       return;
     }
@@ -116,6 +119,20 @@ export default function WorkerCertificates() {
     }
 
     setEthicsAcceptance((ethicsData as EthicsAcceptance | null) ?? null);
+
+    const { data: signatureConsentData, error: signatureConsentError } = await supabase
+      .from('worker_signature_consents')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (signatureConsentError) {
+      console.error('Error cargando firma electrónica del worker:', signatureConsentError);
+    }
+
+    setWorkerSignatureConsent((signatureConsentData as WorkerSignatureConsent | null) ?? null);
 
     const { data: certificatesData, error: certificatesError } = await supabase
       .from('certificates')
@@ -264,7 +281,7 @@ export default function WorkerCertificates() {
   };
 
   const printCertificate = (cert: SupabaseCertificate) => {
-    const workerSignatureUrl = cert.worker_signature_url || ethicsAcceptance?.signature_image_url;
+    const workerSignatureUrl = cert.worker_signature_url || workerSignatureConsent?.signature_image_url || ethicsAcceptance?.signature_image_url;
 
     const workerSignatureBlock = workerSignatureUrl
       ? `<img src="${workerSignatureUrl}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
@@ -700,9 +717,9 @@ export default function WorkerCertificates() {
                 <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
                   <div>
                     <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
-                      {(selectedCertificate.worker_signature_url || ethicsAcceptance?.signature_image_url) ? (
+                      {(selectedCertificate.worker_signature_url || workerSignatureConsent?.signature_image_url || ethicsAcceptance?.signature_image_url) ? (
                         <img
-                          src={selectedCertificate.worker_signature_url || ethicsAcceptance?.signature_image_url || ''}
+                          src={selectedCertificate.worker_signature_url || workerSignatureConsent?.signature_image_url || ethicsAcceptance?.signature_image_url || ''}
                           alt="Firma trabajador"
                           className="max-h-24 max-w-full object-contain"
                           style={{ filter: 'invert(1) contrast(1.4)' }}

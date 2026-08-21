@@ -317,30 +317,53 @@ export default function AdminCertificates() {
         if (training.training_id) trainingsByAnyId.set(training.training_id, training);
       });
 
+      let workerSignatureConsentsData: Array<{ user_id: string; signature_image_url: string | null }> = [];
       let ethicsAcceptancesData: EthicsAcceptance[] = [];
 
       if (userIdsToMatch.length > 0) {
-        const ethicsAcceptancesResult = await supabase
-          .from('ethics_acceptances')
-          .select('*')
-          .in('user_id', userIdsToMatch)
-          .order('accepted_at', { ascending: false });
+        const [signatureConsentsResult, ethicsAcceptancesResult] = await Promise.all([
+          supabase
+            .from('worker_signature_consents')
+            .select('user_id, signature_image_url, accepted_at')
+            .in('user_id', userIdsToMatch)
+            .order('accepted_at', { ascending: false }),
+          supabase
+            .from('ethics_acceptances')
+            .select('*')
+            .in('user_id', userIdsToMatch)
+            .order('accepted_at', { ascending: false }),
+        ]);
+
+        if (signatureConsentsResult.error) {
+          console.error('Error cargando firmas independientes:', signatureConsentsResult.error);
+        } else {
+          workerSignatureConsentsData = (signatureConsentsResult.data ?? []) as Array<{
+            user_id: string;
+            signature_image_url: string | null;
+          }>;
+        }
 
         if (ethicsAcceptancesResult.error) {
-          console.error('Error cargando firmas de ética:', ethicsAcceptancesResult.error);
+          console.error('Error cargando firmas históricas de ética:', ethicsAcceptancesResult.error);
         } else {
           ethicsAcceptancesData = (ethicsAcceptancesResult.data ?? []) as EthicsAcceptance[];
         }
       }
 
-      const ethicsSignatureByUserId = new Map<string, string>();
+      const workerSignatureByUserId = new Map<string, string>();
 
+      workerSignatureConsentsData.forEach((consent) => {
+        if (!consent.user_id || !consent.signature_image_url) return;
+        if (!workerSignatureByUserId.has(consent.user_id)) {
+          workerSignatureByUserId.set(consent.user_id, consent.signature_image_url);
+        }
+      });
+
+      // Compatibilidad histórica para firmas anteriores a la tabla independiente.
       ethicsAcceptancesData.forEach((acceptance) => {
         if (!acceptance.user_id || !acceptance.signature_image_url) return;
-
-        // Como viene ordenado desc por accepted_at, guardamos la firma más reciente.
-        if (!ethicsSignatureByUserId.has(acceptance.user_id)) {
-          ethicsSignatureByUserId.set(acceptance.user_id, acceptance.signature_image_url);
+        if (!workerSignatureByUserId.has(acceptance.user_id)) {
+          workerSignatureByUserId.set(acceptance.user_id, acceptance.signature_image_url);
         }
       });
 
@@ -363,7 +386,7 @@ export default function AdminCertificates() {
 
         const ethicsSignatureUrl =
           possibleSignatureUserIds
-            .map((id) => ethicsSignatureByUserId.get(id))
+            .map((id) => workerSignatureByUserId.get(id))
             .find(Boolean) ?? null;
 
         return {

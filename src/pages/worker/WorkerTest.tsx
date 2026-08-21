@@ -184,18 +184,34 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     let workerSignatureUrl: string | null = null;
 
     if (signatureUserIds.length > 0) {
-      const { data: ethicsAcceptances, error: ethicsError } = await supabase
-        .from('ethics_acceptances')
+      const { data: signatureConsents, error: signatureConsentError } = await supabase
+        .from('worker_signature_consents')
         .select('signature_image_url')
         .in('user_id', signatureUserIds)
         .order('accepted_at', { ascending: false })
         .limit(1);
 
-      if (ethicsError) {
-        console.error('Error obteniendo firma del worker para certificado:', ethicsError);
+      if (signatureConsentError) {
+        console.error('Error obteniendo firma independiente del worker:', signatureConsentError);
       }
 
-      workerSignatureUrl = ethicsAcceptances?.[0]?.signature_image_url ?? null;
+      workerSignatureUrl = signatureConsents?.[0]?.signature_image_url ?? null;
+
+      // Compatibilidad histórica: certificados de workers que firmaron antes de 3A.1.
+      if (!workerSignatureUrl) {
+        const { data: ethicsAcceptances, error: ethicsError } = await supabase
+          .from('ethics_acceptances')
+          .select('signature_image_url')
+          .in('user_id', signatureUserIds)
+          .order('accepted_at', { ascending: false })
+          .limit(1);
+
+        if (ethicsError) {
+          console.error('Error obteniendo firma histórica del worker:', ethicsError);
+        }
+
+        workerSignatureUrl = ethicsAcceptances?.[0]?.signature_image_url ?? null;
+      }
     }
 
     let companySignature: CertificateContext['companySignature'] = null;

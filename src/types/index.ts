@@ -84,6 +84,7 @@ export interface Profile {
   source?: string | null;
   created_at: string;
   updated_at?: string | null;
+  profile_validated_at?: string | null;
 }
 
 export interface EmployeeDirectory {

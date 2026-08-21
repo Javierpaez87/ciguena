@@ -39,10 +39,9 @@ import WorkerPlayer from './pages/worker/WorkerPlayer';
 import WorkerTest from './pages/worker/WorkerTest';
 import WorkerCertificates from './pages/worker/WorkerCertificates';
 import WorkerFeedback from './pages/worker/WorkerFeedback';
-import EthicsSignaturePage from './pages/worker/EthicsSignaturePage';
-import { getEthicsRequirement } from './lib/ethics';
+import WorkerOnboardingPage from './pages/worker/WorkerOnboardingPage';
+import { getWorkerOnboardingRequirement, type WorkerOnboardingRequirement } from './lib/workerOnboarding';
 import { getAdminSignatureRequirement } from './lib/adminSignatures';
-import type { EthicsAcceptance, EthicsCode } from './types';
 import GhostReadOnlyBoundary from './components/layout/GhostReadOnlyBoundary';
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
@@ -188,22 +187,11 @@ function AppContent() {
   );
   const [viewData, setViewData] = useState<unknown>(null);
 
-  const [isCheckingEthics, setIsCheckingEthics] = useState(false);
+  const [isCheckingWorkerOnboarding, setIsCheckingWorkerOnboarding] = useState(false);
+  const [workerOnboardingRefresh, setWorkerOnboardingRefresh] = useState(0);
   const [isCheckingAdminSignature, setIsCheckingAdminSignature] = useState(false);
 
-  const [ethicsGate, setEthicsGate] = useState<{
-    mustSign: boolean;
-    tenant: { id: string; name: string; logo_url: string | null } | null;
-    ethicsCode: EthicsCode | null;
-    acceptance: EthicsAcceptance | null;
-    error: string | null;
-  }>({
-    mustSign: false,
-    tenant: null,
-    ethicsCode: null,
-    acceptance: null,
-    error: null,
-  });
+  const [workerOnboardingGate, setWorkerOnboardingGate] = useState<WorkerOnboardingRequirement | null>(null);
 
   const [adminSignatureGate, setAdminSignatureGate] = useState<{
     mustSign: boolean;
@@ -217,13 +205,7 @@ function AppContent() {
 
   useEffect(() => {
     if (!user) {
-      setEthicsGate({
-        mustSign: false,
-        tenant: null,
-        ethicsCode: null,
-        acceptance: null,
-        error: null,
-      });
+      setWorkerOnboardingGate(null);
 
       setAdminSignatureGate({
         mustSign: false,
@@ -285,34 +267,29 @@ function AppContent() {
   useEffect(() => {
     let ignore = false;
 
-    async function checkEthicsGate() {
+    async function checkWorkerOnboardingGate() {
       if (!user || user.role !== 'worker' || isGhostMode) {
-        setEthicsGate({
-          mustSign: false,
-          tenant: null,
-          ethicsCode: null,
-          acceptance: null,
-          error: null,
-        });
+        setWorkerOnboardingGate(null);
+        setIsCheckingWorkerOnboarding(false);
         return;
       }
 
-      setIsCheckingEthics(true);
+      setIsCheckingWorkerOnboarding(true);
 
-      const result = await getEthicsRequirement(user);
+      const result = await getWorkerOnboardingRequirement(user);
 
       if (!ignore) {
-        setEthicsGate(result);
-        setIsCheckingEthics(false);
+        setWorkerOnboardingGate(result);
+        setIsCheckingWorkerOnboarding(false);
       }
     }
 
-    checkEthicsGate();
+    checkWorkerOnboardingGate();
 
     return () => {
       ignore = true;
     };
-  }, [user?.id, user?.role, user?.tenant_id, isGhostMode]);
+  }, [user?.id, user?.role, user?.tenant_id, isGhostMode, workerOnboardingRefresh]);
 
   const navigate = (view: string, data?: unknown) => {
     setActiveView(view);
@@ -378,31 +355,45 @@ function AppContent() {
     );
   }
 
-  if (user?.role === 'worker' && isCheckingEthics) {
+  if (user?.role === 'worker' && isCheckingWorkerOnboarding) {
     return (
       <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
-        Verificando usuario...
+        Verificando onboarding...
       </div>
     );
   }
 
   if (
     user?.role === 'worker' &&
-    ethicsGate.mustSign &&
-    ethicsGate.tenant &&
-    ethicsGate.ethicsCode
+    workerOnboardingGate?.error
   ) {
     return (
-      <EthicsSignaturePage
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center p-6">
+        <div className="card max-w-lg w-full text-center">
+          <div className="text-lg font-semibold text-steel-100 mb-2">No pudimos verificar tu onboarding</div>
+          <div className="text-sm text-steel-400 mb-5">{workerOnboardingGate.error}</div>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setWorkerOnboardingRefresh((value) => value + 1)}
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    user?.role === 'worker' &&
+    workerOnboardingGate?.mustComplete &&
+    workerOnboardingGate.tenant
+  ) {
+    return (
+      <WorkerOnboardingPage
         user={user}
-        tenant={ethicsGate.tenant}
-        ethicsCode={ethicsGate.ethicsCode}
-        onSigned={() =>
-          setEthicsGate(current => ({
-            ...current,
-            mustSign: false,
-          }))
-        }
+        requirement={workerOnboardingGate}
+        onCompleted={() => window.location.reload()}
       />
     );
   }
