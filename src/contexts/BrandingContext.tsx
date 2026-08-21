@@ -69,7 +69,35 @@ async function fetchTenantBranding(
     return getDefaultBrandingForTenant(tenantId);
   }
 
-  return resolveBranding(data as TenantBrandingRow);
+  const resolvedBranding = resolveBranding(data as TenantBrandingRow);
+
+  /*
+   * Backward-compatible white-label fallback:
+   * older tenant_branding rows were created with brand_name = Cigüeña.
+   * Once a tenant becomes custom, using the tenant name is a safer
+   * effective fallback than leaking the default product name.
+   *
+   * We do not mutate Supabase here; the Superadmin editor can still
+   * save a different explicit brand name at any time.
+   */
+  if (
+    resolvedBranding.isCustomBranding &&
+    resolvedBranding.brandName.trim().toLocaleLowerCase('es') === 'cigüeña'
+  ) {
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('name')
+      .eq('id', tenantId)
+      .maybeSingle();
+
+    const tenantName = tenant?.name?.trim();
+
+    if (tenantName) {
+      resolvedBranding.brandName = tenantName;
+    }
+  }
+
+  return resolvedBranding;
 }
 
 function applyBrandingVariables(branding: BrandingConfig) {
@@ -80,6 +108,10 @@ function applyBrandingVariables(branding: BrandingConfig) {
   root.style.setProperty(
     '--brand-primary-contrast',
     getReadableTextColor(branding.primaryColor),
+  );
+  root.style.setProperty(
+    '--brand-accent-contrast',
+    getReadableTextColor(branding.accentColor),
   );
   root.style.setProperty(
     '--brand-primary-rgb',

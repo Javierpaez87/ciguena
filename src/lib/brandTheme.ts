@@ -58,20 +58,33 @@ export function getReadableTextColor(hex: string): string {
   return luminance > 0.46 ? '#071B24' : '#F8FAFC';
 }
 
+/**
+ * White Label visual rule:
+ *
+ * The product shell stays neutral and consistent across every tenant.
+ * Brand colors are accents, not large background surfaces.
+ *
+ * This keeps SPI, Cigüeña and future brands feeling like the same
+ * polished product with a different identity instead of unrelated themes.
+ */
 export function getTenantBrandTheme(branding: BrandingConfig) {
-  const primary = branding.primaryColor;
   const accent = branding.accentColor;
   const accentReadable = mixHex(accent, '#FFFFFF', 0.68);
 
   return {
-    sidebarBackground: mixHex(primary, '#0F172A', 0.24),
-    headerBackground: mixHex(primary, '#0F172A', 0.20),
-    pageBackground: mixHex(primary, '#020617', 0.10),
-    elevatedBackground: mixHex(primary, '#1E293B', 0.16),
-    border: rgba(accent, 0.22),
-    borderStrong: rgba(accent, 0.34),
-    softPrimary: rgba(primary, 0.18),
-    softAccent: rgba(accent, 0.13),
+    // Stable product surfaces. Do NOT derive these from client colors.
+    sidebarBackground: '#0F172A',
+    headerBackground: '#0F172A',
+    pageBackground: '#020617',
+    elevatedBackground: '#1E293B',
+
+    // Structural borders remain neutral.
+    border: 'rgba(51, 65, 85, 0.95)',
+    borderStrong: 'rgba(71, 85, 105, 0.95)',
+
+    // Brand is used only as a controlled accent.
+    softPrimary: rgba(accent, 0.14),
+    softAccent: rgba(accent, 0.10),
     accentText: accentReadable,
     activeText: '#F8FAFC',
   };

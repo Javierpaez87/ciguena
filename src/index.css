@@ -8,6 +8,7 @@
   --brand-primary: #F59E0B;
   --brand-accent: #FBBF24;
   --brand-primary-contrast: #071B24;
+  --brand-accent-contrast: #071B24;
   --brand-primary-rgb: 245 158 11;
   --brand-accent-rgb: 251 191 36;
 }
@@ -72,10 +73,19 @@
     @apply bg-steel-800 border border-steel-700 rounded-xl p-5 hover:border-steel-600 transition-colors;
   }
 
+  /* Default Cigüeña keeps its legacy primary CTA color. */
   .btn-primary {
     @apply font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
     background-color: var(--brand-primary);
     color: var(--brand-primary-contrast);
+  }
+
+  /* Custom White Labels use Accent as the interaction color.
+   * This avoids painting large controls with a very dark corporate Primary.
+   */
+  :root[data-branding='custom'] .btn-primary {
+    background-color: var(--brand-accent);
+    color: var(--brand-accent-contrast);
   }
 
   .btn-primary:hover:not(:disabled) {
@@ -103,6 +113,11 @@
     box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
   }
 
+  :root[data-branding='custom'] .input:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgb(var(--brand-accent-rgb) / 0.28);
+  }
+
   .select {
     @apply bg-steel-900 border border-steel-700 text-steel-100 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none transition-all duration-200;
   }
@@ -110,6 +125,11 @@
   .select:focus {
     border-color: var(--brand-primary);
     box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
+  }
+
+  :root[data-branding='custom'] .select:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgb(var(--brand-accent-rgb) / 0.28);
   }
 
   .label {
@@ -173,9 +193,13 @@
     background-color: var(--brand-primary);
   }
 
+  :root[data-branding='custom'] .progress-fill {
+    background-color: var(--brand-accent);
+  }
+
   /* White Label visual utilities.
-   * Use these only for decorative / interactive brand accents.
-   * Semantic success, warning and danger states keep their fixed palettes.
+   * Only decorative / interactive brand accents are dynamic.
+   * Success, warning and danger keep their semantic colors.
    */
   .brand-text {
     color: var(--brand-accent);
@@ -190,8 +214,17 @@
     color: var(--brand-primary-contrast);
   }
 
+  :root[data-branding='custom'] .brand-bg {
+    background-color: var(--brand-accent);
+    color: var(--brand-accent-contrast);
+  }
+
   .brand-bg-soft {
     background-color: rgb(var(--brand-primary-rgb) / 0.12);
+  }
+
+  :root[data-branding='custom'] .brand-bg-soft {
+    background-color: rgb(var(--brand-accent-rgb) / 0.12);
   }
 
   .brand-bg-soft-accent {
@@ -220,8 +253,16 @@
     border-color: rgb(var(--brand-accent-rgb) / 0.22);
   }
 
+  :root[data-branding='custom'] .brand-icon-surface {
+    background-color: rgb(var(--brand-accent-rgb) / 0.11);
+  }
+
   .brand-checkbox {
     accent-color: var(--brand-primary);
+  }
+
+  :root[data-branding='custom'] .brand-checkbox {
+    accent-color: var(--brand-accent);
   }
 
   .brand-focus-ring:focus {
@@ -230,29 +271,14 @@
     box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
   }
 
-  /* Custom tenants get a subtle brand tint across the authenticated content shell.
-   * Default Cigüeña tenants keep the exact legacy neutral surfaces.
+  :root[data-branding='custom'] .brand-focus-ring:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgb(var(--brand-accent-rgb) / 0.28);
+  }
+
+  /* Deliberately NO custom tint on cards, modals, table rows or page surfaces.
+   * Those surfaces belong to the product design system and stay neutral.
    */
-  :root[data-branding='custom'] .card,
-  :root[data-branding='custom'] .card-dark,
-  :root[data-branding='custom'] .metric-card,
-  :root[data-branding='custom'] .modal,
-  :root[data-branding='custom'] .modal-lg {
-    border-color: rgb(var(--brand-accent-rgb) / 0.14);
-  }
-
-  :root[data-branding='custom'] .card:hover,
-  :root[data-branding='custom'] .metric-card:hover {
-    border-color: rgb(var(--brand-accent-rgb) / 0.28);
-  }
-
-  :root[data-branding='custom'] .table-row:hover {
-    background-color: rgb(var(--brand-primary-rgb) / 0.06);
-  }
-
-  :root[data-branding='custom'] .btn-ghost:hover {
-    background-color: rgb(var(--brand-primary-rgb) / 0.10);
-  }
 
   .modal-overlay {
     @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4;
