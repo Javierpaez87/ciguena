@@ -2,17 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Building2,
-  Globe2,
-  Image as ImageIcon,
   Palette,
   RefreshCw,
   Search,
-  ShieldCheck,
 } from 'lucide-react';
 
 import BrandingCard, {
   type BrandingTenantSummary,
 } from '../../components/branding/BrandingCard';
+import BrandingEditor from '../../components/branding/BrandingEditor';
 import EmptyState from '../../components/ui/EmptyState';
 import Modal from '../../components/ui/Modal';
 import { supabase } from '../../lib/supabase';
@@ -36,8 +34,7 @@ export default function SaWhiteLabel() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedTenant, setSelectedTenant] =
-    useState<BrandingTenantSummary | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
 
   async function loadWhiteLabelData() {
     setLoading(true);
@@ -120,9 +117,18 @@ export default function SaWhiteLabel() {
         status: tenant.status,
         logoUrl: tenant.logo_url,
         branding,
+        brandingRow: row ?? null,
       };
     });
   }, [tenants, brandingByTenant]);
+
+  const selectedTenant = useMemo(
+    () =>
+      selectedTenantId
+        ? tenantCards.find((tenant) => tenant.id === selectedTenantId) ?? null
+        : null,
+    [selectedTenantId, tenantCards],
+  );
 
   const filteredTenants = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -141,6 +147,10 @@ export default function SaWhiteLabel() {
   const customCount = tenantCards.filter(
     (tenant) => tenant.branding.isCustomBranding,
   ).length;
+
+  async function handleSaved() {
+    await loadWhiteLabelData();
+  }
 
   return (
     <div className="space-y-6">
@@ -232,7 +242,7 @@ export default function SaWhiteLabel() {
             <BrandingCard
               key={tenant.id}
               tenant={tenant}
-              onEdit={setSelectedTenant}
+              onEdit={(item) => setSelectedTenantId(item.id)}
             />
           ))}
         </div>
@@ -240,108 +250,21 @@ export default function SaWhiteLabel() {
 
       <Modal
         open={Boolean(selectedTenant)}
-        onClose={() => setSelectedTenant(null)}
+        onClose={() => setSelectedTenantId(null)}
         title={
           selectedTenant
             ? `Branding · ${selectedTenant.name}`
             : 'Branding'
         }
-        size="lg"
-        footer={
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => setSelectedTenant(null)}
-              className="px-4 py-2 rounded-lg bg-steel-700 text-steel-200 hover:bg-steel-600 transition-colors text-sm font-medium"
-            >
-              Cerrar
-            </button>
-          </div>
-        }
+        size="xl"
       >
         {selectedTenant && (
-          <div className="space-y-5">
-            <div className="rounded-xl border border-violet-400/20 bg-violet-400/10 px-4 py-3">
-              <div className="flex items-center gap-2 text-violet-200 font-medium text-sm">
-                <ShieldCheck size={16} />
-                Estructura lista para editar
-              </div>
-              <p className="text-xs text-violet-200/70 mt-1">
-                En esta batería validamos la vista y la lectura del branding. La edición de logos, colores y dominio se habilita en la próxima batería.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-steel-900/70 border border-steel-700 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-steel-500 mb-2">
-                  <Palette size={14} /> Marca
-                </div>
-                <div className="text-steel-100 font-medium">
-                  {selectedTenant.branding.brandName}
-                </div>
-                <div className="flex items-center gap-3 mt-3 text-xs text-steel-300">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span
-                      className="w-3.5 h-3.5 rounded-full border border-white/20"
-                      style={{
-                        backgroundColor:
-                          selectedTenant.branding.primaryColor,
-                      }}
-                    />
-                    {selectedTenant.branding.primaryColor}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span
-                      className="w-3.5 h-3.5 rounded-full border border-white/20"
-                      style={{
-                        backgroundColor:
-                          selectedTenant.branding.accentColor,
-                      }}
-                    />
-                    {selectedTenant.branding.accentColor}
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-steel-900/70 border border-steel-700 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-steel-500 mb-2">
-                  <Globe2 size={14} /> Dominio
-                </div>
-                <div className="text-sm text-steel-200 break-all">
-                  {selectedTenant.branding.customDomain ||
-                    'Sin dominio personalizado'}
-                </div>
-              </div>
-
-              <div className="bg-steel-900/70 border border-steel-700 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-steel-500 mb-2">
-                  <ImageIcon size={14} /> Assets
-                </div>
-                <div className="text-xs text-steel-400 space-y-1">
-                  <div>Logo principal: disponible</div>
-                  <div>Logo compacto: disponible</div>
-                  <div>Favicon: disponible</div>
-                </div>
-              </div>
-
-              <div className="bg-steel-900/70 border border-steel-700 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-steel-500 mb-2">
-                  <ShieldCheck size={14} /> Modalidad
-                </div>
-                <div className="text-sm text-steel-200">
-                  {selectedTenant.branding.isCustomBranding
-                    ? 'White Label personalizado'
-                    : 'Branding default Cigüeña'}
-                </div>
-                <div className="text-xs text-steel-500 mt-1">
-                  Powered by BondiApps:{' '}
-                  {selectedTenant.branding.showPoweredByBondiApps
-                    ? 'Sí'
-                    : 'No'}
-                </div>
-              </div>
-            </div>
-          </div>
+          <BrandingEditor
+            key={selectedTenant.id}
+            tenant={selectedTenant}
+            onSaved={handleSaved}
+            onCancel={() => setSelectedTenantId(null)}
+          />
         )}
       </Modal>
     </div>

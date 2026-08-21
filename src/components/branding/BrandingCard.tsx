@@ -5,7 +5,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
-import type { BrandingConfig } from '../../lib/branding';
+import type { BrandingConfig, TenantBrandingRow } from '../../lib/branding';
 
 export interface BrandingTenantSummary {
   id: string;
@@ -13,6 +13,7 @@ export interface BrandingTenantSummary {
   status?: string | null;
   logoUrl?: string | null;
   branding: BrandingConfig;
+  brandingRow?: TenantBrandingRow | null;
 }
 
 interface BrandingCardProps {
