@@ -22,10 +22,21 @@ export interface WorkerOnboardingProfile extends Profile {
   profile_validated_at?: string | null;
 }
 
+export interface WorkerDirectorySnapshot {
+  full_name?: string | null;
+  dni?: string | null;
+  employee_code?: string | null;
+  work_role?: string | null;
+  phone?: string | null;
+  area?: string | null;
+  position?: string | null;
+}
+
 export interface WorkerOnboardingRequirement {
   mustComplete: boolean;
   tenant: { id: string; name: string; logo_url: string | null } | null;
   profile: WorkerOnboardingProfile | null;
+  directory: WorkerDirectorySnapshot | null;
   mode: WorkerOnboardingMode;
   ethicsCode: EthicsCode | null;
   ethicsAcceptance: EthicsAcceptance | null;
@@ -61,11 +72,40 @@ export function getMissingRequiredProfileFields(profile: WorkerOnboardingProfile
     .map((field) => field.label);
 }
 
+function preferProfileValue(
+  profileValue: string | null | undefined,
+  directoryValue: string | null | undefined,
+) {
+  return hasText(profileValue) ? profileValue : directoryValue ?? profileValue;
+}
+
+function mergeProfileWithDirectory(
+  profile: WorkerOnboardingProfile,
+  directory: WorkerDirectorySnapshot | null,
+): WorkerOnboardingProfile {
+  if (!directory) return profile;
+
+  return {
+    ...profile,
+    full_name: preferProfileValue(profile.full_name, directory.full_name) || '',
+    dni: preferProfileValue(profile.dni, directory.dni),
+    employee_code: preferProfileValue(profile.employee_code, directory.employee_code),
+    work_role: preferProfileValue(
+      profile.work_role || profile.job_role || profile.position,
+      directory.work_role || directory.position,
+    ),
+    phone: preferProfileValue(profile.phone, directory.phone),
+    area: preferProfileValue(profile.area, directory.area) ?? null,
+    position: preferProfileValue(profile.position, directory.position) ?? null,
+  };
+}
+
 function blockedResult(error: string): WorkerOnboardingRequirement {
   return {
     mustComplete: true,
     tenant: null,
     profile: null,
+    directory: null,
     mode: 'signature_only',
     ethicsCode: null,
     ethicsAcceptance: null,
@@ -140,7 +180,33 @@ export async function getWorkerOnboardingRequirement(
       };
     }
 
-    const profile = profileResult.data as WorkerOnboardingProfile;
+    const storedProfile = profileResult.data as WorkerOnboardingProfile;
+
+    let directory: WorkerDirectorySnapshot | null = null;
+
+    const directoryByProfile = await supabase
+      .from('employee_directory')
+      .select('full_name, dni, employee_code, work_role, phone, area, position')
+      .eq('tenant_id', user.tenant_id)
+      .eq('profile_id', user.id)
+      .maybeSingle();
+
+    if (!directoryByProfile.error && directoryByProfile.data) {
+      directory = directoryByProfile.data as WorkerDirectorySnapshot;
+    } else if (user.email) {
+      const directoryByEmail = await supabase
+        .from('employee_directory')
+        .select('full_name, dni, employee_code, work_role, phone, area, position')
+        .eq('tenant_id', user.tenant_id)
+        .ilike('email', user.email.trim())
+        .maybeSingle();
+
+      if (!directoryByEmail.error && directoryByEmail.data) {
+        directory = directoryByEmail.data as WorkerDirectorySnapshot;
+      }
+    }
+
+    const profile = mergeProfileWithDirectory(storedProfile, directory);
     const settings = settingsResult.data ?? [];
     const adminOverride = settings.find((row) => row.source === 'admin');
     const superadminDefault = settings.find((row) => row.source === 'superadmin');
@@ -169,6 +235,7 @@ export async function getWorkerOnboardingRequirement(
           mustComplete: true,
           tenant: tenantResult.data,
           profile,
+          directory,
           mode,
           ethicsCode: null,
           ethicsAcceptance: null,
@@ -193,6 +260,7 @@ export async function getWorkerOnboardingRequirement(
           mustComplete: true,
           tenant: tenantResult.data,
           profile,
+          directory,
           mode,
           ethicsCode: null,
           ethicsAcceptance: null,
@@ -219,6 +287,7 @@ export async function getWorkerOnboardingRequirement(
           mustComplete: true,
           tenant: tenantResult.data,
           profile,
+          directory,
           mode,
           ethicsCode,
           ethicsAcceptance: null,
@@ -240,6 +309,7 @@ export async function getWorkerOnboardingRequirement(
         needsProfileValidation || needsSignatureConsent || needsEthicsAcceptance,
       tenant: tenantResult.data,
       profile,
+      directory,
       mode,
       ethicsCode,
       ethicsAcceptance,

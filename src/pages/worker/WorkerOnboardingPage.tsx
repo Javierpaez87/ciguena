@@ -237,38 +237,23 @@ export default function WorkerOnboardingPage({
         position: cleanPosition,
       };
 
-      const { error: profileUpdateError } = await supabase
-        .from('profiles')
-        .update({
-          ...profileSnapshot,
-          job_role: cleanWorkRole,
-          profile_validated_at: now,
-          updated_at: now,
-        })
-        .eq('id', user.id)
-        .eq('tenant_id', tenant.id);
+      const { data: updatedProfile, error: profileUpdateError } = await supabase.rpc(
+        'complete_worker_profile_onboarding',
+        {
+          p_full_name: cleanAcceptedName,
+          p_dni: cleanDni,
+          p_employee_code: cleanEmployeeCode,
+          p_work_role: cleanWorkRole,
+          p_phone: cleanPhone,
+          p_area: cleanArea,
+          p_position: cleanPosition,
+        },
+      );
 
       if (profileUpdateError) throw profileUpdateError;
 
-      const { error: directoryUpdateError } = await supabase
-        .from('employee_directory')
-        .update({
-          full_name: cleanAcceptedName,
-          dni: cleanDni,
-          employee_code: cleanEmployeeCode,
-          work_role: cleanWorkRole,
-          phone: cleanPhone,
-          area: cleanArea,
-          position: cleanPosition,
-          status: 'registered',
-          registered_at: now,
-          profile_id: user.id,
-        })
-        .eq('tenant_id', tenant.id)
-        .eq('email', user.email || profile.email);
-
-      if (directoryUpdateError) {
-        console.warn('No se pudo sincronizar employee_directory:', directoryUpdateError);
+      if (!updatedProfile || updatedProfile.id !== user.id) {
+        throw new Error('No pudimos confirmar que los datos de nómina se hayan guardado.');
       }
 
       let signatureImageUrl = existingSignature?.signature_image_url ?? null;
