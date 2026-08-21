@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
 
@@ -501,6 +503,8 @@ function HorizontalReportBars({
 
 export default function AdminReports() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const [reportType, setReportType] = useState<ReportType>('user');
@@ -994,9 +998,9 @@ export default function AdminReports() {
     return {
       rows,
       columns,
-      filename: `reporte-${reportType}-ciguena.csv`,
+      filename: `reporte-${reportType}-${brandSlug}.csv`,
     };
-  }, [reportType, reports]);
+  }, [brandSlug, reportType, reports]);
 
 
   if (loading) {

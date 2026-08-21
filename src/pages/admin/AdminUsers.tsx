@@ -18,6 +18,7 @@ import {
 
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
+import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
@@ -747,7 +748,7 @@ function sortByCreatedAtDesc<T extends { created_at?: string | null; assigned_at
   });
 }
 
-function downloadCsvTemplate() {
+function downloadCsvTemplate(brandSlug: string) {
   const headers = [
     'nombre',
     'apellido',
@@ -811,7 +812,7 @@ function downloadCsvTemplate() {
 
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'modelo_carga_trabajadores_ciguena.csv';
+  link.download = `modelo_carga_trabajadores_${brandSlug}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -821,6 +822,7 @@ function downloadCsvTemplate() {
 export default function AdminUsers() {
   const { user } = useAuth();
   const { branding } = useBranding();
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1170,7 +1172,7 @@ export default function AdminUsers() {
     const today = new Date().toISOString().slice(0, 10);
 
     link.href = url;
-    link.download = `nomina_ciguena_${safeTenantName || 'empresa'}_${today}.csv`;
+    link.download = `nomina_${brandSlug}_${safeTenantName || 'empresa'}_${today}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2697,7 +2699,7 @@ export default function AdminUsers() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                onClick={downloadCsvTemplate}
+                onClick={() => downloadCsvTemplate(brandSlug)}
                 className="rounded-xl border border-steel-700 bg-steel-900 hover:bg-steel-800 transition-colors p-4 text-left"
               >
                 <div className="flex items-center gap-3 mb-2">

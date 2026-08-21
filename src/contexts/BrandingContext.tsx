@@ -11,6 +11,10 @@ import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import { getReadableTextColor } from '../lib/brandTheme';
 import {
+  getBrandBrowserTitle,
+  getEffectiveFaviconUrl,
+} from '../lib/brandIdentity';
+import {
   DEFAULT_CIGUENA_BRANDING,
   hexToRgbChannels,
   resolveBranding,
@@ -167,6 +171,25 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     applyBrandingVariables(branding);
+
+    document.title = getBrandBrowserTitle(branding);
+
+    const faviconUrl = getEffectiveFaviconUrl(branding);
+    let favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.rel = 'icon';
+      document.head.appendChild(favicon);
+    }
+
+    favicon.href = faviconUrl;
+
+    const ogTitle = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
+    if (ogTitle) ogTitle.content = document.title;
+
+    const twitterTitle = document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]');
+    if (twitterTitle) twitterTitle.content = document.title;
   }, [branding]);
 
   const value = useMemo<BrandingContextValue>(

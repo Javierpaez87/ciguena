@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -364,6 +366,8 @@ function getDeadlineVisualClass(assignment: Assignment) {
 
 export default function AdminAssignments() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -2373,7 +2377,7 @@ export default function AdminAssignments() {
         open={showExportModal}
         onClose={() => setShowExportModal(false)}
         title="Exportar asignaciones"
-        filename="asignaciones-ciguena.csv"
+        filename={`asignaciones-${brandSlug}.csv`}
         rows={filtered}
         columns={assignmentExportColumns}
         description={`Se exportarán ${filtered.length} asignación(es) respetando los filtros actuales de rol, training, estado y búsqueda.`}

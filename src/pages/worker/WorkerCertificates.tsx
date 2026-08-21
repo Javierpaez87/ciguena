@@ -10,6 +10,11 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import {
+  getBrandDocumentLogoUrl,
+  getBrandDocumentSubtitle,
+} from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
 import type { EthicsAcceptance } from '../../types';
@@ -67,6 +72,8 @@ const getCertificateStatus = (cert: SupabaseCertificate) => {
 
 export default function WorkerCertificates() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandLogoUrl = getBrandDocumentLogoUrl(branding);
 
   const [certificates, setCertificates] = useState<SupabaseCertificate[]>([]);
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
@@ -192,7 +199,9 @@ export default function WorkerCertificates() {
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; background: #f8fafc; }
             .document { background: white; max-width: 820px; margin: 0 auto; padding: 54px; border: 1px solid #cbd5e1; min-height: 900px; }
-            .brand { color: #f59e0b; font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+            .brand-row { display:flex; align-items:center; gap:12px; }
+            .brand-logo { max-height:44px; max-width:150px; object-fit:contain; }
+            .brand { color: ${branding.accentColor}; font-size: 24px; font-weight: 800; letter-spacing: 1px; }
             .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
             h1 { margin: 42px 0 18px; font-size: 30px; color: #0f172a; }
             h2 { margin-top: 28px; font-size: 16px; color: #0f172a; }
@@ -209,10 +218,15 @@ export default function WorkerCertificates() {
         </head>
         <body>
           <main class="document">
-            <div class="brand">CIGÜEÑA</div>
-            <div class="subtitle">by BondiApps · Registro de aceptación electrónica</div>
+            <div class="brand-row">
+              <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+              <div>
+                <div class="brand">${branding.brandName}</div>
+                <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Registro de aceptación electrónica')}</div>
+              </div>
+            </div>
             <h1>Código de Ética BondiApps</h1>
-            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.</p>
+            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable al uso de la plataforma {branding.brandName} y a las capacitaciones asignadas por la organización.</p>
             <h2>Declaración de aceptación</h2>
             <p>${ethicsAcceptance.acceptance_text || 'Declaro haber leído y aceptado el Código de Ética BondiApps.'}</p>
             <section class="box">
@@ -231,8 +245,8 @@ export default function WorkerCertificates() {
                 <div class="line">Firma electrónica del trabajador</div>
               </div>
               <div>
-                <div style="height:90px;display:flex;align-items:center;font-weight:800;color:#f59e0b;">BondiApps</div>
-                <div class="line">Registro emitido por Cigüeña</div>
+                <div style="height:90px;display:flex;align-items:center;font-weight:800;color:${branding.accentColor};">${branding.brandName}</div>
+                <div class="line">Registro emitido por ${branding.brandName}</div>
               </div>
             </section>
             <div class="code">Registro auditable · ${ethicsAcceptance.id || 'sin-id'}</div>
@@ -271,8 +285,10 @@ export default function WorkerCertificates() {
           <title>${cert.certificate_code}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
-            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
-            .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+            .certificate { border: 3px solid ${branding.accentColor}; padding: 42px; min-height: 700px; }
+            .brand-row { display:flex; align-items:center; gap:12px; }
+            .brand-logo { max-height:48px; max-width:170px; object-fit:contain; }
+            .brand { color: ${branding.accentColor}; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
             .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
             h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
             .lead { text-align: center; color: #475569; font-size: 16px; }
@@ -291,8 +307,13 @@ export default function WorkerCertificates() {
         </head>
         <body>
           <main class="certificate">
-            <div class="brand">CIGÜEÑA</div>
-            <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
+            <div class="brand-row">
+              <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+              <div>
+                <div class="brand">${branding.brandName}</div>
+                <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
+              </div>
+            </div>
             <h1>Certificado de capacitación</h1>
             <p class="lead">Se certifica que</p>
             <div class="name">${user?.full_name ?? 'Trabajador'}</div>
@@ -584,12 +605,27 @@ export default function WorkerCertificates() {
             </div>
 
             <div className="p-5">
-              <div className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4 border-amber-500">
-                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                  CIGÜEÑA
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  by BondiApps · Plataforma de capacitaciones y certificaciones
+              <div
+                className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4"
+                style={{ borderColor: branding.accentColor }}
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={brandLogoUrl}
+                    alt={branding.brandName}
+                    className="max-h-12 max-w-[170px] object-contain"
+                  />
+                  <div>
+                    <div
+                      className="text-2xl font-extrabold tracking-wide"
+                      style={{ color: branding.accentColor }}
+                    >
+                      {branding.brandName}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}
+                    </div>
+                  </div>
                 </div>
 
                 <h1 className="mt-12 text-center text-4xl font-bold text-slate-900">
@@ -747,11 +783,23 @@ export default function WorkerCertificates() {
 
             <div className="p-5">
               <div className="mx-auto min-h-[900px] max-w-[760px] rounded-xl bg-white p-10 text-slate-900 shadow-xl">
-                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                  CIGÜEÑA
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  by BondiApps · Registro de aceptación electrónica
+                <div className="flex items-center gap-3">
+                  <img
+                    src={brandLogoUrl}
+                    alt={branding.brandName}
+                    className="max-h-12 max-w-[170px] object-contain"
+                  />
+                  <div>
+                    <div
+                      className="text-2xl font-extrabold tracking-wide"
+                      style={{ color: branding.accentColor }}
+                    >
+                      {branding.brandName}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {getBrandDocumentSubtitle(branding, 'Registro de aceptación electrónica')}
+                    </div>
+                  </div>
                 </div>
 
                 <h1 className="mt-10 text-3xl font-bold text-slate-900">
@@ -760,7 +808,7 @@ export default function WorkerCertificates() {
 
                 <p className="mt-5 text-sm leading-7 text-slate-700">
                   Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable
-                  al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.
+                  al uso de la plataforma {branding.brandName} y a las capacitaciones asignadas por la organización.
                 </p>
 
                 <h2 className="mt-8 text-base font-bold text-slate-900">
@@ -815,11 +863,14 @@ export default function WorkerCertificates() {
                   </div>
 
                   <div>
-                    <div className="flex min-h-[110px] items-center font-extrabold text-amber-500">
-                      BondiApps
+                    <div
+                      className="flex min-h-[110px] items-center font-extrabold"
+                      style={{ color: branding.accentColor }}
+                    >
+                      {branding.brandName}
                     </div>
                     <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
-                      Registro emitido por Cigüeña
+                      Registro emitido por {branding.brandName}
                     </div>
                   </div>
                 </div>

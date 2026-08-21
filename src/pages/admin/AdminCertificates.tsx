@@ -11,6 +11,12 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import {
+  getBrandDocumentLogoUrl,
+  getBrandDocumentSubtitle,
+  getBrandSlug,
+} from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
@@ -220,6 +226,9 @@ function uniqueById<T extends { id: string }>(items: T[]) {
 
 export default function AdminCertificates() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandLogoUrl = getBrandDocumentLogoUrl(branding);
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -453,7 +462,7 @@ export default function AdminCertificates() {
 
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'certificados_ciguena.csv';
+    link.download = `certificados_${brandSlug}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -510,8 +519,10 @@ export default function AdminCertificates() {
           <title>${certificateCode}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
-            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
-            .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+            .certificate { border: 3px solid ${branding.accentColor}; padding: 42px; min-height: 700px; }
+            .brand-row { display:flex; align-items:center; gap:12px; }
+            .brand-logo { max-height:48px; max-width:170px; object-fit:contain; }
+            .brand { color: ${branding.accentColor}; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
             .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
             h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
             .lead { text-align: center; color: #475569; font-size: 16px; }
@@ -530,8 +541,13 @@ export default function AdminCertificates() {
         </head>
         <body>
           <main class="certificate">
-            <div class="brand">CIGÜEÑA</div>
-            <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
+            <div class="brand-row">
+              <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+              <div>
+                <div class="brand">${branding.brandName}</div>
+                <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
+              </div>
+            </div>
 
             <h1>Certificado de capacitación</h1>
 
@@ -854,12 +870,27 @@ export default function AdminCertificates() {
             </div>
 
             <div className="p-5">
-              <div className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4 border-amber-500">
-                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                  CIGÜEÑA
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  by BondiApps · Plataforma de capacitaciones y certificaciones
+              <div
+                className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4"
+                style={{ borderColor: branding.accentColor }}
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={brandLogoUrl}
+                    alt={branding.brandName}
+                    className="max-h-12 max-w-[170px] object-contain"
+                  />
+                  <div>
+                    <div
+                      className="text-2xl font-extrabold tracking-wide"
+                      style={{ color: branding.accentColor }}
+                    >
+                      {branding.brandName}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}
+                    </div>
+                  </div>
                 </div>
 
                 <h1 className="mt-12 text-center text-4xl font-bold text-slate-900">

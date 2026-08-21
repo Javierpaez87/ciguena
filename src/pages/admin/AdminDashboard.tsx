@@ -15,6 +15,8 @@ import {
 
 import StatusBadge from '../../components/ui/StatusBadge';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
 import {
@@ -496,6 +498,8 @@ function MiniMetricCard({
 
 export default function AdminDashboard() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const [users, setUsers] = useState<Profile[]>([]);
@@ -1380,7 +1384,7 @@ export default function AdminDashboard() {
         open={showExportModal}
         onClose={() => setShowExportModal(false)}
         title="Exportar dashboard"
-        filename="dashboard-ciguena.csv"
+        filename={`dashboard-${brandSlug}.csv`}
         rows={dashboardExportRows}
         columns={dashboardExportColumns}
         description={`Se exportarán ${dashboardExportRows.length} trabajador(es) respetando el filtro de rol operativo actual.`}
