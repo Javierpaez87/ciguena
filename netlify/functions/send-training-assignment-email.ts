@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
   getEmailSender,
+  getTenantAppUrl,
   renderEmailBrandHeader,
   renderEmailFooter,
   resolveTenantEmailBranding,
@@ -274,7 +275,7 @@ export const handler = async (event: any) => {
     tenantName
   );
   const emailFrom = getEmailSender(branding);
-  const loginUrl = appUrl.replace(/\/$/, '') + '/';
+  const loginUrl = getTenantAppUrl(branding, appUrl) + '/';
   const subject = `Nuevo curso asignado: ${trainingTitle}`;
 
   const notificationBase = {

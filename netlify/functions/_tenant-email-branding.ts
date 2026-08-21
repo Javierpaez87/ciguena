@@ -7,6 +7,7 @@ export type TenantEmailBranding = {
   accentColor: string;
   isCustomBranding: boolean;
   showPoweredByBondiApps: boolean;
+  customDomain: string | null;
 };
 
 const DEFAULT_PRIMARY = '#F59E0B';
@@ -52,7 +53,7 @@ export async function resolveTenantEmailBranding(
   const { data, error } = await client
     .from('tenant_branding')
     .select(
-      'tenant_id, brand_name, logo_url, logo_negative_url, primary_color, accent_color, is_custom_branding, show_powered_by_bondiapps'
+      'tenant_id, brand_name, logo_url, logo_negative_url, primary_color, accent_color, custom_domain, is_custom_branding, show_powered_by_bondiapps'
     )
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -81,7 +82,26 @@ export async function resolveTenantEmailBranding(
     accentColor: normalizeHex(data?.accent_color, DEFAULT_ACCENT),
     isCustomBranding,
     showPoweredByBondiApps: data?.show_powered_by_bondiapps !== false,
+    customDomain: clean(data?.custom_domain) || null,
   };
+}
+
+
+export function getTenantAppUrl(
+  branding: TenantEmailBranding,
+  fallbackUrl?: string | null
+) {
+  const configuredDomain = clean(branding.customDomain)
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0]
+    .replace(/\/$/, '');
+
+  if (configuredDomain) {
+    return `https://${configuredDomain}`;
+  }
+
+  const fallback = clean(fallbackUrl) || 'https://ciguena.bondiapps.com';
+  return fallback.replace(/\/$/, '');
 }
 
 export function getEmailSender(branding: TenantEmailBranding) {

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
   getEmailSender,
+  getTenantAppUrl,
   renderEmailBrandHeader,
   renderEmailFooter,
   resolveTenantEmailBranding,
@@ -105,16 +106,18 @@ async function sendResendEmail({
 function buildApprovalEmailHtml({
   fullName,
   tenantName,
+  platformUrl: tenantPlatformUrl,
   branding,
 }: {
   fullName: string;
   tenantName: string;
+  platformUrl: string;
   branding: TenantEmailBranding;
 }) {
   const safeName = escapeHtml(fullName || 'Usuario');
   const safeTenant = escapeHtml(tenantName || 'tu empresa');
   const safeBrand = escapeHtml(branding.brandName);
-  const safePlatformUrl = escapeHtml(platformUrl);
+  const safePlatformUrl = escapeHtml(tenantPlatformUrl);
   const ctaColor = branding.accentColor;
   const ctaTextColor = getCtaTextColor(ctaColor);
 
@@ -390,6 +393,7 @@ export const handler = async (event: any) => {
       html: buildApprovalEmailHtml({
         fullName,
         tenantName,
+        platformUrl: getTenantAppUrl(branding, platformUrl),
         branding,
       }),
     });

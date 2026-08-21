@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
   getEmailSender,
+  getTenantAppUrl,
   renderEmailBrandHeader,
   renderEmailFooter,
   resolveTenantEmailBranding,
@@ -395,7 +396,7 @@ export const handler = async (event: any) => {
     });
   }
 
-  const registerUrl = appUrl.replace(/\/$/, '');
+  const registerUrl = getTenantAppUrl(branding, appUrl);
   const idempotencyKey = `ciguena-invite/${tenantId}/${requestId}/${batchIndex}`.slice(0, 256);
   const batchResult = await sendResendBatch({
     idempotencyKey,

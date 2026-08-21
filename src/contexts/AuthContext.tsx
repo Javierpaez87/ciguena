@@ -76,9 +76,9 @@ function normalizeRegisterError(message: string) {
     return 'Ya existe una cuenta registrada con ese email.';
   }
   if (lower.includes('rate limit') || lower.includes('email rate')) {
-    return 'No pudimos completar el registro en este momento. Intentá nuevamente en unos minutos o contactá a BondiApps.';
+    return 'No pudimos completar el registro en este momento. Intentá nuevamente en unos minutos o contactá al administrador de tu organización.';
   }
-  return message || 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.';
+  return message || 'No pudimos crear la cuenta. Intentá nuevamente o contactá al administrador de tu organización.';
 }
 
 function isSuperAdmin(role?: string | null) {
@@ -165,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       setSessionUser(null);
       setIsLoading(false);
-      return { error: 'Tu usuario no tiene un perfil asociado. Contactá a BondiApps.' };
+      return { error: 'Tu usuario no tiene un perfil asociado. Contactá al administrador de tu organización.' };
     }
 
     if (profile.status !== 'active') {

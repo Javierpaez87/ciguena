@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
   getEmailSender,
+  getTenantAppUrl,
   renderEmailBrandHeader,
   renderEmailFooter,
   resolveTenantEmailBranding,
@@ -93,17 +94,17 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
-function getAppBaseUrl() {
-  return appUrl.replace(/\/$/, '');
+function getAppBaseUrl(baseUrl = appUrl) {
+  return baseUrl.replace(/\/$/, '');
 }
 
-function getWorkerLiveRoomUrl(liveTrainingId: string) {
+function getWorkerLiveRoomUrl(liveTrainingId: string, baseUrl = appUrl) {
   const params = new URLSearchParams({
     view: 'worker-live-room',
     liveTrainingId,
   });
 
-  return `${getAppBaseUrl()}/?${params.toString()}`;
+  return `${getAppBaseUrl(baseUrl)}/?${params.toString()}`;
 }
 
 function formatDateTime(value?: string | null, timezone = 'America/Argentina/Buenos_Aires') {
@@ -285,7 +286,10 @@ async function sendCiguenaLiveTrainingInvites({
   };
   branding: TenantEmailBranding;
 }) {
-  const workerRoomUrl = getWorkerLiveRoomUrl(training.id);
+  const workerRoomUrl = getWorkerLiveRoomUrl(
+    training.id,
+    getTenantAppUrl(branding, appUrl)
+  );
   const emailFrom = getEmailSender(branding);
   const uniqueRecipients = uniqueValues(recipients.map(recipient => recipient.email)).map(email => {
     const recipient = recipients.find(item => item.email === email);
@@ -399,7 +403,7 @@ async function createGoogleCalendarEvent({
           `<strong>Ingresá siempre desde ${escapeHtml(brandName)} para registrar tu asistencia antes de entrar a Google Meet.</strong>`,
           `Si ingresás directo desde el link de Google Meet o desde Google Calendar, ${escapeHtml(brandName)} podría no registrar correctamente tu asistencia.`,
           '',
-          `<a href="${escapeHtml(getWorkerLiveRoomUrl(training.id))}">Ingresar desde ${escapeHtml(brandName)}</a>`,
+          `<a href="${escapeHtml(getWorkerLiveRoomUrl(training.id, getTenantAppUrl(branding, appUrl)))}">Ingresar desde ${escapeHtml(brandName)}</a>`,
           '',
           `Evento generado automáticamente por ${escapeHtml(brandName)}${branding.showPoweredByBondiApps ? ' | Platform by BondiApps' : ''}.`,
         ]
@@ -623,7 +627,10 @@ export async function handler(event: { httpMethod: string; body?: string | null 
         email_invite_count: emailInviteResult.sent,
         email_invite_failed_count: emailInviteResult.failed,
         email_invite_errors: emailInviteResult.errors,
-        worker_room_url: getWorkerLiveRoomUrl(training.id),
+        worker_room_url: getWorkerLiveRoomUrl(
+          training.id,
+          getTenantAppUrl(branding, appUrl)
+        ),
         created_at: now,
       },
       created_by: training.created_by,

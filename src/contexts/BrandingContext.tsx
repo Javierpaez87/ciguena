@@ -21,12 +21,23 @@ import {
   type BrandingConfig,
   type TenantBrandingRow,
 } from '../lib/branding';
+import {
+  isDefaultPlatformHostname,
+  normalizeHostname,
+  resolveBrandingFromHostname,
+  type DomainBrandingResolution,
+} from '../lib/domainBranding';
 
 interface BrandingContextValue {
   branding: BrandingConfig;
   isLoading: boolean;
   error: string | null;
   refreshBranding: () => Promise<void>;
+  domainTenantId: string | null;
+  domainTenantName: string | null;
+  domainHostname: string | null;
+  isDomainBound: boolean;
+  isDefaultPlatformDomain: boolean;
 }
 
 const BrandingContext = createContext<BrandingContextValue | null>(null);
@@ -38,6 +49,14 @@ function getDefaultBrandingForTenant(
     ...DEFAULT_CIGUENA_BRANDING,
     tenantId,
   };
+}
+
+function looksLikeDefaultBrand(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') === 'ciguena';
 }
 
 async function fetchTenantBranding(
@@ -75,18 +94,9 @@ async function fetchTenantBranding(
 
   const resolvedBranding = resolveBranding(data as TenantBrandingRow);
 
-  /*
-   * Backward-compatible white-label fallback:
-   * older tenant_branding rows were created with brand_name = Cigüeña.
-   * Once a tenant becomes custom, using the tenant name is a safer
-   * effective fallback than leaking the default product name.
-   *
-   * We do not mutate Supabase here; the Superadmin editor can still
-   * save a different explicit brand name at any time.
-   */
   if (
     resolvedBranding.isCustomBranding &&
-    resolvedBranding.brandName.trim().toLocaleLowerCase('es') === 'cigüeña'
+    looksLikeDefaultBrand(resolvedBranding.brandName)
   ) {
     const { data: tenant } = await supabase
       .from('tenants')
@@ -131,39 +141,64 @@ function applyBrandingVariables(branding: BrandingConfig) {
 export function BrandingProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? null;
+  const currentHostname = normalizeHostname(window.location.hostname);
 
   const [branding, setBranding] = useState<BrandingConfig>(() =>
     getDefaultBrandingForTenant(tenantId),
   );
-  const [isLoading, setIsLoading] = useState(false);
+  const [domainResolution, setDomainResolution] = useState<DomainBrandingResolution | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refreshBranding = useCallback(async () => {
-    if (!tenantId) {
-      setBranding(getDefaultBrandingForTenant(null));
-      setError(null);
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
 
+    let resolvedDomain: DomainBrandingResolution | null = null;
+
     try {
-      const resolvedBranding = await fetchTenantBranding(tenantId);
-      setBranding(resolvedBranding);
-    } catch (err) {
+      resolvedDomain = await resolveBrandingFromHostname(currentHostname);
+      setDomainResolution(resolvedDomain);
+    } catch (domainError) {
       const message =
-        err instanceof Error
-          ? err.message
+        domainError instanceof Error
+          ? domainError.message
+          : 'No se pudo resolver el dominio de la organización.';
+
+      // Default platform domains never require a public resolver.
+      if (!isDefaultPlatformHostname(currentHostname)) {
+        setError(message);
+      }
+      setDomainResolution(null);
+    }
+
+    try {
+      // A custom hostname owns the public identity. We keep that identity even
+      // while Auth is loading so there is no Cigüeña flash before login.
+      if (resolvedDomain) {
+        setBranding(resolvedDomain.branding);
+        return;
+      }
+
+      if (tenantId) {
+        const resolvedBranding = await fetchTenantBranding(tenantId);
+        setBranding(resolvedBranding);
+        return;
+      }
+
+      setBranding(getDefaultBrandingForTenant(null));
+    } catch (tenantError) {
+      const message =
+        tenantError instanceof Error
+          ? tenantError.message
           : 'No se pudo cargar el branding del tenant.';
 
-      setError(message);
+      setError((current) => current || message);
       setBranding(getDefaultBrandingForTenant(tenantId));
     } finally {
       setIsLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, currentHostname]);
 
   useEffect(() => {
     void refreshBranding();
@@ -198,8 +233,13 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
       isLoading,
       error,
       refreshBranding,
+      domainTenantId: domainResolution?.tenantId ?? null,
+      domainTenantName: domainResolution?.tenantName ?? null,
+      domainHostname: domainResolution?.hostname ?? null,
+      isDomainBound: Boolean(domainResolution?.tenantId),
+      isDefaultPlatformDomain: isDefaultPlatformHostname(currentHostname),
     }),
-    [branding, isLoading, error, refreshBranding],
+    [branding, isLoading, error, refreshBranding, domainResolution, currentHostname],
   );
 
   return (

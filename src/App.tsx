@@ -188,8 +188,15 @@ function getDeepLinkedView() {
 type AuthScreen = 'login' | 'register' | 'forgot-password';
 
 function AppContent() {
-  const { user, isGhostMode } = useAuth();
-  const { branding } = useBranding();
+  const { user, isGhostMode, logout } = useAuth();
+  const {
+    branding,
+    isLoading: isBrandingLoading,
+    domainTenantId,
+    domainTenantName,
+    domainHostname,
+    isDomainBound,
+  } = useBranding();
 
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [activeView, setActiveView] = useState(
@@ -311,6 +318,19 @@ function AppContent() {
     }
   };
 
+  // Do not render the default Cigüeña login while a custom hostname is still
+  // being resolved. This prevents a brand flash before SPI (or another tenant) loads.
+  if (isBrandingLoading) {
+    return (
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center p-6">
+        <div className="flex items-center gap-3 text-steel-300">
+          <div className="h-5 w-5 rounded-full border-2 border-steel-600 border-t-current animate-spin" />
+          <span className="text-sm">Preparando acceso...</span>
+        </div>
+      </div>
+    );
+  }
+
   if (window.location.pathname === '/reset-password') {
     return (
       <ResetPasswordPage
@@ -335,6 +355,43 @@ function AppContent() {
         onRegister={() => setAuthScreen('register')}
         onForgotPassword={() => setAuthScreen('forgot-password')}
       />
+    );
+  }
+
+  // A branded hostname belongs to one tenant. Prevent a worker/admin from
+  // opening another tenant through that hostname even if their credentials are valid.
+  if (
+    user &&
+    isDomainBound &&
+    domainTenantId &&
+    user.role !== 'super_admin' &&
+    user.tenant_id !== domainTenantId
+  ) {
+    return (
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center p-6">
+        <div className="card-dark max-w-lg w-full text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-2xl border brand-border brand-bg-soft flex items-center justify-center">
+            <img
+              src={branding.logoCompactUrl || branding.logoUrl}
+              alt={branding.brandName}
+              className="h-10 w-10 object-contain"
+            />
+          </div>
+          <h1 className="text-xl font-bold text-steel-50">Acceso de otra organización</h1>
+          <p className="mt-2 text-sm leading-relaxed text-steel-400">
+            Este acceso corresponde a <span className="font-semibold text-steel-200">{domainTenantName || branding.brandName}</span>.
+            Tu cuenta pertenece a otra organización.
+          </p>
+          <p className="mt-2 text-xs text-steel-500">{domainHostname}</p>
+          <button
+            type="button"
+            className="btn-primary mt-6 mx-auto justify-center"
+            onClick={() => void logout()}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
     );
   }
 

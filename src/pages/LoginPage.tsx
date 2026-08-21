@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useBranding } from '../contexts/BrandingContext';
+import PublicBrandLockup from '../components/branding/PublicBrandLockup';
 
 interface LoginPageProps {
   onRegister: () => void;
@@ -9,6 +11,7 @@ interface LoginPageProps {
 
 export default function LoginPage({ onRegister, onForgotPassword }: LoginPageProps) {
   const { login, isLoading } = useAuth();
+  const { branding, isDomainBound } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -22,25 +25,21 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
     if (loginError) setError(loginError);
   };
 
+  const brandPossessive = branding.isCustomBranding || isDomainBound
+    ? ` de ${branding.brandName}`
+    : '';
+
   return (
     <div className="min-h-screen bg-steel-950 flex">
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-petroleum-950 via-steel-900 to-petroleum-900 p-12 flex-col justify-between relative overflow-hidden">
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute top-20 left-20 w-64 h-64 border border-amber-400 rounded-full" />
-          <div className="absolute top-40 left-40 w-96 h-96 border border-amber-400 rounded-full" />
-          <div className="absolute bottom-20 right-10 w-48 h-48 border border-amber-400 rounded-full" />
+        <div className="absolute inset-0 opacity-[0.07]">
+          <div className="absolute top-20 left-20 w-64 h-64 border brand-border rounded-full" />
+          <div className="absolute top-40 left-40 w-96 h-96 border brand-border rounded-full" />
+          <div className="absolute bottom-20 right-10 w-48 h-48 border brand-border rounded-full" />
         </div>
 
         <div className="relative">
-          <div className="flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 rounded-xl bg-steel-950/70 border border-amber-500/30 flex items-center justify-center p-1.5 shadow-lg shadow-amber-500/10">
-              <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-amber-400 tracking-wide">CIGÜEÑA</div>
-              <div className="text-xs text-steel-400">by BondiApps</div>
-            </div>
-          </div>
+          <PublicBrandLockup className="mb-12" />
 
           <h2 className="text-3xl font-bold text-steel-50 mb-4 leading-tight">
             Cumplimiento operativo<br />para equipos de Oil &amp; Gas
@@ -62,8 +61,8 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
             { label: 'Trazabilidad', desc: 'Seguimiento de trainings, evaluaciones y cumplimiento' },
           ].map(item => (
             <div key={item.label} className="flex items-start gap-3">
-              <div className="w-5 h-5 bg-amber-500/20 border border-amber-500/40 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                <div className="w-1.5 h-1.5 bg-amber-400 rounded-full" />
+              <div className="w-5 h-5 brand-bg-soft border brand-border rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--brand-accent)' }} />
               </div>
               <div>
                 <div className="text-sm font-medium text-steel-100">{item.label}</div>
@@ -74,26 +73,22 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
         </div>
 
         <div className="relative text-xs text-steel-600">
-          © 2026 BondiApps. Todos los derechos reservados.
+          {branding.showPoweredByBondiApps
+            ? '© 2026 BondiApps. Todos los derechos reservados.'
+            : `© 2026 ${branding.brandName}.`}
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
         <div className="w-full max-w-md">
-          <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
-            <div className="w-10 h-10 rounded-xl bg-steel-900 border border-amber-500/30 flex items-center justify-center p-1.5 shadow-lg shadow-amber-500/10">
-              <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
-            </div>
-            <div>
-              <div className="text-xl font-bold text-amber-400">CIGÜEÑA</div>
-              <div className="text-xs text-steel-400">by BondiApps</div>
-            </div>
+          <div className="lg:hidden mb-8">
+            <PublicBrandLockup compact centered />
           </div>
 
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-steel-50 mb-1">Iniciar sesión</h1>
             <p className="text-sm text-steel-400">
-              Ingresá con tu cuenta para acceder a la plataforma.
+              Ingresá con tu cuenta para acceder a la plataforma{brandPossessive}.
             </p>
           </div>
 
@@ -125,7 +120,7 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
                 <button
                   type="button"
                   onClick={onForgotPassword}
-                  className="text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
+                  className="text-xs font-medium brand-text hover:brightness-110 transition-all"
                 >
                   ¿Olvidaste tu contraseña?
                 </button>
@@ -172,7 +167,7 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
               <button
                 type="button"
                 onClick={onRegister}
-                className="font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+                className="font-semibold brand-text hover:brightness-110 transition-all"
               >
                 Crear cuenta
               </button>

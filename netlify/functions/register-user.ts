@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
   getEmailSender,
+  getTenantAppUrl,
   renderEmailBrandHeader,
   renderEmailFooter,
   resolveTenantEmailBranding,
@@ -540,7 +541,7 @@ export const handler = async (event: any) => {
       requestedAdmin,
       tenantName,
       autoApproved: isPreapprovedWorker,
-      platformUrl,
+      platformUrl: getTenantAppUrl(branding, platformUrl),
       branding,
     }),
   });

@@ -545,7 +545,7 @@ export default function BrandingEditor({
           placeholder="training.spi.com.ar"
         />
         <p className="text-[11px] text-steel-600 mt-1.5">
-          En esta etapa guardamos la asociación. DNS y alta del dominio en Netlify se conectan en una batería posterior.
+          Este hostname se usa para resolver la marca antes del login. También debe estar agregado como dominio/alias en Netlify.
         </p>
 
         <label className="flex items-start gap-3 mt-4 rounded-xl border border-steel-700 bg-steel-900/55 p-4 cursor-pointer">
