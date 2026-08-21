@@ -1,4 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  getCtaTextColor,
+  getEmailSender,
+  renderEmailBrandHeader,
+  renderEmailFooter,
+  resolveTenantEmailBranding,
+  type TenantEmailBranding,
+} from './_tenant-email-branding';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -6,8 +14,6 @@ const resendApiKey = process.env.RESEND_API_KEY;
 const notifyEmail =
   process.env.REGISTRATION_NOTIFY_EMAIL || 'javierpaez@bondiapps.com';
 
-const fromEmail =
-  'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
 const platformUrl =
   process.env.CIGUENA_PLATFORM_URL ||
@@ -50,11 +56,13 @@ async function sendResendEmail({
   subject,
   html,
   bcc,
+  from,
 }: {
   to: string | string[];
   subject: string;
   html: string;
   bcc?: string | string[];
+  from: string;
 }) {
   if (!resendApiKey) {
     console.warn('RESEND_API_KEY no configurada. No se envió email.');
@@ -68,7 +76,7 @@ async function sendResendEmail({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: fromEmail,
+      from,
       to,
       bcc,
       subject,
@@ -97,13 +105,18 @@ async function sendResendEmail({
 function buildApprovalEmailHtml({
   fullName,
   tenantName,
+  branding,
 }: {
   fullName: string;
   tenantName: string;
+  branding: TenantEmailBranding;
 }) {
   const safeName = escapeHtml(fullName || 'Usuario');
   const safeTenant = escapeHtml(tenantName || 'tu empresa');
+  const safeBrand = escapeHtml(branding.brandName);
   const safePlatformUrl = escapeHtml(platformUrl);
+  const ctaColor = branding.accentColor;
+  const ctaTextColor = getCtaTextColor(ctaColor);
 
   return `
     <!doctype html>
@@ -118,22 +131,14 @@ function buildApprovalEmailHtml({
         <div style="margin:0;padding:0;background:#0f172a;">
           <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
             <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-              <div style="margin-bottom:24px;">
-                <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">
-                  CIGÜEÑA
-                </div>
-
-                <div style="font-size:13px;color:#94a3b8;">
-                  Platform by BondiApps
-                </div>
-              </div>
+              ${renderEmailBrandHeader(branding)}
 
               <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
                 Tu cuenta fue aprobada
               </h1>
 
               <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-                Hola ${safeName}, tu acceso a Cigüeña fue aprobado por la administración de ${safeTenant}.
+                Hola ${safeName}, tu acceso a ${safeBrand} fue aprobado por la administración de ${safeTenant}.
               </p>
 
               <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
@@ -151,9 +156,9 @@ function buildApprovalEmailHtml({
                   href="${safePlatformUrl}"
                   target="_blank"
                   rel="noopener noreferrer"
-                  style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-size:15px;font-weight:700;line-height:1;padding:15px 24px;border-radius:10px;"
+                  style="display:inline-block;background:${ctaColor};color:${ctaTextColor};text-decoration:none;font-size:15px;font-weight:700;line-height:1;padding:15px 24px;border-radius:10px;"
                 >
-                  Ingresar a la plataforma
+                  Ingresar a ${safeBrand}
                 </a>
               </div>
 
@@ -166,7 +171,7 @@ function buildApprovalEmailHtml({
                   href="${safePlatformUrl}"
                   target="_blank"
                   rel="noopener noreferrer"
-                  style="font-size:12px;line-height:1.5;color:#f59e0b;text-decoration:underline;word-break:break-all;"
+                  style="font-size:12px;line-height:1.5;color:${branding.accentColor};text-decoration:underline;word-break:break-all;"
                 >
                   ${safePlatformUrl}
                 </a>
@@ -176,11 +181,7 @@ function buildApprovalEmailHtml({
                 Si no solicitaste este acceso o tenés dudas, contactá con la administración de tu empresa.
               </p>
 
-              <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-              <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-                Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-              </p>
+              ${renderEmailFooter(branding)}
             </div>
           </div>
         </div>
@@ -363,6 +364,13 @@ export const handler = async (event: any) => {
     tenantName = tenantData.name;
   }
 
+  const branding = await resolveTenantEmailBranding(
+    supabaseAdmin,
+    tenantId,
+    tenantName
+  );
+  const emailFrom = getEmailSender(branding);
+
   const fullName =
     updatedProfile.full_name ||
     [updatedProfile.first_name, updatedProfile.last_name]
@@ -377,10 +385,12 @@ export const handler = async (event: any) => {
     const emailResult = await sendResendEmail({
       to: updatedProfile.email,
       bcc: notifyEmail,
-      subject: 'Tu cuenta de Cigüeña fue aprobada',
+      from: emailFrom,
+      subject: `Tu cuenta de ${branding.brandName} fue aprobada`,
       html: buildApprovalEmailHtml({
         fullName,
         tenantName,
+        branding,
       }),
     });
 

@@ -1,4 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  getCtaTextColor,
+  getEmailSender,
+  renderEmailBrandHeader,
+  renderEmailFooter,
+  resolveTenantEmailBranding,
+  type TenantEmailBranding,
+} from './_tenant-email-branding';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -15,9 +23,6 @@ const appUrl =
   process.env.DEPLOY_PRIME_URL ||
   'https://ciguena.netlify.app';
 
-const fromEmail =
-  process.env.CIGUENA_FROM_EMAIL ||
-  'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -135,10 +140,12 @@ async function sendResendEmail({
   to,
   subject,
   html,
+  from,
 }: {
   to: string;
   subject: string;
   html: string;
+  from: string;
 }) {
   if (!resendApiKey) {
     return { ok: false, error: 'RESEND_API_KEY no configurada.' };
@@ -151,7 +158,7 @@ async function sendResendEmail({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: fromEmail,
+      from,
       to,
       subject,
       html,
@@ -174,6 +181,7 @@ function buildLiveTrainingEmailHtml({
   fullName,
   training,
   workerRoomUrl,
+  branding,
 }: {
   fullName?: string | null;
   training: {
@@ -187,33 +195,34 @@ function buildLiveTrainingEmailHtml({
     creator_email?: string | null;
   };
   workerRoomUrl: string;
+  branding: TenantEmailBranding;
 }) {
   const safeName = escapeHtml(fullName || 'Hola');
   const safeTitle = escapeHtml(training.title || 'Capacitación en vivo');
   const safeDescription = escapeHtml(training.description || '');
   const safeTenantName = escapeHtml(training.tenant_name || 'Organización no informada');
-  const safeCreatorName = escapeHtml(training.creator_name || 'Administrador Cigüeña');
+  const safeBrand = escapeHtml(branding.brandName);
+  const safeCreatorName = escapeHtml(training.creator_name || `Administrador ${branding.brandName}`);
   const safeCreatorEmail = escapeHtml(training.creator_email || '');
   const timezone = training.timezone || 'America/Argentina/Buenos_Aires';
   const safeStart = escapeHtml(formatDateTime(training.starts_at, timezone));
   const safeEnd = escapeHtml(formatTime(training.ends_at, timezone));
   const safeWorkerRoomUrl = escapeHtml(workerRoomUrl);
+  const ctaColor = branding.accentColor;
+  const ctaTextColor = getCtaTextColor(ctaColor);
 
   return `
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
       <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
         <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-          <div style="margin-bottom:24px;">
-            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">CIGÜEÑA</div>
-            <div style="font-size:13px;color:#94a3b8;">Platform by BondiApps</div>
-          </div>
+          ${renderEmailBrandHeader(branding)}
 
           <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
             Tenés una capacitación en vivo asignada
           </h1>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Hola ${safeName}, te asignaron una capacitación en vivo en Cigüeña.
+            Hola ${safeName}, te asignaron una capacitación en vivo en ${safeBrand}.
           </p>
 
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
@@ -230,31 +239,27 @@ function buildLiveTrainingEmailHtml({
           <div style="background:#451a03;border:1px solid #f59e0b;border-radius:12px;padding:16px;margin:20px 0;">
             <p style="font-size:15px;line-height:1.6;color:#fde68a;margin:0;">
               <strong>IMPORTANTE:</strong><br/>
-              Para que tu asistencia quede registrada, ingresá siempre desde Cigüeña antes de entrar a Google Meet.
+              Para que tu asistencia quede registrada, ingresá siempre desde ${safeBrand} antes de entrar a Google Meet.
               No ingreses directo desde el link de Meet o desde Google Calendar.
             </p>
           </div>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 20px;">
-            Cigüeña registrará tu ingreso a la sala interna y luego podrás acceder a Google Meet.
+            ${safeBrand} registrará tu ingreso a la sala interna y luego podrás acceder a Google Meet.
           </p>
 
           <p style="margin:24px 0;">
             <a href="${safeWorkerRoomUrl}"
-              style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px;">
-              Ingresar desde Cigüeña
+              style="display:inline-block;background:${ctaColor};color:${ctaTextColor};text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px;">
+              Ingresar desde ${safeBrand}
             </a>
           </p>
 
           <p style="font-size:13px;line-height:1.6;color:#94a3b8;margin:0;">
-            También vas a recibir una invitación de Google Calendar. Usala para tener el evento en tu calendario, pero entrá desde Cigüeña para que podamos registrar tu asistencia.
+            También vas a recibir una invitación de Google Calendar. Usala para tener el evento en tu calendario, pero entrá desde ${safeBrand} para que podamos registrar tu asistencia.
           </p>
 
-          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-          </p>
+          ${renderEmailFooter(branding)}
         </div>
       </div>
     </div>
@@ -264,6 +269,7 @@ function buildLiveTrainingEmailHtml({
 async function sendCiguenaLiveTrainingInvites({
   recipients,
   training,
+  branding,
 }: {
   recipients: Array<{ email: string; displayName?: string }>;
   training: {
@@ -277,8 +283,10 @@ async function sendCiguenaLiveTrainingInvites({
     creator_name?: string | null;
     creator_email?: string | null;
   };
+  branding: TenantEmailBranding;
 }) {
   const workerRoomUrl = getWorkerLiveRoomUrl(training.id);
+  const emailFrom = getEmailSender(branding);
   const uniqueRecipients = uniqueValues(recipients.map(recipient => recipient.email)).map(email => {
     const recipient = recipients.find(item => item.email === email);
     return {
@@ -291,11 +299,13 @@ async function sendCiguenaLiveTrainingInvites({
     uniqueRecipients.map(async recipient => {
       const result = await sendResendEmail({
         to: recipient.email,
+        from: emailFrom,
         subject: `Capacitación en vivo asignada: ${training.title}`,
         html: buildLiveTrainingEmailHtml({
           fullName: recipient.displayName,
           training,
           workerRoomUrl,
+          branding,
         }),
       });
 
@@ -345,6 +355,7 @@ async function createGoogleCalendarEvent({
   accessToken,
   training,
   attendees,
+  branding,
 }: {
   accessToken: string;
   training: {
@@ -359,10 +370,12 @@ async function createGoogleCalendarEvent({
     creator_email?: string | null;
   };
   attendees: Array<{ email: string; displayName?: string }>;
+  branding: TenantEmailBranding;
 }) {
   const timezone = training.timezone || 'America/Argentina/Buenos_Aires';
   const tenantName = training.tenant_name || 'Organización no informada';
-  const creatorLabel = [training.creator_name, training.creator_email].filter(Boolean).join(' · ') || 'Administrador Cigüeña';
+  const brandName = branding.brandName;
+  const creatorLabel = [training.creator_name, training.creator_email].filter(Boolean).join(' · ') || `Administrador ${brandName}`;
 
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${escapeGoogleCalendarId(
@@ -375,20 +388,20 @@ async function createGoogleCalendarEvent({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        summary: training.title,
+        summary: `${training.title} · ${brandName}`,
         description: [
           `<strong>Organización:</strong> ${escapeHtml(tenantName)}`,
-          `<strong>Capacitador / creador en Cigüeña:</strong> ${escapeHtml(creatorLabel)}`,
+          `<strong>Capacitador / creador en ${escapeHtml(brandName)}:</strong> ${escapeHtml(creatorLabel)}`,
           '',
           training.description ? escapeHtml(training.description) : '',
           '',
           '<strong>IMPORTANTE:</strong>',
-          '<strong>Ingresá siempre desde Cigüeña para registrar tu asistencia antes de entrar a Google Meet.</strong>',
-          'Si ingresás directo desde el link de Google Meet o desde Google Calendar, Cigüeña podría no registrar correctamente tu asistencia.',
+          `<strong>Ingresá siempre desde ${escapeHtml(brandName)} para registrar tu asistencia antes de entrar a Google Meet.</strong>`,
+          `Si ingresás directo desde el link de Google Meet o desde Google Calendar, ${escapeHtml(brandName)} podría no registrar correctamente tu asistencia.`,
           '',
-          `<a href="${escapeHtml(getWorkerLiveRoomUrl(training.id))}">Ingresar desde Cigüeña</a>`,
+          `<a href="${escapeHtml(getWorkerLiveRoomUrl(training.id))}">Ingresar desde ${escapeHtml(brandName)}</a>`,
           '',
-          'Evento generado automáticamente por Cigüeña | Platform by BondiApps.',
+          `Evento generado automáticamente por ${escapeHtml(brandName)}${branding.showPoweredByBondiApps ? ' | Platform by BondiApps' : ''}.`,
         ]
           .filter(Boolean)
           .join('<br>'),
@@ -495,6 +508,12 @@ export async function handler(event: { httpMethod: string; body?: string | null 
 
     if (tenantError) throw tenantError;
 
+    const branding = await resolveTenantEmailBranding(
+      client,
+      training.tenant_id,
+      tenant?.name ?? null
+    );
+
     const { data: participants, error: participantsError } = await client
       .from('live_training_participants')
       .select('*')
@@ -558,6 +577,7 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       accessToken,
       training: enrichedTraining,
       attendees,
+      branding,
     });
 
     const now = new Date().toISOString();
@@ -582,6 +602,7 @@ export async function handler(event: { httpMethod: string; body?: string | null 
     const emailInviteResult = await sendCiguenaLiveTrainingInvites({
       recipients: attendees,
       training: enrichedTraining,
+      branding,
     });
 
     await client.from('live_training_logs').insert({
