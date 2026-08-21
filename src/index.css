@@ -7,6 +7,7 @@
 :root {
   --brand-primary: #F59E0B;
   --brand-accent: #FBBF24;
+  --brand-primary-contrast: #071B24;
   --brand-primary-rgb: 245 158 11;
   --brand-accent-rgb: 251 191 36;
 }
@@ -49,7 +50,10 @@
   }
 
   .sidebar-item-active {
-    @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+    @apply border;
+    background-color: rgb(var(--brand-primary-rgb) / 0.18);
+    color: var(--brand-accent);
+    border-color: rgb(var(--brand-accent-rgb) / 0.30);
   }
 
   .sidebar-item-inactive {
@@ -69,7 +73,13 @@
   }
 
   .btn-primary {
-    @apply bg-amber-500 hover:bg-amber-400 text-petroleum-950 font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: var(--brand-primary);
+    color: var(--brand-primary-contrast);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.1);
   }
 
   .btn-secondary {
@@ -85,11 +95,21 @@
   }
 
   .input {
-    @apply bg-steel-900 border border-steel-700 text-steel-100 placeholder-steel-500 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-200;
+    @apply bg-steel-900 border border-steel-700 text-steel-100 placeholder-steel-500 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none transition-all duration-200;
+  }
+
+  .input:focus {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
   }
 
   .select {
-    @apply bg-steel-900 border border-steel-700 text-steel-100 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-200;
+    @apply bg-steel-900 border border-steel-700 text-steel-100 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none transition-all duration-200;
+  }
+
+  .select:focus {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
   }
 
   .label {
@@ -149,7 +169,8 @@
   }
 
   .progress-fill {
-    @apply h-full bg-amber-500 rounded-full transition-all duration-500;
+    @apply h-full rounded-full transition-all duration-500;
+    background-color: var(--brand-primary);
   }
 
   .modal-overlay {
@@ -179,7 +200,7 @@
 
 @layer utilities {
   .text-gradient {
-    background: linear-gradient(135deg, #fbbf24, #f97316);
+    background: linear-gradient(135deg, var(--brand-accent), var(--brand-primary));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

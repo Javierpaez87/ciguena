@@ -24,7 +24,9 @@ import {
   Palette,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
 import { supabase } from '../../lib/supabase';
+import { getTenantBrandTheme } from '../../lib/brandTheme';
 
 interface NavItem {
   id: string;
@@ -262,11 +264,14 @@ export default function Sidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, sessionUser, isGhostMode, ghostSession, stopGhostSession, logout } = useAuth();
+  const { branding } = useBranding();
   const [tenantNameFromDb, setTenantNameFromDb] = useState('');
 
   const normalizedRole = normalizeRole(user?.role);
   const isSuperAdmin = isSuperAdminRole(normalizedRole);
   const styles = getSidebarStyles(normalizedRole);
+  const useCustomBranding = !isSuperAdmin && branding.isCustomBranding;
+  const brandTheme = getTenantBrandTheme(branding);
 
   const tenantId = getTenantId(user);
   const ghostTenantName = cleanText(ghostSession?.tenant?.name);
@@ -323,6 +328,18 @@ export default function Sidebar({
 
   const shouldShowTenantName = !isSuperAdmin && Boolean(tenantName);
 
+  const displayedBrandName = useCustomBranding ? branding.brandName : 'CIGÜEÑA';
+  const displayedBrandLogo = useCustomBranding
+    ? (collapsed ? branding.logoCompactUrl : branding.logoNegativeUrl)
+    : '/images/ciguena-pumpjack.png';
+  const showPoweredBy = useCustomBranding
+    ? branding.showPoweredByBondiApps
+    : true;
+
+  const customBorderStyle = useCustomBranding
+    ? { borderColor: brandTheme.border }
+    : undefined;
+
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -330,35 +347,60 @@ export default function Sidebar({
         className={`flex items-center gap-3 px-4 py-5 border-b ${styles.sectionBorder} ${
           collapsed ? 'justify-center' : ''
         }`}
+        style={customBorderStyle}
       >
-        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border border-amber-500/30 flex items-center justify-center p-1 shadow-lg shadow-amber-500/10">
+        <div
+          className="flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border flex items-center justify-center p-1 shadow-lg"
+          style={
+            useCustomBranding
+              ? {
+                  borderColor: brandTheme.borderStrong,
+                  boxShadow: `0 8px 24px ${brandTheme.softAccent}`,
+                }
+              : undefined
+          }
+        >
           <img
-            src="/images/ciguena-pumpjack.png"
-            alt="Cigüeña"
+            src={displayedBrandLogo}
+            alt={displayedBrandName}
             className="w-full h-full object-contain"
           />
         </div>
 
         {!collapsed && (
-          <div>
-            <div className="text-base font-bold text-amber-400 leading-tight tracking-wide">
-              CIGÜEÑA
+          <div className="min-w-0">
+            <div
+              className={`text-base font-bold leading-tight tracking-wide truncate ${
+                useCustomBranding ? '' : 'text-amber-400'
+              }`}
+              style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
+            >
+              {displayedBrandName}
             </div>
 
-            <div className="text-[10px] text-steel-400 leading-tight">
-              by BondiApps
-            </div>
+            {showPoweredBy && (
+              <div className="text-[10px] text-steel-400 leading-tight">
+                Powered by BondiApps
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Tenant and role badge */}
       {!collapsed && (
-        <div className={`px-4 py-3 border-b ${styles.sectionBorder}`}>
+        <div
+          className={`px-4 py-3 border-b ${styles.sectionBorder}`}
+          style={customBorderStyle}
+        >
           {shouldShowTenantName && (
             <div className="mb-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
               <div className="flex items-center gap-2">
-                <Building2 size={14} className="text-amber-400 flex-shrink-0" />
+                <Building2
+                  size={14}
+                  className={useCustomBranding ? 'flex-shrink-0' : 'text-amber-400 flex-shrink-0'}
+                  style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
+                />
                 <div className="min-w-0">
                   <div className="text-[10px] uppercase tracking-widest text-steel-500 leading-tight">
                     Empresa
@@ -372,11 +414,28 @@ export default function Sidebar({
           )}
 
           <div
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 ${styles.roleBadge}`}
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+              useCustomBranding ? 'border' : styles.roleBadge
+            }`}
+            style={
+              useCustomBranding
+                ? {
+                    backgroundColor: brandTheme.softAccent,
+                    borderColor: brandTheme.border,
+                  }
+                : undefined
+            }
           >
-            <Shield size={13} className={styles.roleIcon} />
+            <Shield
+              size={13}
+              className={useCustomBranding ? '' : styles.roleIcon}
+              style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
+            />
 
-            <span className={`text-xs font-semibold ${styles.roleText}`}>
+            <span
+              className={`text-xs font-semibold ${useCustomBranding ? '' : styles.roleText}`}
+              style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
+            >
               {roleLabel}
             </span>
           </div>
@@ -424,8 +483,23 @@ export default function Sidebar({
                 setMobileOpen(false);
               }}
               className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive ? styles.activeItem : styles.inactiveItem
+                useCustomBranding
+                  ? isActive
+                    ? 'border text-steel-50'
+                    : 'text-steel-300 hover:text-steel-100 hover:bg-white/5 border border-transparent'
+                  : isActive
+                    ? styles.activeItem
+                    : styles.inactiveItem
               } ${collapsed ? 'justify-center px-2' : ''}`}
+              style={
+                useCustomBranding && isActive
+                  ? {
+                      backgroundColor: brandTheme.softPrimary,
+                      borderColor: brandTheme.borderStrong,
+                      color: brandTheme.activeText,
+                    }
+                  : undefined
+              }
               title={collapsed ? `${item.label}${item.statusLabel ? ` · ${item.statusLabel}` : ''}` : undefined}
             >
               <span className="flex-shrink-0">{item.icon}</span>
@@ -455,6 +529,7 @@ export default function Sidebar({
       {/* User and logout */}
       <div
         className={`px-2 pb-4 border-t ${styles.sectionBorder} pt-4`}
+        style={customBorderStyle}
       >
         {!collapsed && (
           <div className="px-3 py-2 mb-2">
@@ -488,6 +563,14 @@ export default function Sidebar({
       <button
         onClick={() => setMobileOpen(true)}
         className={`lg:hidden fixed top-4 left-4 z-50 p-2 border rounded-lg text-steel-300 ${styles.mobileButton}`}
+        style={
+          useCustomBranding
+            ? {
+                backgroundColor: brandTheme.sidebarBackground,
+                borderColor: brandTheme.borderStrong,
+              }
+            : undefined
+        }
         aria-label="Abrir menú"
       >
         <Menu size={20} />
@@ -508,6 +591,14 @@ export default function Sidebar({
         } ${styles.border} ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={
+          useCustomBranding
+            ? {
+                backgroundColor: brandTheme.sidebarBackground,
+                borderColor: brandTheme.border,
+              }
+            : undefined
+        }
       >
         <button
           onClick={() => setMobileOpen(false)}
@@ -527,12 +618,28 @@ export default function Sidebar({
         } ${styles.border} ${
           collapsed ? 'w-16' : 'w-60'
         } flex-shrink-0 relative`}
+        style={
+          useCustomBranding
+            ? {
+                backgroundColor: brandTheme.sidebarBackground,
+                borderColor: brandTheme.border,
+              }
+            : undefined
+        }
       >
         <SidebarContent />
 
         <button
           onClick={() => setCollapsed((current) => !current)}
           className={`absolute -right-3 top-20 border rounded-full p-1 text-steel-300 hover:text-steel-100 transition-colors ${styles.collapseButton}`}
+          style={
+            useCustomBranding
+              ? {
+                  backgroundColor: brandTheme.elevatedBackground,
+                  borderColor: brandTheme.borderStrong,
+                }
+              : undefined
+          }
           aria-label={collapsed ? 'Expandir menú' : 'Contraer menú'}
         >
           {collapsed ? (

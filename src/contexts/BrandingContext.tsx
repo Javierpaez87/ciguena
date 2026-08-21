@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
+import { getReadableTextColor } from '../lib/brandTheme';
 import {
   DEFAULT_CIGUENA_BRANDING,
   hexToRgbChannels,
@@ -76,6 +77,10 @@ function applyBrandingVariables(branding: BrandingConfig) {
 
   root.style.setProperty('--brand-primary', branding.primaryColor);
   root.style.setProperty('--brand-accent', branding.accentColor);
+  root.style.setProperty(
+    '--brand-primary-contrast',
+    getReadableTextColor(branding.primaryColor),
+  );
   root.style.setProperty(
     '--brand-primary-rgb',
     hexToRgbChannels(branding.primaryColor),
