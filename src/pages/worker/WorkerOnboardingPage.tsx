@@ -470,13 +470,31 @@ export default function WorkerOnboardingPage({
                       <div className="font-semibold text-steel-100">{ethicsCode.title}</div>
                       <div className="text-xs text-steel-500 mt-1">Versión {ethicsCode.version}</div>
                     </div>
-                    <button type="button" onClick={() => setHasOpenedCode(true)} className="btn-secondary text-xs" disabled={isSaving}>
-                      Confirmar lectura
-                    </button>
+                    {ethicsCode.document_url ? (
+                      <a
+                        href={ethicsCode.document_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => setHasOpenedCode(true)}
+                        className="btn-secondary text-xs inline-flex items-center gap-2"
+                      >
+                        <FileText size={14} /> Abrir documento
+                      </a>
+                    ) : (
+                      <button type="button" onClick={() => setHasOpenedCode(true)} className="btn-secondary text-xs" disabled={isSaving}>
+                        Confirmar lectura
+                      </button>
+                    )}
                   </div>
-                  <div className="prose prose-invert max-w-none text-sm text-steel-300 whitespace-pre-line leading-relaxed max-h-[340px] overflow-y-auto pr-2">
-                    {ethicsCode.content}
-                  </div>
+                  {ethicsCode.content?.trim() ? (
+                    <div className="prose prose-invert max-w-none text-sm text-steel-300 whitespace-pre-line leading-relaxed max-h-[340px] overflow-y-auto pr-2">
+                      {ethicsCode.content}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-steel-800 bg-steel-900/60 p-4 text-sm text-steel-400">
+                      El Código de Ética fue publicado como documento PDF. Abrilo y revisalo antes de marcar la aceptación.
+                    </div>
+                  )}
                 </div>
 
                 <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-900/60 p-4 cursor-pointer">

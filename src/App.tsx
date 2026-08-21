@@ -11,6 +11,7 @@ import AppLayout from './components/layout/AppLayout';
 import SaDashboard from './pages/superadmin/SaDashboard';
 import SaTenants from './pages/superadmin/SaTenants';
 import SaWhiteLabel from './pages/superadmin/SaWhiteLabel';
+import SaCompliance from './pages/superadmin/SaCompliance';
 import SaTrainings from './pages/superadmin/SaTrainings';
 import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
@@ -29,6 +30,7 @@ import AdminReports from './pages/admin/AdminReports';
 import AdminFeedback from './pages/admin/AdminFeedback';
 import AdminSignatures from './pages/admin/AdminSignatures';
 import AdminSignatureConsent from './pages/admin/AdminSignatureConsent';
+import AdminCompliance from './pages/admin/AdminCompliance';
 
 // Worker
 import WorkerDashboard from './pages/worker/WorkerDashboard';
@@ -56,6 +58,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-white-label': {
     title: 'White Label',
     subtitle: 'Identidad visual y configuración de marca por cliente',
+  },
+  'sa-compliance': {
+    title: 'Onboarding & Compliance',
+    subtitle: 'Modalidad de onboarding, firma y Código de Ética por cliente',
   },
   'sa-trainings': {
     title: 'Catálogo de Trainings',
@@ -85,6 +91,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-users': {
     title: 'Usuarios / Trabajadores',
     subtitle: 'Gestión del personal de tu empresa',
+  },
+  'admin-compliance': {
+    title: 'Onboarding & Compliance',
+    subtitle: 'Configuración de validación de datos, firma y Código de Ética',
   },
   'admin-trainings': {
     title: 'Trainings Habilitados',
@@ -419,6 +429,8 @@ function AppContent() {
         return <SaTenants />;
       case 'sa-white-label':
         return <SaWhiteLabel />;
+      case 'sa-compliance':
+        return <SaCompliance />;
       case 'sa-trainings':
         return <SaTrainings />;
       case 'sa-builder':
@@ -435,6 +447,8 @@ function AppContent() {
         return <AdminDashboard />;
       case 'admin-users':
         return <AdminUsers />;
+      case 'admin-compliance':
+        return <AdminCompliance />;
       case 'admin-trainings':
         return <AdminTrainings />;
       case 'admin-training-catalog':

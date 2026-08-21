@@ -22,6 +22,7 @@ import {
   Eye,
   ArrowLeft,
   Palette,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
@@ -56,6 +57,11 @@ const superAdminNav: NavItem[] = [
     id: 'sa-white-label',
     label: 'White Label',
     icon: <Palette size={18} />,
+  },
+  {
+    id: 'sa-compliance',
+    label: 'Onboarding & Compliance',
+    icon: <ShieldCheck size={18} />,
   },
   {
     id: 'sa-trainings',
@@ -94,6 +100,11 @@ const adminNav: NavItem[] = [
     id: 'admin-users',
     label: 'Usuarios / Trabajadores',
     icon: <Users size={18} />,
+  },
+  {
+    id: 'admin-compliance',
+    label: 'Onboarding & Compliance',
+    icon: <ShieldCheck size={18} />,
   },
   {
     id: 'admin-trainings',
