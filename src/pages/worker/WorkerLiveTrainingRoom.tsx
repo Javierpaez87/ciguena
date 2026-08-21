@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
 import type { AuthUser, LiveTrainingParticipant } from '../../types';
 import {
   getWorkerLiveTrainingParticipant,
@@ -72,7 +73,7 @@ function formatTimeRange(startsAt?: string | null, endsAt?: string | null) {
   return `${start} a ${end}`;
 }
 
-function getRoomState(participant: LiveTrainingParticipant | null) {
+function getRoomState(participant: LiveTrainingParticipant | null, brandName: string) {
   const training = participant?.live_training;
 
   if (!training) {
@@ -112,7 +113,7 @@ function getRoomState(participant: LiveTrainingParticipant | null) {
       label: now < startsAt ? 'Sala habilitada' : 'En vivo ahora',
       className: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
       canJoin: true,
-      helper: 'Podés ingresar a la sala. Cigüeña va a registrar el click para la asistencia.',
+      helper: `Podés ingresar a la sala. ${brandName} va a registrar el click para la asistencia.`,
     };
   }
 
@@ -129,6 +130,7 @@ export default function WorkerLiveTrainingRoom({
   onNavigate,
 }: WorkerLiveTrainingRoomProps) {
   const { user } = useAuth();
+  const { branding } = useBranding();
   const userIdCandidates = useMemo(() => getCurrentUserIdCandidates(user), [user]);
   const [participant, setParticipant] = useState<LiveTrainingParticipant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -136,7 +138,7 @@ export default function WorkerLiveTrainingRoom({
   const [error, setError] = useState<string | null>(null);
   const [openedWasRegistered, setOpenedWasRegistered] = useState(false);
 
-  const roomState = useMemo(() => getRoomState(participant), [participant]);
+  const roomState = useMemo(() => getRoomState(participant, branding.brandName), [participant, branding.brandName]);
   const training = participant?.live_training;
 
   useEffect(() => {
@@ -269,7 +271,7 @@ export default function WorkerLiveTrainingRoom({
       {openedWasRegistered && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200 flex items-start gap-3">
           <CheckCircle2 size={18} className="mt-0.5 flex-shrink-0" />
-          <span>Cigüeña registró que abriste la sala interna.</span>
+          <span>{branding.brandName} registró que abriste la sala interna.</span>
         </div>
       )}
 
@@ -292,11 +294,11 @@ export default function WorkerLiveTrainingRoom({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div className="flex items-center gap-2 text-steel-300">
-                <CalendarClock size={17} className="text-amber-400" />
+                <CalendarClock size={17} className="brand-text" />
                 <span>{formatDateTime(training?.starts_at)}</span>
               </div>
               <div className="flex items-center gap-2 text-steel-300">
-                <Clock size={17} className="text-amber-400" />
+                <Clock size={17} className="brand-text" />
                 <span>{formatTimeRange(training?.starts_at, training?.ends_at)}</span>
               </div>
             </div>
@@ -306,7 +308,7 @@ export default function WorkerLiveTrainingRoom({
             type="button"
             onClick={handleJoin}
             disabled={isJoining || !roomState.canJoin || !training?.meeting_url}
-            className="btn-primary justify-center disabled:hover:bg-amber-500"
+            className="btn-primary justify-center"
           >
             {isJoining ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
             Ingresar a Google Meet

@@ -89,6 +89,7 @@ function applyBrandingVariables(branding: BrandingConfig) {
     '--brand-accent-rgb',
     hexToRgbChannels(branding.accentColor),
   );
+  root.dataset.branding = branding.isCustomBranding ? 'custom' : 'default';
 }
 
 export function BrandingProvider({ children }: { children: ReactNode }) {

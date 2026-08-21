@@ -12,6 +12,7 @@ import {
 
 import EmptyState from '../../components/ui/EmptyState';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
 import type { AuthUser, LiveAttendanceStatus, LiveTrainingParticipant } from '../../types';
 import {
   getWorkerLiveTrainings,
@@ -149,11 +150,11 @@ function WorkerLiveTrainingCard({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div className="flex items-center gap-2 text-steel-300">
-              <CalendarClock size={16} className="text-amber-400" />
+              <CalendarClock size={16} className="brand-text" />
               <span>{formatDateTime(training?.starts_at)}</span>
             </div>
             <div className="flex items-center gap-2 text-steel-300">
-              <Clock size={16} className="text-amber-400" />
+              <Clock size={16} className="brand-text" />
               <span>{formatTimeRange(training?.starts_at, training?.ends_at)}</span>
             </div>
           </div>
@@ -188,7 +189,7 @@ function WorkerLiveTrainingCard({
           type="button"
           onClick={onOpen}
           disabled={disabled}
-          className="btn-primary justify-center disabled:hover:bg-amber-500"
+          className="btn-primary justify-center"
         >
           <Video size={16} />
           Ingresar a capacitación
@@ -201,6 +202,7 @@ function WorkerLiveTrainingCard({
 
 export default function WorkerLiveTrainings({ onNavigate }: WorkerLiveTrainingsProps) {
   const { user } = useAuth();
+  const { branding } = useBranding();
   const userIdCandidates = useMemo(() => getCurrentUserIdCandidates(user), [user]);
   const [items, setItems] = useState<LiveTrainingParticipantWithUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -256,7 +258,7 @@ export default function WorkerLiveTrainings({ onNavigate }: WorkerLiveTrainingsP
         <div>
           <h2 className="text-xl font-semibold text-steel-100">Mis capacitaciones en vivo</h2>
           <p className="text-sm text-steel-400 mt-1">
-            Entrá siempre desde Cigüeña para que podamos registrar tu asistencia.
+            Entrá siempre desde {branding.brandName} para que podamos registrar tu asistencia.
           </p>
         </div>
 
@@ -320,7 +322,7 @@ export default function WorkerLiveTrainings({ onNavigate }: WorkerLiveTrainingsP
         <div>
           <div className="font-semibold mb-1">Importante para tu asistencia</div>
           <div className="text-amber-100/80">
-            No entres directo desde Google Meet. Usá el botón de Cigüeña para que quede registrada la apertura de sala y el click de ingreso.
+            No entres directo desde Google Meet. Usá el botón de {branding.brandName} para que quede registrada la apertura de sala y el click de ingreso.
           </div>
         </div>
       </div>

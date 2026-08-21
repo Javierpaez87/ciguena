@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
@@ -819,6 +820,7 @@ function downloadCsvTemplate() {
 
 export default function AdminUsers() {
   const { user } = useAuth();
+  const { branding } = useBranding();
   const tenantId = user?.tenant_id;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2279,7 +2281,7 @@ export default function AdminUsers() {
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
-            Esto agrega el trabajador a la nómina preaprobada. Cuando se registre con este email, Cigüeña lo validará automáticamente contra employee_directory.
+            Esto agrega el trabajador a la nómina preaprobada. Cuando se registre con este email, {branding.brandName} lo validará automáticamente contra employee_directory.
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2689,7 +2691,7 @@ export default function AdminUsers() {
                 Un mismo archivo para cargar o actualizar
               </div>
               <p className="text-sm text-amber-100/80">
-                Cigüeña compara el CSV contra la nómina actual. Los nuevos se agregan, los existentes con datos distintos se actualizan y los que no cambiaron se dejan intactos. Nada se modifica hasta que confirmes el preview.
+                {branding.brandName} compara el CSV contra la nómina actual. Los nuevos se agregan, los existentes con datos distintos se actualizan y los que no cambiaron se dejan intactos. Nada se modifica hasta que confirmes el preview.
               </p>
             </div>
 
@@ -2724,7 +2726,7 @@ export default function AdminUsers() {
             <div className="rounded-xl border border-steel-700 bg-steel-900 p-4">
               <div className="text-sm font-semibold text-steel-200 mb-3">Reglas de actualización</div>
               <div className="space-y-2 text-xs text-steel-400 leading-5">
-                <p>• Cigüeña identifica trabajadores por legajo, DNI y email.</p>
+                <p>• {branding.brandName} identifica trabajadores por legajo, DNI y email.</p>
                 <p>• Las celdas vacías no borran datos existentes.</p>
                 <p>• El email de una persona que ya tiene cuenta no se modifica por CSV: se marca como conflicto.</p>
                 <p>• Si indicás que el archivo es la nómina completa, los trabajadores ausentes pueden marcarse inactivos; nunca se elimina su historial.</p>
@@ -2768,7 +2770,7 @@ export default function AdminUsers() {
                   Este archivo representa la nómina completa vigente
                 </div>
                 <p className="mt-1 text-xs text-steel-500 leading-5">
-                  Si lo activás, {missingCsvUsers.length} trabajador(es) activos que hoy existen en Cigüeña y no aparecen en este archivo serán marcados como inactivos. No se borran cuentas, asignaciones, progreso ni certificados.
+                  Si lo activás, {missingCsvUsers.length} trabajador(es) activos que hoy existen en {branding.brandName} y no aparecen en este archivo serán marcados como inactivos. No se borran cuentas, asignaciones, progreso ni certificados.
                 </p>
               </div>
             </label>

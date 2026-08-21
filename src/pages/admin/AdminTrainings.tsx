@@ -990,7 +990,7 @@ export default function AdminTrainings() {
             className="rounded-xl border border-steel-700 bg-steel-950 p-4"
           >
             <div className="flex items-center gap-2 mb-4">
-              <Layers size={15} className="text-amber-400" />
+              <Layers size={15} className="brand-text" />
               <div className="text-sm font-semibold text-steel-100">
                 Intento {attempt.attemptNumber}
               </div>
@@ -1010,7 +1010,7 @@ export default function AdminTrainings() {
                     className="rounded-xl border border-steel-700 bg-steel-900 p-4"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 flex-shrink-0">
+                      <div className="w-7 h-7 brand-bg-soft border brand-border-soft rounded-lg flex items-center justify-center text-xs font-bold brand-text flex-shrink-0">
                         {globalIndex + 1}
                       </div>
 
@@ -1223,7 +1223,7 @@ export default function AdminTrainings() {
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <PlayCircle size={16} className="text-amber-400" />
+                <PlayCircle size={16} className="brand-text" />
                 <h3 className="text-sm font-semibold text-steel-100">
                   Contenido del training
                 </h3>
@@ -1235,7 +1235,7 @@ export default function AdminTrainings() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <ClipboardCheck size={16} className="text-amber-400" />
+                  <ClipboardCheck size={16} className="brand-text" />
                   <h3 className="text-sm font-semibold text-steel-100">
                     Evaluación
                   </h3>
@@ -1283,7 +1283,7 @@ export default function AdminTrainings() {
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Award size={16} className="text-amber-400" />
+                <Award size={16} className="brand-text" />
                 <h3 className="text-sm font-semibold text-steel-100">
                   Certificación
                 </h3>
@@ -1399,7 +1399,7 @@ export default function AdminTrainings() {
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
                   assignMode === 'all'
-                    ? 'bg-amber-500/10 border-amber-500/40'
+                    ? 'brand-bg-soft brand-border'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
@@ -1418,7 +1418,7 @@ export default function AdminTrainings() {
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
                   assignMode === 'role'
-                    ? 'bg-amber-500/10 border-amber-500/40'
+                    ? 'brand-bg-soft brand-border'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
@@ -1438,7 +1438,7 @@ export default function AdminTrainings() {
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
                   assignMode === 'individual'
-                    ? 'bg-amber-500/10 border-amber-500/40'
+                    ? 'brand-bg-soft brand-border'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >

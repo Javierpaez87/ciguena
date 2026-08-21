@@ -514,8 +514,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
       {state === 'intro' && (
         <div className="card text-center py-8">
-          <div className="w-16 h-16 bg-amber-500/20 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <ClipboardList size={28} className="text-amber-400" />
+          <div className="w-16 h-16 brand-bg-soft border brand-border-soft rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <ClipboardList size={28} className="brand-text" />
           </div>
 
           <h2 className="text-xl font-bold text-steel-100 mb-2">{test.title}</h2>
@@ -533,7 +533,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             </div>
 
             <div className="bg-steel-900 rounded-xl p-3">
-              <div className="text-2xl font-bold text-amber-400">{test.passingScore}%</div>
+              <div className="text-2xl font-bold brand-text">{test.passingScore}%</div>
               <div className="text-xs text-steel-400">Para aprobar</div>
             </div>
 
@@ -574,7 +574,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                   <div
                     key={i}
                     className={`w-2 h-2 rounded-full transition-colors ${
-                      i < currentQ ? 'bg-emerald-500' : i === currentQ ? 'bg-amber-500' : 'bg-steel-600'
+                      i < currentQ ? 'bg-emerald-500' : i === currentQ ? 'brand-bg' : 'bg-steel-600'
                     }`}
                   />
                 ))}
@@ -606,13 +606,13 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                     onClick={() => selectAnswer(q.id, optionKey)}
                     className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
                       selected
-                        ? 'bg-amber-500/15 border-amber-500/60 text-amber-200'
+                        ? 'brand-bg-soft brand-border brand-text'
                         : 'bg-steel-900 border-steel-700 text-steel-300 hover:border-steel-500 hover:bg-steel-800'
                     }`}
                   >
                     <div
                       className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-colors ${
-                        selected ? 'bg-amber-500 border-amber-500' : 'border-steel-600'
+                        selected ? 'brand-bg brand-border' : 'border-steel-600'
                       }`}
                     >
                       {selected && <div className="w-2 h-2 bg-petroleum-950 rounded-full" />}

@@ -34,7 +34,7 @@ interface MiniMetricCardProps {
   value: string | number;
   subtitle?: string;
   icon: React.ReactNode;
-  accent: 'amber' | 'blue' | 'green' | 'red' | 'steel';
+  accent: 'brand' | 'amber' | 'blue' | 'green' | 'red' | 'steel';
   chartType: 'donut' | 'bar' | 'spark';
   chartValue: number;
   chartLabel?: string;
@@ -165,6 +165,11 @@ type DashboardExportRow = {
 };
 
 const accentStyles = {
+  brand: {
+    icon: 'brand-icon-surface',
+    bar: 'brand-bg',
+    ring: 'brand-text',
+  },
   amber: {
     icon: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     bar: 'bg-amber-400',
@@ -1035,7 +1040,7 @@ export default function AdminDashboard() {
             title="Usuarios totales"
             value={filteredWorkerUsers.length}
             icon={<Users size={20} />}
-            accent="amber"
+            accent="brand"
             subtitle={`${metrics.activeUsers} activos`}
             chartType="donut"
             chartValue={metrics.activeUserRate}
@@ -1101,7 +1106,7 @@ export default function AdminDashboard() {
             title="Avance promedio"
             value={`${metrics.avgProgress}%`}
             icon={<TrendingUp size={20} />}
-            accent="amber"
+            accent="brand"
             subtitle={roleFilter === 'all' ? 'promedio de la empresa' : `promedio · ${roleFilter}`}
             chartType="bar"
             chartValue={metrics.avgProgress}
@@ -1159,7 +1164,7 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="card xl:col-span-1">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Activity size={16} className="text-amber-400" />
+            <Activity size={16} className="brand-text" />
             Estado de trainings
           </h3>
 
@@ -1176,7 +1181,7 @@ export default function AdminDashboard() {
 
         <div className="card xl:col-span-1">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <CalendarClock size={16} className="text-amber-400" />
+            <CalendarClock size={16} className="brand-text" />
             Asistencia en vivo
           </h3>
 
@@ -1193,7 +1198,7 @@ export default function AdminDashboard() {
 
         <div className="card xl:col-span-1">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Award size={16} className="text-amber-400" />
+            <Award size={16} className="brand-text" />
             Estado de certificados
           </h3>
 
@@ -1206,7 +1211,7 @@ export default function AdminDashboard() {
 
         <div className="card xl:col-span-1">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Users size={16} className="text-amber-400" />
+            <Users size={16} className="brand-text" />
             Avance por área
           </h3>
 
@@ -1238,7 +1243,7 @@ export default function AdminDashboard() {
 
                 <div className="h-2.5 rounded-full bg-steel-800 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-amber-400"
+                    className="h-full rounded-full brand-bg"
                     style={{ width: `${area.value}%` }}
                   />
                 </div>
@@ -1251,7 +1256,7 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-4 flex items-center gap-2">
-            <BookOpen size={16} className="text-amber-400" />
+            <BookOpen size={16} className="brand-text" />
             Asignaciones recientes
           </h3>
 
@@ -1292,7 +1297,7 @@ export default function AdminDashboard() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-4 flex items-center gap-2">
-            <Clock size={16} className="text-amber-400" />
+            <Clock size={16} className="brand-text" />
             Actividad reciente
           </h3>
 
@@ -1305,7 +1310,7 @@ export default function AdminDashboard() {
 
             {recentActivity.map((item) => (
               <div key={item.id} className="flex items-start gap-3 p-2.5 bg-steel-900 rounded-lg">
-                <div className="h-8 w-8 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center flex-shrink-0">
+                <div className="h-8 w-8 rounded-full brand-bg-soft brand-text flex items-center justify-center flex-shrink-0">
                   <Activity size={14} />
                 </div>
 
@@ -1330,7 +1335,7 @@ export default function AdminDashboard() {
 
       <div className="card">
         <h3 className="text-base font-semibold text-steel-100 mb-4 flex items-center gap-2">
-          <CheckCircle size={16} className="text-amber-400" />
+          <CheckCircle size={16} className="brand-text" />
           Exámenes recientes
         </h3>
 

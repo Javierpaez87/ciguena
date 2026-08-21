@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { BrandingProvider } from './contexts/BrandingContext';
+import { BrandingProvider, useBranding } from './contexts/BrandingContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -134,7 +134,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   },
   'worker-live-room': {
     title: 'Sala de capacitación',
-    subtitle: 'Ingreso interno desde Cigüeña para registrar asistencia',
+    subtitle: 'Ingreso interno a la plataforma para registrar asistencia',
   },
   'worker-player': {
     title: 'Player de Training',
@@ -180,6 +180,7 @@ type AuthScreen = 'login' | 'register' | 'forgot-password';
 
 function AppContent() {
   const { user, isGhostMode } = useAuth();
+  const { branding } = useBranding();
 
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [activeView, setActiveView] = useState(
@@ -406,10 +407,17 @@ function AppContent() {
     );
   }
 
-  const meta = VIEW_META[activeView] ?? {
-    title: 'CIGÜEÑA',
+  const baseMeta = VIEW_META[activeView] ?? {
+    title: branding.brandName,
     subtitle: '',
   };
+
+  const meta = activeView === 'worker-live-room'
+    ? {
+        ...baseMeta,
+        subtitle: `Ingreso interno desde ${branding.brandName} para registrar asistencia`,
+      }
+    : baseMeta;
 
   const renderView = () => {
     switch (activeView) {

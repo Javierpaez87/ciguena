@@ -20,7 +20,7 @@ import { supabase } from '../../lib/supabase';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
 
 type ReportType = 'user' | 'training' | 'area' | 'live';
-type Accent = 'amber' | 'blue' | 'green' | 'red' | 'steel';
+type Accent = 'brand' | 'amber' | 'blue' | 'green' | 'red' | 'steel';
 type ReportExportRow = Record<string, string | number | null | undefined>;
 
 interface ChartItem {
@@ -136,6 +136,11 @@ interface LiveTrainingParticipant {
 }
 
 const accentStyles: Record<Accent, { icon: string; bar: string; ring: string }> = {
+  brand: {
+    icon: 'brand-icon-surface',
+    bar: 'brand-bg',
+    ring: 'brand-text',
+  },
   amber: {
     icon: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     bar: 'bg-amber-400',
@@ -1065,7 +1070,7 @@ export default function AdminReports() {
             value={`${reports.avgProgress}%`}
             subtitle="Promedio de progreso de trainings activos"
             icon={<TrendingUp size={20} />}
-            accent="amber"
+            accent="brand"
             chartType="spark"
             chartValue={reports.avgProgress}
           />
@@ -1108,7 +1113,7 @@ export default function AdminReports() {
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <BarChart2 size={16} className="text-amber-400" />
+            <BarChart2 size={16} className="brand-text" />
             Estado de asignaciones
           </h3>
           <p className="text-xs text-steel-500 mb-5">
@@ -1119,7 +1124,7 @@ export default function AdminReports() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Award size={16} className="text-amber-400" />
+            <Award size={16} className="brand-text" />
             Estado de certificados
           </h3>
           <p className="text-xs text-steel-500 mb-5">
@@ -1130,7 +1135,7 @@ export default function AdminReports() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Building size={16} className="text-amber-400" />
+            <Building size={16} className="brand-text" />
             Cumplimiento por área
           </h3>
           <p className="text-xs text-steel-500 mb-5">Comparativo de avance por sector.</p>
@@ -1148,7 +1153,7 @@ export default function AdminReports() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Users size={16} className="text-amber-400" />
+            <Users size={16} className="brand-text" />
             Usuarios críticos
           </h3>
           <p className="text-xs text-steel-500 mb-4">
@@ -1179,7 +1184,7 @@ export default function AdminReports() {
                 </div>
                 <div className="h-2 rounded-full bg-steel-800 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-amber-400"
+                    className="h-full rounded-full brand-bg"
                     style={{ width: `${userItem.avgProgress}%` }}
                   />
                 </div>
@@ -1190,7 +1195,7 @@ export default function AdminReports() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <BookOpen size={16} className="text-amber-400" />
+            <BookOpen size={16} className="brand-text" />
             Trainings críticos
           </h3>
           <p className="text-xs text-steel-500 mb-4">Cursos con menor avance promedio.</p>
@@ -1230,7 +1235,7 @@ export default function AdminReports() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <CalendarClock size={16} className="text-amber-400" />
+            <CalendarClock size={16} className="brand-text" />
             Vencimientos próximos
           </h3>
           <p className="text-xs text-steel-500 mb-4">Certificados a revisar o renovar.</p>
@@ -1300,7 +1305,7 @@ export default function AdminReports() {
                 onClick={() => setReportType(item.id as ReportType)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                   reportType === item.id
-                    ? 'bg-amber-500 text-petroleum-950'
+                    ? 'brand-bg'
                     : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
                 }`}
               >

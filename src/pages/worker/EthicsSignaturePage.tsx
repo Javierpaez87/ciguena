@@ -11,6 +11,8 @@ import {
 import { supabase } from '../../lib/supabase';
 import { dataUrlToBlob, sha256FromText } from '../../lib/ethics';
 import type { AuthUser, EthicsCode } from '../../types';
+import { useBranding } from '../../contexts/BrandingContext';
+import TenantBrandMark from '../../components/branding/TenantBrandMark';
 
 interface EthicsSignaturePageProps {
   user: AuthUser;
@@ -30,6 +32,7 @@ function valueFromProfile(profile: any, keys: string[]) {
 }
 
 export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned }: EthicsSignaturePageProps) {
+  const { branding } = useBranding();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
@@ -225,7 +228,7 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
         .eq('tenant_id', tenant.id)
         .eq('email', user.email || profile.email);
 
-      const acceptanceText = `Declaro haber leído y aceptado el ${ethicsCode.title}, versión ${ethicsCode.version}, de ${tenant.name}. Autorizo el uso de mi firma electrónica registrada para constancias y certificados emitidos por Cigüeña vinculados a mis capacitaciones.`;
+      const acceptanceText = `Declaro haber leído y aceptado el ${ethicsCode.title}, versión ${ethicsCode.version}, de ${tenant.name}. Autorizo el uso de mi firma electrónica registrada para constancias y certificados emitidos por ${branding.brandName} vinculados a mis capacitaciones.`;
 
       const { data: acceptanceRecord, error: acceptanceError } = await supabase
         .from('ethics_acceptances')
@@ -281,20 +284,14 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
   return (
     <div className="min-h-screen bg-steel-950 p-6 lg:p-10">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-12 h-12 rounded-xl bg-steel-900 border border-amber-500/30 flex items-center justify-center p-1.5 shadow-lg shadow-amber-500/10">
-            <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-amber-400 tracking-wide">CIGÜEÑA</div>
-            <div className="text-xs text-steel-400">Onboarding digital · {tenant.name}</div>
-          </div>
+        <div className="mb-8">
+          <TenantBrandMark subtitle={`Onboarding digital · ${tenant.name}`} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 items-start">
           <section className="card">
             <div className="flex items-start gap-4 mb-5">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-amber-300 flex-shrink-0">
+              <div className="w-12 h-12 rounded-xl brand-bg-soft border brand-border-soft flex items-center justify-center brand-text flex-shrink-0">
                 <ShieldCheck size={24} />
               </div>
               <div>
@@ -310,7 +307,7 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div>
                   <div className="flex items-center gap-2 text-steel-100 font-semibold">
-                    <FileText size={18} className="text-amber-400" />
+                    <FileText size={18} className="brand-text" />
                     {ethicsCode.title}
                   </div>
                   <div className="text-xs text-steel-500 mt-1">Versión {ethicsCode.version}</div>
@@ -334,18 +331,18 @@ export default function EthicsSignaturePage({ user, tenant, ethicsCode, onSigned
                 type="checkbox"
                 checked={accepted}
                 onChange={e => setAccepted(e.target.checked)}
-                className="mt-1 h-4 w-4 accent-amber-500"
+                className="mt-1 h-4 w-4 brand-checkbox"
               />
               <span className="text-sm text-steel-300 leading-relaxed">
                 Declaro haber leído y aceptado el <strong className="text-steel-100">{ethicsCode.title}</strong>, versión {ethicsCode.version},
-                y autorizo el uso de mi firma electrónica registrada para constancias y certificados emitidos por Cigüeña vinculados a mis capacitaciones.
+                y autorizo el uso de mi firma electrónica registrada para constancias y certificados emitidos por {branding.brandName} vinculados a mis capacitaciones.
               </span>
             </label>
           </section>
 
           <aside className="card sticky top-6">
             <div className="flex items-center gap-2 mb-5">
-              <PenLine size={18} className="text-amber-400" />
+              <PenLine size={18} className="brand-text" />
               <h2 className="text-lg font-semibold text-steel-50">Datos y firma</h2>
             </div>
 

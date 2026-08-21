@@ -1646,7 +1646,7 @@ export default function AdminAssignments() {
             onClick={() => setStatusFilter(statusFilterItem.value)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               statusFilter === statusFilterItem.value
-                ? 'bg-amber-500 text-petroleum-950'
+                ? 'brand-bg'
                 : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
             }`}
           >
@@ -1908,7 +1908,7 @@ export default function AdminAssignments() {
                     onClick={() => setAssignTargetMode('filtered')}
                     className={`rounded-xl border p-3 text-left transition-colors ${
                       assignTargetMode === 'filtered'
-                        ? 'border-amber-500 bg-amber-500/10'
+                        ? 'brand-border brand-bg-soft'
                         : 'border-steel-700 bg-steel-900 hover:border-steel-600'
                     }`}
                   >
@@ -1926,7 +1926,7 @@ export default function AdminAssignments() {
                     onClick={() => setAssignTargetMode('role')}
                     className={`rounded-xl border p-3 text-left transition-colors ${
                       assignTargetMode === 'role'
-                        ? 'border-amber-500 bg-amber-500/10'
+                        ? 'brand-border brand-bg-soft'
                         : 'border-steel-700 bg-steel-900 hover:border-steel-600'
                     }`}
                   >
@@ -1942,7 +1942,7 @@ export default function AdminAssignments() {
                     onClick={() => setAssignTargetMode('all_workers')}
                     className={`rounded-xl border p-3 text-left transition-colors ${
                       assignTargetMode === 'all_workers'
-                        ? 'border-amber-500 bg-amber-500/10'
+                        ? 'brand-border brand-bg-soft'
                         : 'border-steel-700 bg-steel-900 hover:border-steel-600'
                     }`}
                   >
