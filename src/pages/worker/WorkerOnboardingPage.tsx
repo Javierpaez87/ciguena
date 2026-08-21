@@ -470,7 +470,7 @@ export default function WorkerOnboardingPage({
                       <div className="font-semibold text-steel-100">{ethicsCode.title}</div>
                       <div className="text-xs text-steel-500 mt-1">Versión {ethicsCode.version}</div>
                     </div>
-                    {ethicsCode.document_url ? (
+                    {ethicsCode.document_url && (
                       <a
                         href={ethicsCode.document_url}
                         target="_blank"
@@ -480,31 +480,81 @@ export default function WorkerOnboardingPage({
                       >
                         <FileText size={14} /> Abrir documento
                       </a>
-                    ) : (
-                      <button type="button" onClick={() => setHasOpenedCode(true)} className="btn-secondary text-xs" disabled={isSaving}>
-                        Confirmar lectura
-                      </button>
                     )}
                   </div>
+
                   {ethicsCode.content?.trim() ? (
                     <div className="prose prose-invert max-w-none text-sm text-steel-300 whitespace-pre-line leading-relaxed max-h-[340px] overflow-y-auto pr-2">
                       {ethicsCode.content}
                     </div>
                   ) : (
                     <div className="rounded-lg border border-steel-800 bg-steel-900/60 p-4 text-sm text-steel-400">
-                      El Código de Ética fue publicado como documento PDF. Abrilo y revisalo antes de marcar la aceptación.
+                      El Código de Ética fue publicado como documento PDF. Abrilo y revisalo antes de confirmar su lectura y aceptación.
                     </div>
                   )}
-                </div>
 
-                <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-900/60 p-4 cursor-pointer">
-                  <input type="checkbox" checked={ethicsAccepted} onChange={(e) => setEthicsAccepted(e.target.checked)} className="mt-1 h-4 w-4 brand-checkbox" disabled={isSaving} />
-                  <span className="text-sm text-steel-300 leading-relaxed">
-                    Declaro haber leído y aceptado el <strong className="text-steel-100">{ethicsCode.title}</strong>, versión {ethicsCode.version}.
-                  </span>
-                </label>
+                  <div
+                    className={`mt-5 rounded-xl border p-4 ${
+                      ethicsAccepted
+                        ? 'border-emerald-500/30 bg-emerald-500/10'
+                        : 'brand-border-soft brand-bg-soft'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {ethicsAccepted ? (
+                        <CheckCircle2 size={20} className="mt-0.5 flex-shrink-0 text-emerald-400" />
+                      ) : (
+                        <ShieldCheck size={20} className="mt-0.5 flex-shrink-0 brand-text" />
+                      )}
+                      <div className="flex-1">
+                        <div className={`text-sm font-semibold ${ethicsAccepted ? 'text-emerald-200' : 'text-steel-100'}`}>
+                          {ethicsAccepted
+                            ? 'Lectura y aceptación confirmadas'
+                            : 'Falta confirmar el Código de Ética'}
+                        </div>
+                        <div className={`mt-1 text-xs leading-relaxed ${ethicsAccepted ? 'text-emerald-100/75' : 'text-steel-300'}`}>
+                          {ethicsAccepted
+                            ? 'Tu firma electrónica registrada quedará asociada a esta aceptación cuando completes el onboarding.'
+                            : 'Revisá el documento y, al final, confirmá su lectura y aceptación. Tu firma electrónica registrada se asociará automáticamente.'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHasOpenedCode(true);
+                        setEthicsAccepted(true);
+                        setError('');
+                      }}
+                      disabled={isSaving || (!!ethicsCode.document_url && !hasOpenedCode)}
+                      className={`mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
+                        ethicsAccepted
+                          ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
+                          : 'brand-button'
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {ethicsAccepted ? (
+                        <>
+                          <CheckCircle2 size={17} /> Lectura y aceptación confirmadas
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck size={17} /> Confirmar lectura y aceptación
+                        </>
+                      )}
+                    </button>
+
+                    {ethicsCode.document_url && !hasOpenedCode && !ethicsAccepted && (
+                      <div className="mt-2 text-[11px] text-steel-500 text-center">
+                        Primero abrí el documento para habilitar la confirmación.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
+
           </section>
 
           <aside className="card lg:sticky lg:top-6">

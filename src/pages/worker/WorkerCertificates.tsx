@@ -49,6 +49,19 @@ type SupabaseCertificate = {
   } | null;
 };
 
+type EthicsCodeInfo = {
+  id: string;
+  title: string;
+  version: string;
+};
+
+type TenantSignature = {
+  id: string;
+  signature_image_url: string;
+  signer_name: string;
+  signer_role?: string | null;
+};
+
 const getCompanySignerLabel = (cert: SupabaseCertificate, fallbackTenantName = 'Empresa / Tenant') => {
   const name = cert.company_signer_name || 'Responsable de capacitaciones';
   const role = cert.company_signer_role || fallbackTenantName;
@@ -79,6 +92,8 @@ export default function WorkerCertificates() {
   const [certificates, setCertificates] = useState<SupabaseCertificate[]>([]);
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
   const [workerSignatureConsent, setWorkerSignatureConsent] = useState<WorkerSignatureConsent | null>(null);
+  const [ethicsCodeInfo, setEthicsCodeInfo] = useState<EthicsCodeInfo | null>(null);
+  const [ethicsCompanySignature, setEthicsCompanySignature] = useState<TenantSignature | null>(null);
   const [isEthicsModalOpen, setIsEthicsModalOpen] = useState(false);
   const [selectedCertificate, setSelectedCertificate] = useState<SupabaseCertificate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,6 +114,8 @@ export default function WorkerCertificates() {
       setCertificates([]);
       setEthicsAcceptance(null);
       setWorkerSignatureConsent(null);
+      setEthicsCodeInfo(null);
+      setEthicsCompanySignature(null);
       setIsLoading(false);
       return;
     }
@@ -119,6 +136,45 @@ export default function WorkerCertificates() {
     }
 
     setEthicsAcceptance((ethicsData as EthicsAcceptance | null) ?? null);
+
+    if (ethicsData?.ethics_code_id) {
+      const { data: codeData, error: codeError } = await supabase
+        .from('ethics_codes')
+        .select('id, title, version')
+        .eq('id', ethicsData.ethics_code_id)
+        .maybeSingle();
+
+      if (codeError) {
+        console.error('Error cargando metadata del Código de Ética:', codeError);
+      }
+
+      setEthicsCodeInfo((codeData as EthicsCodeInfo | null) ?? null);
+    } else {
+      setEthicsCodeInfo(null);
+    }
+
+    const ethicsTenantId = ethicsData?.tenant_id || user.tenant_id || null;
+
+    if (ethicsTenantId) {
+      const { data: tenantSignatureData, error: tenantSignatureError } = await supabase
+        .from('tenant_signatures')
+        .select('id, signature_image_url, signer_name, signer_role')
+        .eq('tenant_id', ethicsTenantId)
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .not('signature_image_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tenantSignatureError) {
+        console.error('Error cargando firma responsable para Código de Ética:', tenantSignatureError);
+      }
+
+      setEthicsCompanySignature((tenantSignatureData as TenantSignature | null) ?? null);
+    } else {
+      setEthicsCompanySignature(null);
+    }
 
     const { data: signatureConsentData, error: signatureConsentError } = await supabase
       .from('worker_signature_consents')
@@ -207,6 +263,15 @@ export default function WorkerCertificates() {
   const printEthicsDocument = () => {
     if (!ethicsAcceptance) return;
 
+    const ethicsDocumentTitle = ethicsCodeInfo?.title || `Código de Ética ${branding.brandName}`;
+    const ethicsDocumentVersion = ethicsCodeInfo?.version || null;
+    const companySignerLabel = ethicsCompanySignature
+      ? `${ethicsCompanySignature.signer_name}${ethicsCompanySignature.signer_role ? ` · ${ethicsCompanySignature.signer_role}` : ''}`
+      : `Responsable autorizado · ${branding.brandName}`;
+    const companySignatureBlock = ethicsCompanySignature?.signature_image_url
+      ? `<img src="${ethicsCompanySignature.signature_image_url}" alt="Firma responsable" />`
+      : '<span style="color:#64748b;font-size:12px;">Firma responsable no disponible</span>';
+
     const html = `
       <!doctype html>
       <html>
@@ -242,10 +307,10 @@ export default function WorkerCertificates() {
                 <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Registro de aceptación electrónica')}</div>
               </div>
             </div>
-            <h1>Código de Ética BondiApps</h1>
-            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable al uso de la plataforma {branding.brandName} y a las capacitaciones asignadas por la organización.</p>
+            <h1>${ethicsDocumentTitle}</h1>
+            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable a ${branding.brandName} y a las capacitaciones asignadas por la organización.${ethicsDocumentVersion ? ` Versión ${ethicsDocumentVersion}.` : ''}</p>
             <h2>Declaración de aceptación</h2>
-            <p>${ethicsAcceptance.acceptance_text || 'Declaro haber leído y aceptado el Código de Ética BondiApps.'}</p>
+            <p>${ethicsAcceptance.acceptance_text || `Declaro haber leído y aceptado el ${ethicsDocumentTitle}.`}</p>
             <section class="box">
               <div class="label">Firmante</div>
               <div><strong>Nombre:</strong> ${ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}</div>
@@ -262,8 +327,9 @@ export default function WorkerCertificates() {
                 <div class="line">Firma electrónica del trabajador</div>
               </div>
               <div>
-                <div style="height:90px;display:flex;align-items:center;font-weight:800;color:${branding.accentColor};">${branding.brandName}</div>
-                <div class="line">Registro emitido por ${branding.brandName}</div>
+                <div class="signature-box">${companySignatureBlock}</div>
+                <div class="line">${companySignerLabel}</div>
+                <div style="margin-top:4px;color:#64748b;font-size:11px;">Responsable autorizado de ${branding.brandName}</div>
               </div>
             </section>
             <div class="code">Registro auditable · ${ethicsAcceptance.id || 'sin-id'}</div>
@@ -820,12 +886,13 @@ export default function WorkerCertificates() {
                 </div>
 
                 <h1 className="mt-10 text-3xl font-bold text-slate-900">
-                  Código de Ética BondiApps
+                  {ethicsCodeInfo?.title || `Código de Ética ${branding.brandName}`}
                 </h1>
 
                 <p className="mt-5 text-sm leading-7 text-slate-700">
                   Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable
-                  al uso de la plataforma {branding.brandName} y a las capacitaciones asignadas por la organización.
+                  a {branding.brandName} y a las capacitaciones asignadas por la organización.
+                  {ethicsCodeInfo?.version ? ` Versión ${ethicsCodeInfo.version}.` : ''}
                 </p>
 
                 <h2 className="mt-8 text-base font-bold text-slate-900">
@@ -834,7 +901,7 @@ export default function WorkerCertificates() {
 
                 <p className="mt-3 text-sm leading-7 text-slate-700">
                   {ethicsAcceptance.acceptance_text ||
-                    'Declaro haber leído y aceptado el Código de Ética BondiApps.'}
+                    `Declaro haber leído y aceptado el ${ethicsCodeInfo?.title || `Código de Ética ${branding.brandName}`}.`}
                 </p>
 
                 <div className="mt-8 rounded-xl border border-slate-300 p-4 text-sm text-slate-700">
@@ -880,14 +947,25 @@ export default function WorkerCertificates() {
                   </div>
 
                   <div>
-                    <div
-                      className="flex min-h-[110px] items-center font-extrabold"
-                      style={{ color: branding.accentColor }}
-                    >
-                      {branding.brandName}
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
+                      {ethicsCompanySignature?.signature_image_url ? (
+                        <img
+                          src={ethicsCompanySignature.signature_image_url}
+                          alt="Firma responsable"
+                          className="max-h-24 max-w-full object-contain"
+                          style={{ filter: 'invert(1) contrast(1.4)' }}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">Firma responsable no disponible</span>
+                      )}
                     </div>
                     <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
-                      Registro emitido por {branding.brandName}
+                      {ethicsCompanySignature
+                        ? `${ethicsCompanySignature.signer_name}${ethicsCompanySignature.signer_role ? ` · ${ethicsCompanySignature.signer_role}` : ''}`
+                        : `Responsable autorizado · ${branding.brandName}`}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Responsable autorizado de {branding.brandName}
                     </div>
                   </div>
                 </div>
