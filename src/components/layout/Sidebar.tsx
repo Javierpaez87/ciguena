@@ -35,6 +35,7 @@ interface NavItem {
   icon: React.ReactNode;
   badge?: number;
   statusLabel?: string;
+  separatorBefore?: boolean;
 }
 
 interface SidebarProps {
@@ -102,24 +103,19 @@ const adminNav: NavItem[] = [
     icon: <Users size={18} />,
   },
   {
-    id: 'admin-compliance',
-    label: 'Onboarding & Compliance',
-    icon: <ShieldCheck size={18} />,
-  },
-  {
     id: 'admin-trainings',
     label: 'Trainings Habilitados',
     icon: <BookOpen size={18} />,
   },
   {
-    id: 'admin-training-catalog',
-    label: 'Catálogo de Trainings',
-    icon: <LibraryBig size={18} />,
-  },
-  {
     id: 'admin-assignments',
     label: 'Asignaciones',
     icon: <ClipboardList size={18} />,
+  },
+  {
+    id: 'admin-training-catalog',
+    label: 'Catálogo de Trainings',
+    icon: <LibraryBig size={18} />,
   },
   {
     id: 'admin-live-trainings',
@@ -128,24 +124,31 @@ const adminNav: NavItem[] = [
     statusLabel: 'En desarrollo',
   },
   {
+    id: 'admin-reports',
+    label: 'Reportes',
+    icon: <BarChart2 size={18} />,
+    separatorBefore: true,
+  },
+  {
+    id: 'admin-compliance',
+    label: 'Onboarding & Compliance',
+    icon: <ShieldCheck size={18} />,
+  },
+  {
     id: 'admin-certificates',
     label: 'Certificados',
     icon: <Award size={18} />,
   },
   {
-    id: 'admin-reports',
-    label: 'Reportes',
-    icon: <BarChart2 size={18} />,
+    id: 'admin-signatures',
+    label: 'Signatures',
+    icon: <FileSignature size={18} />,
   },
   {
     id: 'admin-feedback',
     label: 'Feedback',
     icon: <MessageSquare size={18} />,
-  },
-  {
-    id: 'admin-signatures',
-    label: 'Signatures',
-    icon: <FileSignature size={18} />,
+    separatorBefore: true,
   },
 ];
 
@@ -487,6 +490,15 @@ export default function Sidebar({
           const isActive = activeView === item.id;
 
           return (
+            <React.Fragment key={item.id}>
+              {item.separatorBefore && (
+                <div
+                  className={`my-3 border-t ${styles.sectionBorder} ${collapsed ? 'mx-2' : 'mx-2'}`}
+                  style={customBorderStyle}
+                  aria-hidden="true"
+                />
+              )}
+
             <button
               key={item.id}
               onClick={() => {
@@ -533,6 +545,7 @@ export default function Sidebar({
                 </span>
               )}
             </button>
+            </React.Fragment>
           );
         })}
       </nav>
