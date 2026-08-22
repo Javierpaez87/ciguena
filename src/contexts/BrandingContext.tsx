@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
-import { getReadableTextColor } from '../lib/brandTheme';
+import { getReadableTextColor, getTenantBrandTheme } from '../lib/brandTheme';
 import {
   getBrandBrowserTitle,
   getEffectiveFaviconUrl,
@@ -116,9 +116,14 @@ async function fetchTenantBranding(
 
 function applyBrandingVariables(branding: BrandingConfig) {
   const root = document.documentElement;
+  const tenantTheme = getTenantBrandTheme(branding);
 
   root.style.setProperty('--brand-primary', branding.primaryColor);
   root.style.setProperty('--brand-accent', branding.accentColor);
+  root.style.setProperty(
+    '--brand-accent-readable',
+    branding.isCustomBranding ? tenantTheme.accentText : branding.accentColor,
+  );
   root.style.setProperty(
     '--brand-primary-contrast',
     getReadableTextColor(branding.primaryColor),

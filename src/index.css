@@ -96,6 +96,18 @@
     @apply bg-steel-700 hover:bg-steel-600 text-steel-100 font-medium px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2;
   }
 
+  .btn-brand-outline {
+    @apply font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2;
+    color: var(--brand-accent-readable, var(--brand-accent));
+    border: 1px solid rgb(var(--brand-accent-rgb) / 0.48);
+    background-color: rgb(var(--brand-accent-rgb) / 0.08);
+  }
+
+  .btn-brand-outline:hover:not(:disabled) {
+    border-color: rgb(var(--brand-accent-rgb) / 0.72);
+    background-color: rgb(var(--brand-accent-rgb) / 0.14);
+  }
+
   .btn-ghost {
     @apply text-steel-400 hover:text-steel-100 hover:bg-steel-800 font-medium px-3 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2;
   }
@@ -202,7 +214,7 @@
    * Success, warning and danger keep their semantic colors.
    */
   .brand-text {
-    color: var(--brand-accent);
+    color: var(--brand-accent-readable, var(--brand-accent));
   }
 
   .brand-text-primary {
