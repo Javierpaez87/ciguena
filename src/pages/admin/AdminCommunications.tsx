@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { baseTrainings } from '../../data/baseTrainings';
 import {
   getOperationalRole,
   getWorkerDisplayName,
@@ -213,12 +214,11 @@ export default function AdminCommunications({ superAdmin = false }: Props) {
     setSuccessMessage(null);
 
     try {
-      const [profilesResult, directoryResult, tenantTrainingsResult, trainingsResult, assignmentsResult, historyResult] =
+      const [profilesResult, directoryResult, tenantTrainingsResult, assignmentsResult, historyResult] =
         await Promise.all([
           supabase.from('profiles').select('*').eq('tenant_id', activeTenantId),
           supabase.from('employee_directory').select('*').eq('tenant_id', activeTenantId),
           supabase.from('tenant_trainings').select('training_id, enabled').eq('tenant_id', activeTenantId),
-          supabase.from('trainings').select('id, title').order('title'),
           supabase.from('training_assignments').select('id, user_id, training_id, status').eq('tenant_id', activeTenantId),
           supabase
             .from('bulk_email_campaigns')
@@ -231,7 +231,6 @@ export default function AdminCommunications({ superAdmin = false }: Props) {
       if (profilesResult.error) throw profilesResult.error;
       if (directoryResult.error) throw directoryResult.error;
       if (tenantTrainingsResult.error) throw tenantTrainingsResult.error;
-      if (trainingsResult.error) throw trainingsResult.error;
       if (assignmentsResult.error) throw assignmentsResult.error;
 
       const mergedWorkers = mergeProfilesWithDirectory(
@@ -245,9 +244,9 @@ export default function AdminCommunications({ superAdmin = false }: Props) {
           .map((row) => row.training_id)
       );
 
-      const loadedTrainings = ((trainingsResult.data ?? []) as TrainingRow[]).filter((training) =>
-        enabledTrainingIds.has(training.id)
-      );
+      const loadedTrainings = baseTrainings
+        .filter((training) => training.status === 'active' && enabledTrainingIds.has(training.id))
+        .map((training) => ({ id: training.id, title: training.title }));
 
       setWorkers(mergedWorkers);
       setTrainings(loadedTrainings);
@@ -256,11 +255,14 @@ export default function AdminCommunications({ superAdmin = false }: Props) {
       setSelectedEmails(new Set());
     } catch (error) {
       console.error('Error loading communications:', error);
-      setErrorMessage(
+      const message =
         error instanceof Error
           ? error.message
-          : 'No pudimos cargar la información para Comunicaciones.'
-      );
+          : error && typeof error === 'object' && 'message' in error
+            ? String((error as { message?: unknown }).message || '')
+            : '';
+
+      setErrorMessage(message || 'No pudimos cargar la información para Comunicaciones.');
     } finally {
       setLoading(false);
     }
