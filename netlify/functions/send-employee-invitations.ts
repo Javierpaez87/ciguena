@@ -93,31 +93,61 @@ type ResendBatchResponse = {
   error?: { message?: string };
 };
 
-function getFullName(row: DirectoryRow) {
+function toGreetingName(value: string) {
+  const firstToken = clean(value).split(/\s+/).filter(Boolean)[0] || '';
+  if (!firstToken) return '';
+
+  return firstToken
+    .toLocaleLowerCase('es-AR')
+    .replace(/(^|[-'’])([a-záéíóúüñ])/g, (_match, separator, letter) =>
+      `${separator}${letter.toLocaleUpperCase('es-AR')}`
+    );
+}
+
+function getGreetingName(row: DirectoryRow) {
   return (
-    row.full_name ||
-    [row.first_name, row.last_name].filter(Boolean).join(' ') ||
-    row.email.split('@')[0]
+    toGreetingName(clean(row.first_name)) ||
+    toGreetingName(clean(row.full_name)) ||
+    toGreetingName(row.email.split('@')[0]) ||
+    'Hola'
   );
 }
 
 function buildInvitationHtml({
-  fullName,
+  greetingName,
   tenantName,
   registerUrl,
   branding,
 }: {
-  fullName: string;
+  greetingName: string;
   tenantName: string;
   registerUrl: string;
   branding: TenantEmailBranding;
 }) {
-  const safeName = escapeHtml(fullName);
+  const safeName = escapeHtml(greetingName);
   const safeTenant = escapeHtml(tenantName);
   const safeUrl = escapeHtml(registerUrl);
   const safeBrand = escapeHtml(branding.brandName);
   const ctaColor = branding.accentColor;
   const ctaTextColor = getCtaTextColor(ctaColor);
+  const isFullWhiteLabel =
+    branding.isCustomBranding && !branding.showPoweredByBondiApps;
+
+  const title = isFullWhiteLabel
+    ? `Te damos la bienvenida a ${safeBrand} Capacitaciones`
+    : `Tu empresa te invitó a ${safeBrand}`;
+
+  const intro = isFullWhiteLabel
+    ? `Hola ${safeName}, ya podés crear tu cuenta para acceder a la plataforma de capacitaciones y certificaciones de ${safeTenant}.`
+    : `Hola ${safeName}, ${safeTenant} te invitó a usar ${safeBrand}, su plataforma de capacitaciones y certificaciones.`;
+
+  const onboardingCopy = isFullWhiteLabel
+    ? 'Registrate utilizando este mismo email. En tu primer ingreso vas a poder revisar tus datos y completar los requisitos de onboarding correspondientes.'
+    : 'Registrate con este mismo email para activar tu acceso. En tu primer ingreso vas a revisar tus datos de nómina y completar los requisitos de onboarding de tu organización, incluida tu firma electrónica.';
+
+  const ctaLabel = isFullWhiteLabel
+    ? 'Crear mi cuenta'
+    : `Registrarme en ${safeBrand}`;
 
   return `
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
@@ -125,24 +155,25 @@ function buildInvitationHtml({
         <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
           ${renderEmailBrandHeader(branding)}
 
-          <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">Tu empresa te invitó a ${safeBrand}</h1>
+          <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">${title}</h1>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Hola ${safeName}, ${safeTenant} te preaprobó para ingresar a ${safeBrand}, su plataforma de capacitaciones y certificaciones.
+            ${intro}
           </p>
 
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
             <p style="font-size:14px;line-height:1.6;color:#cbd5e1;margin:0;">
-              Registrate con este mismo email para activar tu acceso. En tu primer ingreso vas a revisar tus datos de nómina y completar los requisitos de onboarding de tu organización, incluida tu firma electrónica.
+              ${onboardingCopy}
             </p>
           </div>
 
           <a href="${safeUrl}" style="display:inline-block;background:${ctaColor};color:${ctaTextColor};text-decoration:none;font-weight:700;border-radius:10px;padding:12px 18px;margin:4px 0 18px;">
-            Registrarme en ${safeBrand}
+            ${ctaLabel}
           </a>
 
           <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Si el botón no funciona, copiá y pegá este enlace en tu navegador:<br/>${safeUrl}
+            Si el botón no funciona, copiá y pegá este enlace en tu navegador:<br/>
+            <a href="${safeUrl}" style="color:${branding.accentColor};word-break:break-all;">${safeUrl}</a>
           </p>
 
           ${renderEmailFooter(branding)}
@@ -408,16 +439,23 @@ export const handler = async (event: any) => {
   const batchResult = await sendResendBatch({
     idempotencyKey,
     from: emailFrom,
-    emails: eligibleRows.map((row) => ({
-      to: row.email,
-      subject: `Invitación a ${branding.brandName} - ${tenantData.name}`,
-      html: buildInvitationHtml({
-        fullName: getFullName(row),
-        tenantName: tenantData.name,
-        registerUrl: buildDirectRegistrationUrl(baseRegisterUrl, row.email),
-        branding,
-      }),
-    })),
+    emails: eligibleRows.map((row) => {
+      const isFullWhiteLabel =
+        branding.isCustomBranding && !branding.showPoweredByBondiApps;
+
+      return {
+        to: row.email,
+        subject: isFullWhiteLabel
+          ? `Creá tu cuenta en ${branding.brandName} Capacitaciones`
+          : `Invitación a ${branding.brandName} - ${tenantData.name}`,
+        html: buildInvitationHtml({
+          greetingName: getGreetingName(row),
+          tenantName: tenantData.name,
+          registerUrl: buildDirectRegistrationUrl(baseRegisterUrl, row.email),
+          branding,
+        }),
+      };
+    }),
   });
 
   if (!batchResult.ok) {

@@ -110,9 +110,14 @@ export function getEmailSender(branding: TenantEmailBranding) {
     process.env.EMAIL_FROM ||
     DEFAULT_FROM_ADDRESS;
   const address = extractAddress(configured).replace(/[\r\n]/g, '');
-  const displayName = `${branding.brandName}${
-    branding.showPoweredByBondiApps ? ' | Platform by BondiApps' : ''
-  }`.replace(/[\r\n]/g, '');
+  const isFullWhiteLabel =
+    branding.isCustomBranding && !branding.showPoweredByBondiApps;
+  const displayName = (isFullWhiteLabel
+    ? `${branding.brandName} | CAPACITACIONES`
+    : `${branding.brandName}${
+        branding.showPoweredByBondiApps ? ' | Platform by BondiApps' : ''
+      }`
+  ).replace(/[\r\n]/g, '');
 
   return `${displayName} <${address}>`;
 }
