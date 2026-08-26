@@ -335,7 +335,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                 <span>
                   <span className="block text-sm font-semibold text-steel-100">Solicitar acceso como administrador</span>
                   <span className="block mt-1 text-xs leading-relaxed text-steel-400">
-                    El acceso administrativo requiere validación previa porque permite consultar y gestionar información sensible de la empresa.
+                    Marcá esta opción únicamente si sos administrador y necesitás gestionar la plataforma. Si sos trabajador, no la selecciones. El acceso administrativo requiere validación previa porque permite consultar y gestionar información sensible de la empresa.
                   </span>
                 </span>
               </label>
