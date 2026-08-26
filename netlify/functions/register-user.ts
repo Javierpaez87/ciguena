@@ -135,7 +135,7 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildUserEmailHtml({
+export function buildUserEmailHtml({
   fullName,
   requestedAdmin,
   tenantName,
@@ -235,7 +235,7 @@ function buildUserEmailHtml({
   `;
 }
 
-function buildInternalEmailHtml({
+export function buildInternalEmailHtml({
   fullName,
   email,
   phone,

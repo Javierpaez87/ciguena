@@ -227,7 +227,7 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildCancellationEmailHtml({
+export function buildCancellationEmailHtml({
   fullName,
   training,
   branding,

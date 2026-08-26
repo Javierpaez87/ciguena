@@ -23,6 +23,7 @@ import {
   ArrowLeft,
   Palette,
   ShieldCheck,
+  MailCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
@@ -42,6 +43,13 @@ interface SidebarProps {
   activeView: string;
   onNavigate: (view: string) => void;
 }
+
+const isQaEmailAuditHost = typeof window !== 'undefined' && (
+  window.location.hostname === 'spi-dev.bondiapps.com' ||
+  window.location.hostname === 'ciguena-dev.netlify.app' ||
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+);
 
 const superAdminNav: NavItem[] = [
   {
@@ -89,6 +97,14 @@ const superAdminNav: NavItem[] = [
     label: 'Ghost View',
     icon: <Eye size={18} />,
   },
+  ...(isQaEmailAuditHost
+    ? [{
+        id: 'sa-email-qa',
+        label: 'QA Email Audit',
+        icon: <MailCheck size={18} />,
+        separatorBefore: true,
+      }]
+    : []),
 ];
 
 const adminNav: NavItem[] = [

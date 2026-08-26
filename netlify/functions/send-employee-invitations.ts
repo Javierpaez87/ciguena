@@ -113,7 +113,7 @@ function getGreetingName(row: DirectoryRow) {
   );
 }
 
-function buildInvitationHtml({
+export function buildInvitationHtml({
   greetingName,
   tenantName,
   registerUrl,

@@ -37,7 +37,7 @@ const TRAINING_TITLES: Record<string, string> = {
   tr_lifting_operations: 'Izaje mecánico seguro',
 };
 
-type NotificationType = 'assignment' | 'reminder' | 'unassignment' | 'reassignment';
+export type NotificationType = 'assignment' | 'reminder' | 'unassignment' | 'reassignment';
 
 function json(statusCode: number, body: unknown) {
   return {
@@ -104,7 +104,7 @@ function formatDate(value?: string | null) {
   });
 }
 
-function getSubject(type: NotificationType, trainingTitle: string) {
+export function getSubject(type: NotificationType, trainingTitle: string) {
   if (type === 'reminder') return `Recordatorio de curso pendiente: ${trainingTitle}`;
   if (type === 'unassignment') return `Curso desasignado: ${trainingTitle}`;
   if (type === 'reassignment') return `Curso reasignado: ${trainingTitle}`;
@@ -198,7 +198,7 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildNotificationEmailHtml({
+export function buildNotificationEmailHtml({
   type,
   fullName,
   tenantName,

@@ -178,7 +178,7 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildLiveTrainingEmailHtml({
+export function buildLiveTrainingEmailHtml({
   fullName,
   training,
   workerRoomUrl,

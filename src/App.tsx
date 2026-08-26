@@ -17,6 +17,7 @@ import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
 import SaFeedback from './pages/superadmin/SaFeedback';
 import SaGhost from './pages/superadmin/SaGhost';
+import SaEmailQa from './pages/superadmin/SaEmailQa';
 
 // Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -82,6 +83,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-ghost': {
     title: 'Ghost View',
     subtitle: 'Observá la plataforma como cualquier admin o trabajador, sin realizar cambios',
+  },
+  'sa-email-qa': {
+    title: 'QA Email Audit',
+    subtitle: 'Dispará los templates de email a un único destinatario controlado',
   },
 
   'admin-dashboard': {
@@ -517,6 +522,8 @@ function AppContent() {
         return <SaFeedback />;
       case 'sa-ghost':
         return <SaGhost />;
+      case 'sa-email-qa':
+        return <SaEmailQa />;
 
       // Admin
       case 'admin-dashboard':

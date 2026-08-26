@@ -103,7 +103,7 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildApprovalEmailHtml({
+export function buildApprovalEmailHtml({
   fullName,
   tenantName,
   platformUrl: tenantPlatformUrl,
