@@ -187,6 +187,18 @@ function getDeepLinkedView() {
 
 type AuthScreen = 'login' | 'register' | 'forgot-password';
 
+function getInitialAuthScreen(): AuthScreen {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('auth') === 'register' ? 'register' : 'login';
+}
+
+function clearRegistrationQueryParams() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('auth');
+  url.searchParams.delete('email');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function AppContent() {
   const { user, isGhostMode, logout } = useAuth();
   const {
@@ -198,7 +210,7 @@ function AppContent() {
     isDomainBound,
   } = useBranding();
 
-  const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
+  const [authScreen, setAuthScreen] = useState<AuthScreen>(getInitialAuthScreen);
   const [activeView, setActiveView] = useState(
     () => DEFAULT_VIEW[user?.role ?? 'worker'] ?? 'worker-dashboard'
   );
@@ -343,7 +355,14 @@ function AppContent() {
 
   if (!user) {
     if (authScreen === 'register') {
-      return <RegisterPage onBackToLogin={() => setAuthScreen('login')} />;
+      return (
+        <RegisterPage
+          onBackToLogin={() => {
+            clearRegistrationQueryParams();
+            setAuthScreen('login');
+          }}
+        />
+      );
     }
 
     if (authScreen === 'forgot-password') {

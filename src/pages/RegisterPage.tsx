@@ -35,8 +35,10 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(!isDomainBound);
 
+  const invitationEmail = new URLSearchParams(window.location.search).get('email')?.trim() || '';
+
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(invitationEmail);
   const [phone, setPhone] = useState('');
   const [companyId, setCompanyId] = useState(domainTenantId || '');
   const [password, setPassword] = useState('');
@@ -103,7 +105,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
 
   const clearForm = () => {
     setFullName('');
-    setEmail('');
+    setEmail(invitationEmail);
     setPhone('');
     setCompanyId(isDomainBound && domainTenantId ? domainTenantId : '');
     setPassword('');
@@ -231,6 +233,11 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                   autoComplete="email"
                   disabled={isLoading}
                 />
+                {invitationEmail && (
+                  <p className="mt-1.5 text-xs text-steel-500">
+                    Precompletamos el email de tu invitación.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label" htmlFor="register-phone">Teléfono</label>

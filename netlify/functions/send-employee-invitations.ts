@@ -53,6 +53,13 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
+function buildDirectRegistrationUrl(baseUrl: string, email: string) {
+  const url = new URL(baseUrl);
+  url.searchParams.set('auth', 'register');
+  url.searchParams.set('email', normalizeEmail(email));
+  return url.toString();
+}
+
 type DirectoryRow = {
   id: string;
   tenant_id: string;
@@ -396,7 +403,7 @@ export const handler = async (event: any) => {
     });
   }
 
-  const registerUrl = getTenantAppUrl(branding, appUrl);
+  const baseRegisterUrl = getTenantAppUrl(branding, appUrl);
   const idempotencyKey = `ciguena-invite/${tenantId}/${requestId}/${batchIndex}`.slice(0, 256);
   const batchResult = await sendResendBatch({
     idempotencyKey,
@@ -407,7 +414,7 @@ export const handler = async (event: any) => {
       html: buildInvitationHtml({
         fullName: getFullName(row),
         tenantName: tenantData.name,
-        registerUrl,
+        registerUrl: buildDirectRegistrationUrl(baseRegisterUrl, row.email),
         branding,
       }),
     })),
