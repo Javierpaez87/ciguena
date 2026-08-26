@@ -32,6 +32,7 @@ import AdminFeedback from './pages/admin/AdminFeedback';
 import AdminSignatures from './pages/admin/AdminSignatures';
 import AdminSignatureConsent from './pages/admin/AdminSignatureConsent';
 import AdminCompliance from './pages/admin/AdminCompliance';
+import AdminCommunications from './pages/admin/AdminCommunications';
 
 // Worker
 import WorkerDashboard from './pages/worker/WorkerDashboard';
@@ -80,6 +81,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     title: 'Feedback Global',
     subtitle: 'Opiniones de usuarios de todos los tenants',
   },
+  'sa-communications': {
+    title: 'Comunicaciones',
+    subtitle: 'Mailing masivo por tenant con segmentación, prueba e historial',
+  },
   'sa-ghost': {
     title: 'Ghost View',
     subtitle: 'Observá la plataforma como cualquier admin o trabajador, sin realizar cambios',
@@ -124,6 +129,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-reports': {
     title: 'Reportes',
     subtitle: 'Exportaciones y análisis por usuario, training o área',
+  },
+  'admin-communications': {
+    title: 'Comunicaciones',
+    subtitle: 'Envíos masivos segmentados a trabajadores de tu empresa',
   },
   'admin-feedback': {
     title: 'Feedback',
@@ -520,6 +529,8 @@ function AppContent() {
         return <SaTests />;
       case 'sa-feedback':
         return <SaFeedback />;
+      case 'sa-communications':
+        return <AdminCommunications superAdmin />;
       case 'sa-ghost':
         return <SaGhost />;
       case 'sa-email-qa':
@@ -544,6 +555,8 @@ function AppContent() {
         return <AdminCertificates />;
       case 'admin-reports':
         return <AdminReports />;
+      case 'admin-communications':
+        return <AdminCommunications />;
       case 'admin-feedback':
         return <AdminFeedback />;
       case 'admin-signatures':

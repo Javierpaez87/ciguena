@@ -23,6 +23,7 @@ import {
   ArrowLeft,
   Palette,
   ShieldCheck,
+  Mail,
   MailCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -93,6 +94,11 @@ const superAdminNav: NavItem[] = [
     icon: <MessageSquare size={18} />,
   },
   {
+    id: 'sa-communications',
+    label: 'Comunicaciones',
+    icon: <Mail size={18} />,
+  },
+  {
     id: 'sa-ghost',
     label: 'Ghost View',
     icon: <Eye size={18} />,
@@ -144,6 +150,11 @@ const adminNav: NavItem[] = [
     label: 'Reportes',
     icon: <BarChart2 size={18} />,
     separatorBefore: true,
+  },
+  {
+    id: 'admin-communications',
+    label: 'Comunicaciones',
+    icon: <Mail size={18} />,
   },
   {
     id: 'admin-compliance',
