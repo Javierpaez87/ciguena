@@ -86,7 +86,7 @@ function getFriendlyAuthError(message = '') {
     return 'La contraseña no cumple con los requisitos mínimos.';
   }
 
-  return 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.';
+  return 'No pudimos crear la cuenta. Intentá nuevamente o contactá a la administración de la plataforma.';
 }
 
 async function sendResendEmail({
@@ -377,7 +377,7 @@ export const handler = async (event: any) => {
 
   if (matchingProfiles.length > 0 && !placeholderProfile) {
     return json(409, {
-      error: 'Ese email ya está asociado a otra empresa. Contactá a BondiApps para revisar el acceso.',
+      error: 'Ese email ya está asociado a otra empresa. Contactá a la administración de la plataforma para revisar el acceso.',
     });
   }
 
@@ -578,7 +578,7 @@ export const handler = async (event: any) => {
     internal_email_sent: internalEmailResult.ok,
     email_warning: emailWarning,
     message: requestedAdmin
-      ? 'Tu cuenta fue creada correctamente. Tu solicitud de acceso como administrador quedó pendiente de validación por BondiApps.'
+      ? 'Tu cuenta fue creada correctamente. Tu solicitud de acceso como administrador quedó pendiente de validación por la administración de la plataforma.'
       : isPreapprovedWorker
         ? 'Tu cuenta fue creada correctamente y ya quedó habilitada porque tu email estaba en la nómina de tu empresa.'
         : 'Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de tu empresa.',

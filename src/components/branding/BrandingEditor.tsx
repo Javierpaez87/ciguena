@@ -551,19 +551,19 @@ export default function BrandingEditor({
         <label className="flex items-start gap-3 mt-4 rounded-xl border border-steel-700 bg-steel-900/55 p-4 cursor-pointer">
           <input
             type="checkbox"
-            checked={showPowered}
+            checked={!showPowered}
             onChange={(event) => {
-              setShowPowered(event.target.checked);
+              setShowPowered(!event.target.checked);
               setSuccessMessage(null);
             }}
             className="mt-1 h-4 w-4 rounded border-steel-600 bg-steel-900 text-violet-500 focus:ring-violet-500"
           />
           <div>
             <div className="text-sm font-medium text-steel-100">
-              Mostrar “Powered by BondiApps”
+              White Label completo
             </div>
             <div className="text-xs text-steel-500 mt-1">
-              Puede ocultarse para clientes con modalidad White Label completa.
+              Oculta la marca del proveedor en landing, sidebar, certificados y emails automáticos. Desmarcalo solo si el cliente usa modalidad co-branding.
             </div>
           </div>
         </label>

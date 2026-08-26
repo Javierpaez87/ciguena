@@ -117,7 +117,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     setSuccessMessage('');
 
     if (companyId === 'not-found') {
-      setError('Para registrar una empresa nueva, contactá a BondiApps para habilitarla previamente.');
+      setError('Para registrar una empresa nueva, contactá a la administración de la plataforma para habilitarla previamente.');
       return;
     }
 

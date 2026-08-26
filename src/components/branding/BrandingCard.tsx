@@ -116,7 +116,7 @@ export default function BrandingCard({
           )}
 
           <div className="text-[11px] text-steel-500 mt-1.5">
-            Powered by BondiApps: {branding.showPoweredByBondiApps ? 'Sí' : 'No'}
+            Modalidad: {branding.showPoweredByBondiApps ? 'Co-branding' : 'White Label completo'}
           </div>
         </div>
       </div>

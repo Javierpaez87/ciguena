@@ -167,7 +167,7 @@ export default function OnboardingComplianceEditor({ tenantId, source }: Props) 
 
     try {
       await resetTenantAdminOnboardingOverride();
-      setSuccess('Se eliminó el override. La cuenta vuelve a usar la configuración definida por BondiApps.');
+      setSuccess('Se eliminó el override. La cuenta vuelve a usar la configuración general de la plataforma.');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No pudimos eliminar el override.');
@@ -193,7 +193,11 @@ export default function OnboardingComplianceEditor({ tenantId, source }: Props) 
   }
 
   const sourceLabel = source === 'admin' ? 'Admin del cliente' : 'Superadmin BondiApps';
-  const effectiveSourceLabel = state.adminOverride ? 'Admin del cliente' : 'Superadmin BondiApps';
+  const effectiveSourceLabel = state.adminOverride
+    ? 'Admin del cliente'
+    : source === 'admin'
+      ? 'Configuración general de la plataforma'
+      : 'Superadmin BondiApps';
 
   return (
     <div className="space-y-5">
@@ -236,7 +240,7 @@ export default function OnboardingComplianceEditor({ tenantId, source }: Props) 
 
       {source === 'admin' && inheritedAdminConfig && (
         <div className="rounded-xl border border-blue-500/25 bg-blue-500/10 p-4 text-sm text-blue-100">
-          Actualmente la cuenta <strong>hereda la configuración de BondiApps</strong>. Solo se crea un override si guardás una modalidad propia o publicás un Código de Ética propio.
+          Actualmente la cuenta <strong>hereda la configuración general de la plataforma</strong>. Solo se crea un override si guardás una modalidad propia o publicás un Código de Ética propio.
         </div>
       )}
 
@@ -293,7 +297,7 @@ export default function OnboardingComplianceEditor({ tenantId, source }: Props) 
           </button>
           {source === 'admin' && hasAdminOverride && (
             <button type="button" className="btn-secondary inline-flex items-center gap-2" onClick={handleResetOverride} disabled={saving}>
-              <RotateCcw size={16} /> Volver al default BondiApps
+              <RotateCcw size={16} /> Volver a la configuración general
             </button>
           )}
         </div>
@@ -371,7 +375,7 @@ export default function OnboardingComplianceEditor({ tenantId, source }: Props) 
                   <div>
                     <div className="text-sm font-medium text-steel-100">{code.title} · v{code.version}</div>
                     <div className="text-xs text-steel-500 mt-1">
-                      {code.source === 'admin' ? 'Admin cliente' : 'Superadmin BondiApps'} · {formatDate(code.published_at ?? code.created_at)}
+                      {code.source === 'admin' ? 'Admin cliente' : source === 'admin' ? 'Configuración general' : 'Superadmin BondiApps'} · {formatDate(code.published_at ?? code.created_at)}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

@@ -15,6 +15,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
 import {
@@ -186,6 +187,7 @@ function getDefaultDueDateISODate() {
 
 export default function AdminTrainings() {
   const { user } = useAuth();
+  const { branding } = useBranding();
   const tenantId = user?.tenant_id ?? '';
 
   const [trainings, setTrainings] = useState<Training[]>([]);
@@ -1101,7 +1103,9 @@ export default function AdminTrainings() {
               Trainings habilitados para tu empresa
             </div>
             <div className="text-xs text-steel-500">
-              Estos son los cursos que BondiApps habilitó para este tenant desde SuperAdmin.
+              {branding.showPoweredByBondiApps
+                ? 'Estos son los cursos que BondiApps habilitó para este tenant desde SuperAdmin.'
+                : 'Estos son los cursos habilitados para tu empresa por la administración de la plataforma.'}
             </div>
           </div>
 
