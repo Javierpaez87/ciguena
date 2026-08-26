@@ -14,6 +14,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getTrainingTestByTrainingId } from '../../data/trainingTests';
 import { baseTrainings } from '../../data/baseTrainings';
+import { calculateCertificateExpirationISO } from '../../lib/trainingConfiguration';
 
 interface WorkerTestProps {
   assignment?: {
@@ -72,15 +73,27 @@ const generateCertificateCode = (trainingId: string) => {
   return `CIG-${cleanTrainingId}-${Date.now()}`;
 };
 
-const getExpirationDate = (trainingId: string) => {
-  const training = baseTrainings.find(item => item.id === trainingId);
-  const validityMonths = training?.validity_months ?? 12;
+const getExpirationDate = async (trainingId: string, tenantId: string) => {
+  const training = baseTrainings.find(item => item.id === trainingId) ?? null;
 
-  if (!validityMonths) return null;
+  const { data: tenantTrainingConfiguration, error } = await supabase
+    .from('tenant_trainings')
+    .select('certificate_validity_mode, certificate_validity_months')
+    .eq('tenant_id', tenantId)
+    .eq('training_id', trainingId)
+    .maybeSingle();
 
-  const expirationDate = new Date();
-  expirationDate.setMonth(expirationDate.getMonth() + validityMonths);
-  return expirationDate.toISOString();
+  if (error) {
+    console.warn(
+      'No pudimos leer la vigencia específica del tenant. Se usará la vigencia del catálogo.',
+      error
+    );
+  }
+
+  return calculateCertificateExpirationISO({
+    configuration: error ? null : tenantTrainingConfiguration,
+    training,
+  });
 };
 
 const shuffleArray = <T,>(items: T[]) => {
@@ -299,6 +312,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       );
     }
 
+    const certificateExpiresAt = await getExpirationDate(assignment.training_id, tenantId);
+
     const certificatePayload = {
       assignment_id: assignment.id,
       user_id: assignment.user_id,
@@ -311,7 +326,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       company_signer_name: companySignature?.signer_name ?? null,
       company_signer_role: companySignature?.signer_role ?? null,
       issued_at: new Date().toISOString(),
-      expires_at: getExpirationDate(assignment.training_id),
+      expires_at: certificateExpiresAt,
       status: 'valid',
       test_score: score,
       test_attempts_count: attemptNumber,

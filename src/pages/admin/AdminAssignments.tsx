@@ -24,6 +24,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
 import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
+import {
+  calculateDefaultDueDateISODate,
+  getCertificateValiditySummary,
+  getDeadlineSummary,
+  normalizeDeadlineMode,
+} from '../../lib/trainingConfiguration';
 import { baseTrainings } from '../../data/baseTrainings';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
@@ -92,6 +98,10 @@ interface TenantTraining {
   training_title?: string | null;
   status?: string | null;
   enabled?: boolean | null;
+  deadline_mode?: string | null;
+  deadline_days?: number | null;
+  certificate_validity_mode?: string | null;
+  certificate_validity_months?: number | null;
   [key: string]: any;
 }
 
@@ -141,6 +151,11 @@ interface TrainingOption {
   category?: string | null;
   duration_minutes?: number | null;
   certificate_enabled?: boolean | null;
+  validity_months?: number | null;
+  deadline_mode?: string | null;
+  deadline_days?: number | null;
+  certificate_validity_mode?: string | null;
+  certificate_validity_months?: number | null;
 }
 
 interface EmailEvidence {
@@ -647,6 +662,11 @@ export default function AdminAssignments() {
           category: baseTraining?.category,
           duration_minutes: baseTraining?.duration_minutes,
           certificate_enabled: baseTraining?.certificate_enabled,
+          validity_months: baseTraining?.validity_months,
+          deadline_mode: row.deadline_mode,
+          deadline_days: row.deadline_days,
+          certificate_validity_mode: row.certificate_validity_mode,
+          certificate_validity_months: row.certificate_validity_months,
         };
       })
       .sort((a, b) => a.title.localeCompare(b.title));
@@ -952,10 +972,12 @@ export default function AdminAssignments() {
     setSuccessMessage(null);
     setLastEmailEvidence(null);
     setAssignStep('select');
-    setSelectedTrainingId(enabledTrainingOptions[0]?.id ?? '');
+
+    const firstTraining = enabledTrainingOptions[0] ?? null;
+    setSelectedTrainingId(firstTraining?.id ?? '');
     setAssignTargetMode(roleFilter !== 'all' ? 'role' : 'filtered');
     setAssignRole(roleFilter !== 'all' ? roleFilter : 'all');
-    setDueDate(getDefaultDueDateISODate());
+    setDueDate(calculateDefaultDueDateISODate(firstTraining));
     setSendEmail(true);
     setIncludeCertifiedUsers(false);
     setShowAssignModal(true);
@@ -1108,7 +1130,7 @@ export default function AdminAssignments() {
         status: 'not_started',
         progress_percentage: 0,
         assigned_at: now,
-        due_date: dueDate || getDefaultDueDateISODate(),
+        due_date: dueDate || null,
         started_at: null,
         completed_at: null,
         expires_at: null,
@@ -1855,7 +1877,7 @@ export default function AdminAssignments() {
             {assignStep === 'due_date' && (
               <button
                 onClick={() => setAssignStep('confirm')}
-                disabled={!dueDate}
+                disabled={!dueDate && normalizeDeadlineMode(selectedTraining?.deadline_mode) !== 'no_deadline'}
                 className="btn-primary disabled:opacity-50"
               >
                 Revisar asignación
@@ -1882,7 +1904,12 @@ export default function AdminAssignments() {
                 <label className="label">Training a asignar *</label>
                 <select
                   value={selectedTrainingId}
-                  onChange={(event) => setSelectedTrainingId(event.target.value)}
+                  onChange={(event) => {
+                    const nextTrainingId = event.target.value;
+                    const nextTraining = enabledTrainingOptions.find(item => item.id === nextTrainingId) ?? null;
+                    setSelectedTrainingId(nextTrainingId);
+                    setDueDate(calculateDefaultDueDateISODate(nextTraining));
+                  }}
                   className="select"
                 >
                   {enabledTrainingOptions.length === 0 && (
@@ -1900,6 +1927,12 @@ export default function AdminAssignments() {
                   <div className="mt-2 text-xs text-steel-500">
                     {selectedTraining.category || 'Sin categoría'} · {selectedTraining.duration_minutes ?? 0} min ·{' '}
                     {selectedTraining.certificate_enabled ? 'Certifica' : 'No certifica'}
+                    <span className="block mt-1">
+                      Deadline: {getDeadlineSummary(selectedTraining)} · Certificado: {getCertificateValiditySummary({
+                        configuration: selectedTraining,
+                        training: selectedTraining,
+                      })}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1995,17 +2028,19 @@ export default function AdminAssignments() {
                   <CalendarDays size={18} className="text-amber-300 mt-0.5" />
                   <div>
                     <div className="text-sm font-semibold text-amber-200">
-                      Deadline sugerido: 1 mes
+                      Configuración del training: {getDeadlineSummary(selectedTraining)}
                     </div>
                     <div className="text-xs text-steel-400 mt-1">
-                      El sistema propone un mes por defecto. El admin puede editarlo antes de enviar.
+                      Este es el default definido en Trainings habilitados. Podés modificarlo solamente para esta asignación sin cambiar la configuración general.
                     </div>
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="label">Fecha límite *</label>
+                <label className="label">
+                  Fecha límite {normalizeDeadlineMode(selectedTraining?.deadline_mode) === 'no_deadline' ? '(opcional)' : '*'}
+                </label>
                 <input
                   type="date"
                   value={dueDate}
@@ -2013,6 +2048,11 @@ export default function AdminAssignments() {
                   onChange={(event) => setDueDate(event.target.value)}
                   className="input"
                 />
+                {normalizeDeadlineMode(selectedTraining?.deadline_mode) === 'no_deadline' && (
+                  <div className="mt-2 text-xs text-steel-500">
+                    Dejalo vacío para conservar la configuración “Sin deadline”, o elegí una fecha para hacer un override puntual.
+                  </div>
+                )}
               </div>
 
               <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-900/60 p-3 cursor-pointer">
