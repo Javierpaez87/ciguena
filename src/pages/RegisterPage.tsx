@@ -301,6 +301,8 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                     onClick={() => setShowPassword(current => !current)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-steel-400 hover:text-steel-200"
                     aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-pressed={showPassword}
+                    tabIndex={-1}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>

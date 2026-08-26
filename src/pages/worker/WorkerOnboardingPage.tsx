@@ -24,6 +24,55 @@ interface WorkerOnboardingPageProps {
 
 type Point = { x: number; y: number };
 
+interface ConfirmationCheckboxProps {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  pendingTitle: string;
+  confirmedTitle: string;
+  pendingText: string;
+  confirmedText: string;
+}
+
+function ConfirmationCheckbox({
+  checked,
+  onChange,
+  disabled = false,
+  pendingTitle,
+  confirmedTitle,
+  pendingText,
+  confirmedText,
+}: ConfirmationCheckboxProps) {
+  return (
+    <label
+      className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${
+        checked
+          ? 'border-emerald-500/35 bg-emerald-500/10'
+          : 'border-steel-700 bg-steel-950/50'
+      } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-4 w-4 flex-shrink-0 brand-checkbox"
+        disabled={disabled}
+      />
+      <span className="flex min-w-0 flex-1 items-start gap-2.5">
+        {checked && <CheckCircle2 size={18} className="mt-0.5 flex-shrink-0 text-emerald-400" />}
+        <span>
+          <span className={`block text-sm font-semibold ${checked ? 'text-emerald-200' : 'text-steel-100'}`}>
+            {checked ? confirmedTitle : pendingTitle}
+          </span>
+          <span className={`mt-1 block text-xs leading-relaxed ${checked ? 'text-emerald-100/75' : 'text-steel-300'}`}>
+            {checked ? confirmedText : pendingText}
+          </span>
+        </span>
+      </span>
+    </label>
+  );
+}
+
 function valueFromProfile(profile: Record<string, unknown> | null | undefined, keys: string[]) {
   for (const key of keys) {
     const value = profile?.[key];
@@ -442,12 +491,20 @@ export default function WorkerOnboardingPage({
                 </div>
               </div>
 
-              <label className="mt-5 flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-950/50 p-4 cursor-pointer">
-                <input type="checkbox" checked={profileConfirmed} onChange={(e) => setProfileConfirmed(e.target.checked)} className="mt-1 h-4 w-4 brand-checkbox" disabled={isSaving} />
-                <span className="text-sm text-steel-300 leading-relaxed">
-                  Confirmo que revisé los datos anteriores y que son correctos o los actualicé antes de continuar.
-                </span>
-              </label>
+              <div className="mt-5">
+                <ConfirmationCheckbox
+                  checked={profileConfirmed}
+                  onChange={(checked) => {
+                    setProfileConfirmed(checked);
+                    setError('');
+                  }}
+                  disabled={isSaving}
+                  pendingTitle="Confirmar revisión de datos"
+                  confirmedTitle="Datos revisados y confirmados"
+                  pendingText="Marcá este checkbox cuando hayas revisado los datos anteriores y sean correctos, o después de actualizarlos."
+                  confirmedText="Confirmaste que tus datos fueron revisados y están listos para continuar."
+                />
+              </div>
             </div>
 
             {needsEthicsAcceptance && ethicsCode && (
@@ -493,61 +550,24 @@ export default function WorkerOnboardingPage({
                     </div>
                   )}
 
-                  <div
-                    className={`mt-5 rounded-xl border p-4 ${
-                      ethicsAccepted
-                        ? 'border-emerald-500/30 bg-emerald-500/10'
-                        : 'brand-border-soft brand-bg-soft'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {ethicsAccepted ? (
-                        <CheckCircle2 size={20} className="mt-0.5 flex-shrink-0 text-emerald-400" />
-                      ) : (
-                        <ShieldCheck size={20} className="mt-0.5 flex-shrink-0 brand-text" />
-                      )}
-                      <div className="flex-1">
-                        <div className={`text-sm font-semibold ${ethicsAccepted ? 'text-emerald-200' : 'text-steel-100'}`}>
-                          {ethicsAccepted
-                            ? 'Lectura y aceptación confirmadas'
-                            : 'Falta confirmar el Código de Ética'}
-                        </div>
-                        <div className={`mt-1 text-xs leading-relaxed ${ethicsAccepted ? 'text-emerald-100/75' : 'text-steel-300'}`}>
-                          {ethicsAccepted
-                            ? 'Tu firma electrónica registrada quedará asociada a esta aceptación cuando completes el onboarding.'
-                            : 'Revisá el documento y, al final, confirmá su lectura y aceptación. Tu firma electrónica registrada se asociará automáticamente.'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHasOpenedCode(true);
-                        setEthicsAccepted(true);
+                  <div className="mt-5">
+                    <ConfirmationCheckbox
+                      checked={ethicsAccepted}
+                      onChange={(checked) => {
+                        if (checked) setHasOpenedCode(true);
+                        setEthicsAccepted(checked);
                         setError('');
                       }}
                       disabled={isSaving || (!!ethicsCode.document_url && !hasOpenedCode)}
-                      className={`mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
-                        ethicsAccepted
-                          ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
-                          : 'brand-button'
-                      } disabled:cursor-not-allowed disabled:opacity-50`}
-                    >
-                      {ethicsAccepted ? (
-                        <>
-                          <CheckCircle2 size={17} /> Lectura y aceptación confirmadas
-                        </>
-                      ) : (
-                        <>
-                          <ShieldCheck size={17} /> Confirmar lectura y aceptación
-                        </>
-                      )}
-                    </button>
+                      pendingTitle="Confirmar lectura y aceptación"
+                      confirmedTitle="Lectura y aceptación confirmadas"
+                      pendingText="Marcá este checkbox después de revisar el Código de Ética. La aceptación quedará asociada a tu firma electrónica."
+                      confirmedText="Confirmaste la lectura y aceptación del Código de Ética vigente."
+                    />
 
                     {ethicsCode.document_url && !hasOpenedCode && !ethicsAccepted && (
                       <div className="mt-2 text-[11px] text-steel-500 text-center">
-                        Primero abrí el documento para habilitar la confirmación.
+                        Primero abrí el documento para habilitar este checkbox.
                       </div>
                     )}
                   </div>
@@ -600,12 +620,20 @@ export default function WorkerOnboardingPage({
                   </div>
                 </div>
 
-                <label className="mt-4 flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-900/60 p-4 cursor-pointer">
-                  <input type="checkbox" checked={signatureConsentAccepted} onChange={(e) => setSignatureConsentAccepted(e.target.checked)} className="mt-1 h-4 w-4 brand-checkbox" disabled={isSaving} />
-                  <span className="text-xs text-steel-300 leading-relaxed">
-                    Autorizo el almacenamiento y uso de mi firma electrónica dentro de {branding.brandName} para certificados, constancias y documentos asociados a mis capacitaciones.
-                  </span>
-                </label>
+                <div className="mt-4">
+                  <ConfirmationCheckbox
+                    checked={signatureConsentAccepted}
+                    onChange={(checked) => {
+                      setSignatureConsentAccepted(checked);
+                      setError('');
+                    }}
+                    disabled={isSaving}
+                    pendingTitle="Confirmar autorización de firma"
+                    confirmedTitle="Consentimiento de firma confirmado"
+                    pendingText={`Marcá este checkbox para autorizar el almacenamiento y uso de tu firma electrónica dentro de ${branding.brandName} para certificados, constancias y documentos asociados a tus capacitaciones.`}
+                    confirmedText="Confirmaste la autorización de almacenamiento y uso de tu firma electrónica."
+                  />
+                </div>
               </>
             ) : (
               <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4">
