@@ -31,8 +31,22 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
     ? 'Capacitación y cumplimiento operativo'
     : 'Cumplimiento operativo para equipos de Oil & Gas';
   const heroDescription = isWhiteLabel
-    ? `${branding.brandName} centraliza capacitaciones, certificaciones, evaluaciones y seguimiento de avances en un único entorno.`
+    ? 'Accedé a tus capacitaciones, evaluaciones, certificados y seguimiento de avances desde un único lugar.'
     : 'Gestioná capacitaciones, certificaciones, evaluaciones y seguimiento de avances desde una única plataforma.';
+  const heroSecondaryDescription = isWhiteLabel
+    ? 'Consultá tus pendientes, completá tus entrenamientos y mantené tus certificaciones al día.'
+    : 'Cada usuario accede a las herramientas y la información correspondientes a su empresa y a su rol.';
+  const heroFeatures = isWhiteLabel
+    ? [
+        { label: 'Tus capacitaciones', desc: `Accedé a los entrenamientos asignados por ${branding.brandName}.` },
+        { label: 'Certificados', desc: 'Descargá y consultá la vigencia de tus certificaciones.' },
+        { label: 'Seguimiento de avances', desc: 'Revisá fácilmente qué completaste y qué tenés pendiente.' },
+      ]
+    : [
+        { label: 'Gestión por empresa', desc: 'Usuarios, permisos y contenidos organizados por compañía' },
+        { label: 'Certificados automáticos', desc: 'Emisión, descarga y seguimiento de vigencia' },
+        { label: 'Trazabilidad', desc: 'Seguimiento de trainings, evaluaciones y cumplimiento' },
+      ];
   const copyright = isWhiteLabel
     ? branding.showPoweredByBondiApps
       ? `© 2026 ${branding.brandName}. Platform by BondiApps.`
@@ -70,16 +84,12 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
           </p>
 
           <p className="text-steel-400 leading-relaxed text-sm max-w-md">
-            Cada usuario accede a las herramientas y la información correspondientes a su empresa y a su rol.
+            {heroSecondaryDescription}
           </p>
         </div>
 
         <div className="relative space-y-4">
-          {[
-            { label: 'Gestión por empresa', desc: 'Usuarios, permisos y contenidos organizados por compañía' },
-            { label: 'Certificados automáticos', desc: 'Emisión, descarga y seguimiento de vigencia' },
-            { label: 'Trazabilidad', desc: 'Seguimiento de trainings, evaluaciones y cumplimiento' },
-          ].map(item => (
+          {heroFeatures.map(item => (
             <div key={item.label} className="flex items-start gap-3">
               <div className="w-5 h-5 brand-bg-soft border brand-border rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--brand-accent)' }} />
@@ -191,7 +201,7 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
           {isWhiteLabel ? (
             <div className="mt-7 pt-6 border-t border-steel-700">
               <p className="text-center text-xs font-medium uppercase tracking-[0.16em] text-steel-500">
-                {`¿Primera vez en ${branding.brandName}?`}
+                {`¿Primera vez en ${branding.brandName} Capacitaciones?`}
               </p>
 
               <button
@@ -200,12 +210,12 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
                 className="btn-brand-outline mt-3 w-full justify-center py-3"
               >
                 <UserPlus size={17} />
-                {`Crear cuenta en ${branding.brandName}`}
+                Crear mi cuenta
               </button>
 
               {isDomainBound && (
                 <p className="mt-3 text-center text-xs leading-relaxed text-steel-500">
-                  Si tu empresa te invitó, registrate usando el mismo email de la invitación.
+                  {`Si recibiste una invitación de ${branding.brandName}, creá tu cuenta usando el mismo email de la invitación.`}
                 </p>
               )}
             </div>
