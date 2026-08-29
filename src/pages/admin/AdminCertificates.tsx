@@ -543,10 +543,10 @@ export default function AdminCertificates() {
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
             .certificate { border: 3px solid ${branding.accentColor}; padding: 42px; min-height: 700px; }
-            .brand-row { display:flex; align-items:center; gap:12px; }
-            .brand-logo { max-height:48px; max-width:170px; object-fit:contain; }
-            .brand { color: ${branding.accentColor}; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
-            .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
+            .brand-row { display:flex; flex-direction:column; align-items:flex-start; gap:0; }
+            .brand-logo { max-height:64px; max-width:250px; object-fit:contain; }
+            .subtitle { color: #64748b; font-size: 13px; line-height: 1.45; margin-top: 8px; }
+            .subtitle strong { color: inherit; font-weight: 700; }
             h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
             .lead { text-align: center; color: #475569; font-size: 16px; }
             .name { text-align: center; font-size: 30px; font-weight: 800; margin: 24px 0; }
@@ -566,10 +566,7 @@ export default function AdminCertificates() {
           <main class="certificate">
             <div class="brand-row">
               <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
-              <div>
-                <div class="brand">${branding.brandName}</div>
-                <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
-              </div>
+              <div class="subtitle"><strong>${branding.brandName}</strong> ${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
             </div>
 
             <h1>Certificado de capacitación</h1>
@@ -897,22 +894,15 @@ export default function AdminCertificates() {
                 className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4"
                 style={{ borderColor: branding.accentColor }}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col items-start">
                   <img
                     src={brandLogoUrl}
                     alt={branding.brandName}
-                    className="max-h-12 max-w-[170px] object-contain"
+                    className="max-h-16 max-w-[250px] object-contain"
                   />
-                  <div>
-                    <div
-                      className="text-2xl font-extrabold tracking-wide"
-                      style={{ color: branding.accentColor }}
-                    >
-                      {branding.brandName}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}
-                    </div>
+                  <div className="mt-2 text-xs leading-relaxed text-slate-500">
+                    <span className="font-semibold">{branding.brandName}</span>{' '}
+                    {getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}
                   </div>
                 </div>
 

@@ -135,24 +135,29 @@ export function renderEmailBrandHeader(branding: TenantEmailBranding) {
   const safeBrand = escapeHtml(branding.brandName);
   const safeLogo = branding.logoUrl ? escapeHtml(branding.logoUrl) : '';
   const powered = branding.showPoweredByBondiApps
-    ? '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">Powered by BondiApps</div>'
+    ? '<div style="font-size:11px;color:#64748b;margin-top:5px;">Powered by BondiApps</div>'
     : '';
+  const descriptor = `
+    <div style="font-size:13px;line-height:1.45;color:#94a3b8;margin-top:10px;">
+      <strong style="font-weight:700;color:#94a3b8;">${safeBrand}</strong>
+      Plataforma de capacitaciones y certificaciones
+    </div>
+  `;
 
   if (safeLogo) {
     return `
-      <div style="margin-bottom:24px;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="${safeLogo}" alt="${safeBrand}" style="display:block;max-height:42px;max-width:170px;width:auto;height:auto;object-fit:contain;" />
-          <div style="font-size:20px;font-weight:700;color:${branding.accentColor};letter-spacing:0.2px;">${safeBrand}</div>
-        </div>
+      <div style="margin-bottom:26px;">
+        <img src="${safeLogo}" alt="${safeBrand}" style="display:block;max-height:58px;max-width:240px;width:auto;height:auto;object-fit:contain;" />
+        ${descriptor}
         ${powered}
       </div>
     `;
   }
 
   return `
-    <div style="margin-bottom:24px;">
+    <div style="margin-bottom:26px;">
       <div style="font-size:22px;font-weight:700;color:${branding.accentColor};letter-spacing:0.5px;">${safeBrand}</div>
+      <div style="font-size:13px;line-height:1.45;color:#94a3b8;margin-top:6px;">Plataforma de capacitaciones y certificaciones</div>
       ${powered}
     </div>
   `;
