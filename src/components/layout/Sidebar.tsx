@@ -317,13 +317,33 @@ export default function Sidebar({
       >
         {useCustomBranding && !collapsed ? (
           <div className="min-w-0">
-            <img
-              src={displayedBrandLogo}
-              alt={displayedBrandName}
-              className="h-auto max-h-14 w-[190px] max-w-full object-contain object-left"
-            />
+            <div
+              className="relative inline-flex max-w-full items-center rounded-xl border px-3 py-2.5 backdrop-blur-md"
+              style={{
+                background:
+                  'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.60))',
+                borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
+                boxShadow:
+                  '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 18px rgb(var(--brand-accent-rgb) / 0.24), 0 10px 28px rgb(0 0 0 / 0.20), inset 0 0 18px rgb(var(--brand-accent-rgb) / 0.08)',
+              }}
+            >
+              <div
+                className="pointer-events-none absolute inset-x-6 -bottom-3 h-6 rounded-full blur-xl"
+                style={{ backgroundColor: 'rgb(var(--brand-accent-rgb) / 0.16)' }}
+                aria-hidden="true"
+              />
+              <img
+                src={displayedBrandLogo}
+                alt={displayedBrandName}
+                className="relative h-auto max-h-12 w-[190px] max-w-full object-contain object-left"
+                style={{
+                  filter:
+                    'brightness(1.24) saturate(1.10) drop-shadow(0 0 7px rgb(var(--brand-accent-rgb) / 0.14))',
+                }}
+              />
+            </div>
 
-            <div className="mt-2 text-[10px] leading-relaxed text-steel-400">
+            <div className="mt-2.5 text-[10px] leading-relaxed text-steel-400">
               <span className="font-semibold text-steel-300">{displayedBrandName}</span>{' '}
               Capacitaciones
             </div>
@@ -343,8 +363,11 @@ export default function Sidebar({
               style={
                 useCustomBranding
                   ? {
-                      borderColor: brandTheme.borderStrong,
-                      boxShadow: `0 8px 24px ${brandTheme.softAccent}`,
+                      background:
+                        'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.72))',
+                      borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
+                      boxShadow:
+                        '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 14px rgb(var(--brand-accent-rgb) / 0.24), 0 8px 24px rgb(0 0 0 / 0.22), inset 0 0 14px rgb(var(--brand-accent-rgb) / 0.08)',
                     }
                   : undefined
               }
@@ -353,6 +376,10 @@ export default function Sidebar({
                 src={displayedBrandLogo}
                 alt={displayedBrandName}
                 className="w-full h-full object-contain"
+                style={useCustomBranding ? {
+                  filter:
+                    'brightness(1.24) saturate(1.10) drop-shadow(0 0 5px rgb(var(--brand-accent-rgb) / 0.14))',
+                } : undefined}
               />
             </div>
 
