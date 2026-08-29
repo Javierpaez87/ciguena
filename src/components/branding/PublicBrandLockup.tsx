@@ -1,4 +1,5 @@
 import { useBranding } from '../../contexts/BrandingContext';
+import { mixHex, rgba } from '../../lib/brandTheme';
 
 interface PublicBrandLockupProps {
   compact?: boolean;
@@ -23,27 +24,43 @@ export default function PublicBrandLockup({
     branding.logoUrl?.trim() ||
     branding.logoCompactUrl?.trim();
 
+  // The tenant accent can be quite dark (SPI is a good example).
+  // Build a lighter presentation color for borders/glow so the logo card
+  // remains visible on the dark product shell without altering the uploaded logo.
+  const neonEdge = mixHex(branding.accentColor, '#FFFFFF', 0.42);
+  const neonGlow = mixHex(branding.accentColor, '#38BDF8', 0.58);
+
   if (branding.isCustomBranding) {
     return (
       <div
         className={`flex flex-col ${centered ? 'items-center text-center' : 'items-start'} ${className}`}
       >
         <div
-          className={`${logoSurface === 'neon' ? 'relative rounded-2xl border px-4 py-3 backdrop-blur-md' : ''} ${centered ? 'mx-auto' : ''}`}
+          className={`${logoSurface === 'neon' ? 'relative isolate rounded-2xl border px-5 py-3.5 backdrop-blur-md' : ''} ${centered ? 'mx-auto' : ''}`}
           style={logoSurface === 'neon' ? {
-            background:
-              'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.58))',
-            borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
-            boxShadow:
-              '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 22px rgb(var(--brand-accent-rgb) / 0.24), 0 14px 38px rgb(0 0 0 / 0.22), inset 0 0 24px rgb(var(--brand-accent-rgb) / 0.08)',
+            background: `linear-gradient(145deg, rgba(255, 255, 255, 0.095), ${rgba(branding.primaryColor, 0.22)} 52%, rgba(2, 6, 23, 0.76))`,
+            borderColor: rgba(neonEdge, 0.88),
+            boxShadow: `0 0 0 1px ${rgba(neonEdge, 0.16)}, 0 0 18px ${rgba(neonGlow, 0.36)}, 0 0 42px ${rgba(neonGlow, 0.20)}, 0 14px 38px rgba(0, 0, 0, 0.28), inset 0 0 26px ${rgba(neonGlow, 0.10)}`,
           } : undefined}
         >
           {logoSurface === 'neon' && (
-            <div
-              className="pointer-events-none absolute inset-x-8 -bottom-4 h-8 rounded-full blur-2xl"
-              style={{ backgroundColor: 'rgb(var(--brand-accent-rgb) / 0.16)' }}
-              aria-hidden="true"
-            />
+            <>
+              <div
+                className="pointer-events-none absolute -inset-4 -z-10 rounded-[28px] blur-2xl"
+                style={{ backgroundColor: rgba(neonGlow, 0.16) }}
+                aria-hidden="true"
+              />
+              <div
+                className="pointer-events-none absolute inset-x-8 -bottom-5 -z-10 h-10 rounded-full blur-2xl"
+                style={{ backgroundColor: rgba(neonGlow, 0.28) }}
+                aria-hidden="true"
+              />
+              <div
+                className="pointer-events-none absolute inset-x-5 top-0 h-px rounded-full"
+                style={{ background: `linear-gradient(90deg, transparent, ${rgba(neonEdge, 0.92)}, transparent)` }}
+                aria-hidden="true"
+              />
+            </>
           )}
 
           <img
@@ -55,8 +72,7 @@ export default function PublicBrandLockup({
                 : 'w-[285px] sm:w-[315px] xl:w-[340px] max-h-24'
             } relative h-auto object-contain`}
             style={logoSurface === 'neon' ? {
-              filter:
-                'brightness(1.28) saturate(1.12) drop-shadow(0 0 8px rgb(var(--brand-accent-rgb) / 0.16))',
+              filter: `brightness(1.30) saturate(1.14) drop-shadow(0 0 9px ${rgba(neonGlow, 0.22)})`,
             } : undefined}
           />
         </div>

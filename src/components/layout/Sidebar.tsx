@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
-import { getTenantBrandTheme } from '../../lib/brandTheme';
+import { getTenantBrandTheme, mixHex, rgba } from '../../lib/brandTheme';
 
 interface NavItem {
   id: string;
@@ -285,6 +285,8 @@ export default function Sidebar({
   const styles = getSidebarStyles(normalizedRole);
   const useCustomBranding = !isSuperAdmin && branding.isCustomBranding;
   const brandTheme = getTenantBrandTheme(branding);
+  const neonEdge = mixHex(branding.accentColor, '#FFFFFF', 0.42);
+  const neonGlow = mixHex(branding.accentColor, '#38BDF8', 0.58);
 
   const navItems = isSuperAdmin
     ? superAdminNav
@@ -318,18 +320,21 @@ export default function Sidebar({
         {useCustomBranding && !collapsed ? (
           <div className="min-w-0">
             <div
-              className="relative inline-flex max-w-full items-center rounded-xl border px-3 py-2.5 backdrop-blur-md"
+              className="relative isolate inline-flex max-w-full items-center rounded-xl border px-3 py-2.5 backdrop-blur-md"
               style={{
-                background:
-                  'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.60))',
-                borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
-                boxShadow:
-                  '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 18px rgb(var(--brand-accent-rgb) / 0.24), 0 10px 28px rgb(0 0 0 / 0.20), inset 0 0 18px rgb(var(--brand-accent-rgb) / 0.08)',
+                background: `linear-gradient(145deg, rgba(255, 255, 255, 0.085), ${rgba(branding.primaryColor, 0.20)} 52%, rgba(2, 6, 23, 0.76))`,
+                borderColor: rgba(neonEdge, 0.78),
+                boxShadow: `0 0 0 1px ${rgba(neonEdge, 0.12)}, 0 0 15px ${rgba(neonGlow, 0.30)}, 0 10px 28px rgba(0, 0, 0, 0.24), inset 0 0 18px ${rgba(neonGlow, 0.08)}`,
               }}
             >
               <div
-                className="pointer-events-none absolute inset-x-6 -bottom-3 h-6 rounded-full blur-xl"
-                style={{ backgroundColor: 'rgb(var(--brand-accent-rgb) / 0.16)' }}
+                className="pointer-events-none absolute -inset-2 -z-10 rounded-2xl blur-xl"
+                style={{ backgroundColor: rgba(neonGlow, 0.12) }}
+                aria-hidden="true"
+              />
+              <div
+                className="pointer-events-none absolute inset-x-6 -bottom-3 -z-10 h-6 rounded-full blur-xl"
+                style={{ backgroundColor: rgba(neonGlow, 0.22) }}
                 aria-hidden="true"
               />
               <img
@@ -337,8 +342,7 @@ export default function Sidebar({
                 alt={displayedBrandName}
                 className="relative h-auto max-h-12 w-[190px] max-w-full object-contain object-left"
                 style={{
-                  filter:
-                    'brightness(1.24) saturate(1.10) drop-shadow(0 0 7px rgb(var(--brand-accent-rgb) / 0.14))',
+                  filter: `brightness(1.27) saturate(1.12) drop-shadow(0 0 7px ${rgba(neonGlow, 0.20)})`,
                 }}
               />
             </div>
@@ -363,11 +367,9 @@ export default function Sidebar({
               style={
                 useCustomBranding
                   ? {
-                      background:
-                        'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.72))',
-                      borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
-                      boxShadow:
-                        '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 14px rgb(var(--brand-accent-rgb) / 0.24), 0 8px 24px rgb(0 0 0 / 0.22), inset 0 0 14px rgb(var(--brand-accent-rgb) / 0.08)',
+                      background: `linear-gradient(145deg, rgba(255, 255, 255, 0.08), ${rgba(branding.primaryColor, 0.20)}, rgba(2, 6, 23, 0.78))`,
+                      borderColor: rgba(neonEdge, 0.76),
+                      boxShadow: `0 0 0 1px ${rgba(neonEdge, 0.10)}, 0 0 12px ${rgba(neonGlow, 0.28)}, 0 8px 24px rgba(0, 0, 0, 0.24), inset 0 0 14px ${rgba(neonGlow, 0.08)}`,
                     }
                   : undefined
               }
@@ -377,8 +379,7 @@ export default function Sidebar({
                 alt={displayedBrandName}
                 className="w-full h-full object-contain"
                 style={useCustomBranding ? {
-                  filter:
-                    'brightness(1.24) saturate(1.10) drop-shadow(0 0 5px rgb(var(--brand-accent-rgb) / 0.14))',
+                  filter: `brightness(1.27) saturate(1.12) drop-shadow(0 0 5px ${rgba(neonGlow, 0.18)})`,
                 } : undefined}
               />
             </div>
