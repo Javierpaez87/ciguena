@@ -296,7 +296,7 @@ export default function Sidebar({
   const displayedBrandLogo = useCustomBranding
     ? (collapsed
         ? branding.logoCompactUrl || branding.faviconUrl || branding.logoUrl
-        : branding.logoUrl || branding.logoNegativeUrl)
+        : branding.logoNegativeUrl || branding.logoUrl)
     : '/images/ciguena-pumpjack.png';
   const showPoweredBy = useCustomBranding
     ? branding.showPoweredByBondiApps
@@ -317,13 +317,11 @@ export default function Sidebar({
       >
         {useCustomBranding && !collapsed ? (
           <div className="min-w-0">
-            <div className="inline-flex max-w-full rounded-md bg-white px-2 py-1.5 ring-1 ring-black/5 shadow-md">
-              <img
-                src={displayedBrandLogo}
-                alt={displayedBrandName}
-                className="h-auto max-h-12 w-[180px] max-w-full object-contain object-left"
-              />
-            </div>
+            <img
+              src={displayedBrandLogo}
+              alt={displayedBrandName}
+              className="h-auto max-h-14 w-[190px] max-w-full object-contain object-left"
+            />
 
             <div className="mt-2 text-[10px] leading-relaxed text-steel-400">
               <span className="font-semibold text-steel-300">{displayedBrandName}</span>{' '}

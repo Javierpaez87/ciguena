@@ -17,8 +17,8 @@ export default function PublicBrandLockup({
     branding.logoUrl?.trim() ||
     branding.logoCompactUrl?.trim();
   const customLogo =
-    branding.logoUrl?.trim() ||
     branding.logoNegativeUrl?.trim() ||
+    branding.logoUrl?.trim() ||
     branding.logoCompactUrl?.trim();
 
   if (branding.isCustomBranding) {
@@ -26,21 +26,15 @@ export default function PublicBrandLockup({
       <div
         className={`flex flex-col ${centered ? 'items-center text-center' : 'items-start'} ${className}`}
       >
-        <div
+        <img
+          src={customLogo}
+          alt={branding.brandName}
           className={`${
-            compact ? 'px-2.5 py-1.5' : 'px-3 py-2'
-          } rounded-lg bg-white ring-1 ring-black/5 shadow-md`}
-        >
-          <img
-            src={customLogo}
-            alt={branding.brandName}
-            className={`${
-              compact
-                ? 'w-[185px] sm:w-[205px] max-h-14'
-                : 'w-[260px] sm:w-[285px] xl:w-[310px] max-h-20'
-            } h-auto object-contain ${centered ? 'mx-auto' : ''}`}
-          />
-        </div>
+            compact
+              ? 'w-[190px] sm:w-[210px] max-h-14'
+              : 'w-[285px] sm:w-[315px] xl:w-[340px] max-h-24'
+          } h-auto object-contain ${centered ? 'mx-auto' : ''}`}
+        />
 
         <div
           className={`${compact ? 'mt-2 text-[11px]' : 'mt-3 text-xs'} text-steel-400 leading-relaxed`}
