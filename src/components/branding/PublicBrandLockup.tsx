@@ -28,17 +28,16 @@ export default function PublicBrandLockup({
       >
         <div
           className={`${
-            compact ? 'px-4 py-2.5' : 'px-5 py-3.5'
-          } rounded-xl bg-white shadow-lg`}
-          style={{ boxShadow: '0 12px 34px rgb(0 0 0 / 0.18)' }}
+            compact ? 'px-2.5 py-1.5' : 'px-3 py-2'
+          } rounded-lg bg-white ring-1 ring-black/5 shadow-md`}
         >
           <img
             src={customLogo}
             alt={branding.brandName}
             className={`${
               compact
-                ? 'w-[180px] sm:w-[200px] max-h-14'
-                : 'w-[240px] xl:w-[280px] max-h-20'
+                ? 'w-[185px] sm:w-[205px] max-h-14'
+                : 'w-[260px] sm:w-[285px] xl:w-[310px] max-h-20'
             } h-auto object-contain ${centered ? 'mx-auto' : ''}`}
           />
         </div>

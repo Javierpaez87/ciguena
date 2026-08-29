@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
-  Shield,
   Menu,
   X,
   Play,
@@ -28,7 +27,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
-import { supabase } from '../../lib/supabase';
 import { getTenantBrandTheme } from '../../lib/brandTheme';
 
 interface NavItem {
@@ -217,31 +215,6 @@ function isSuperAdminRole(role?: string | null) {
   return normalizedRole === 'super_admin' || normalizedRole === 'superadmin';
 }
 
-function cleanText(value?: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function getTenantId(user?: any) {
-  return (
-    cleanText(user?.tenant_id) ||
-    cleanText(user?.profile?.tenant_id) ||
-    cleanText(user?.tenant?.id) ||
-    ''
-  );
-}
-
-function getTenantNameFromUser(user?: any) {
-  return (
-    cleanText(user?.tenant?.name) ||
-    cleanText(user?.tenant_name) ||
-    cleanText(user?.tenantName) ||
-    cleanText(user?.profile?.tenant?.name) ||
-    cleanText(user?.company_name) ||
-    cleanText(user?.companyName) ||
-    ''
-  );
-}
-
 function getSidebarStyles(role?: string | null) {
   const normalizedRole = normalizeRole(role);
 
@@ -306,7 +279,6 @@ export default function Sidebar({
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, sessionUser, isGhostMode, ghostSession, stopGhostSession, logout } = useAuth();
   const { branding } = useBranding();
-  const [tenantNameFromDb, setTenantNameFromDb] = useState('');
 
   const normalizedRole = normalizeRole(user?.role);
   const isSuperAdmin = isSuperAdminRole(normalizedRole);
@@ -314,60 +286,11 @@ export default function Sidebar({
   const useCustomBranding = !isSuperAdmin && branding.isCustomBranding;
   const brandTheme = getTenantBrandTheme(branding);
 
-  const tenantId = getTenantId(user);
-  const ghostTenantName = cleanText(ghostSession?.tenant?.name);
-  const userTenantName = getTenantNameFromUser(user);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadTenantName() {
-      if (isSuperAdmin || isGhostMode || userTenantName || !tenantId) {
-        if (isMounted) setTenantNameFromDb('');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('tenants')
-        .select('name')
-        .eq('id', tenantId)
-        .maybeSingle();
-
-      if (!isMounted) return;
-
-      if (error) {
-        console.warn('No se pudo cargar el nombre del tenant para el sidebar:', error);
-        setTenantNameFromDb('');
-        return;
-      }
-
-      setTenantNameFromDb(cleanText(data?.name));
-    }
-
-    loadTenantName();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isSuperAdmin, isGhostMode, tenantId, userTenantName]);
-
   const navItems = isSuperAdmin
     ? superAdminNav
     : normalizedRole === 'admin'
       ? adminNav
       : workerNav;
-
-  const roleLabel = isSuperAdmin
-    ? 'Super Admin'
-    : normalizedRole === 'admin'
-      ? 'Admin Empresa'
-      : 'Trabajador';
-
-  const tenantName = isGhostMode
-    ? ghostTenantName
-    : userTenantName || tenantNameFromDb;
-
-  const shouldShowTenantName = !isSuperAdmin && Boolean(tenantName);
 
   const displayedBrandName = useCustomBranding ? branding.brandName : 'CIGÜEÑA';
   const displayedBrandLogo = useCustomBranding
@@ -394,11 +317,11 @@ export default function Sidebar({
       >
         {useCustomBranding && !collapsed ? (
           <div className="min-w-0">
-            <div className="inline-flex max-w-full rounded-lg bg-white px-3 py-2 shadow-lg">
+            <div className="inline-flex max-w-full rounded-md bg-white px-2 py-1.5 ring-1 ring-black/5 shadow-md">
               <img
                 src={displayedBrandLogo}
                 alt={displayedBrandName}
-                className="h-auto max-h-11 w-[155px] max-w-full object-contain object-left"
+                className="h-auto max-h-12 w-[180px] max-w-full object-contain object-left"
               />
             </div>
 
@@ -451,61 +374,6 @@ export default function Sidebar({
           </>
         )}
       </div>
-
-      {/* Tenant and role badge */}
-      {!collapsed && (
-        <div
-          className={`px-4 py-3 border-b ${styles.sectionBorder}`}
-          style={customBorderStyle}
-        >
-          {shouldShowTenantName && (
-            <div className="mb-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Building2
-                  size={14}
-                  className={useCustomBranding ? 'flex-shrink-0' : 'text-amber-400 flex-shrink-0'}
-                  style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
-                />
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-widest text-steel-500 leading-tight">
-                    Empresa
-                  </div>
-                  <div className="text-sm font-semibold text-steel-100 truncate leading-tight">
-                    {tenantName}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
-              useCustomBranding ? 'border' : styles.roleBadge
-            }`}
-            style={
-              useCustomBranding
-                ? {
-                    backgroundColor: brandTheme.softAccent,
-                    borderColor: brandTheme.border,
-                  }
-                : undefined
-            }
-          >
-            <Shield
-              size={13}
-              className={useCustomBranding ? '' : styles.roleIcon}
-              style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
-            />
-
-            <span
-              className={`text-xs font-semibold ${useCustomBranding ? '' : styles.roleText}`}
-              style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
-            >
-              {roleLabel}
-            </span>
-          </div>
-        </div>
-      )}
 
       {isGhostMode && ghostSession && !collapsed && (
         <div className="mx-3 mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
