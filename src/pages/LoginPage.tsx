@@ -69,7 +69,7 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
         </div>
 
         <div className="relative">
-          <PublicBrandLockup className="mb-12" />
+          <PublicBrandLockup className="mb-12" logoSurface="neon" />
 
           {isWhiteLabel && (
             <div className="mb-5 h-1 w-14 rounded-full brand-bg" aria-hidden="true" />
@@ -116,7 +116,7 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
 
         <div className="w-full max-w-md relative">
           <div className="lg:hidden mb-8">
-            <PublicBrandLockup compact centered />
+            <PublicBrandLockup compact centered logoSurface="neon" />
           </div>
 
           <div className="mb-8">
