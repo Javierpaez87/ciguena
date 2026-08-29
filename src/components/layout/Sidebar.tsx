@@ -371,7 +371,9 @@ export default function Sidebar({
 
   const displayedBrandName = useCustomBranding ? branding.brandName : 'CIGÜEÑA';
   const displayedBrandLogo = useCustomBranding
-    ? (collapsed ? branding.logoCompactUrl : branding.logoNegativeUrl)
+    ? (collapsed
+        ? branding.logoCompactUrl || branding.faviconUrl || branding.logoUrl
+        : branding.logoUrl || branding.logoNegativeUrl)
     : '/images/ciguena-pumpjack.png';
   const showPoweredBy = useCustomBranding
     ? branding.showPoweredByBondiApps
@@ -385,46 +387,68 @@ export default function Sidebar({
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div
-        className={`flex items-center gap-3 px-4 py-5 border-b ${styles.sectionBorder} ${
-          collapsed ? 'justify-center' : ''
+        className={`border-b ${styles.sectionBorder} ${
+          collapsed ? 'px-3 py-5' : useCustomBranding ? 'px-4 py-5' : 'flex items-center gap-3 px-4 py-5'
         }`}
         style={customBorderStyle}
       >
-        <div
-          className="flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border flex items-center justify-center p-1 shadow-lg"
-          style={
-            useCustomBranding
-              ? {
-                  borderColor: brandTheme.borderStrong,
-                  boxShadow: `0 8px 24px ${brandTheme.softAccent}`,
-                }
-              : undefined
-          }
-        >
-          <img
-            src={displayedBrandLogo}
-            alt={displayedBrandName}
-            className="w-full h-full object-contain"
-          />
-        </div>
-
-        {!collapsed && (
+        {useCustomBranding && !collapsed ? (
           <div className="min-w-0">
-            <div
-              className={`text-base font-bold leading-tight tracking-wide truncate ${
-                useCustomBranding ? '' : 'text-amber-400'
-              }`}
-              style={useCustomBranding ? { color: brandTheme.accentText } : undefined}
-            >
-              {displayedBrandName}
+            <div className="inline-flex max-w-full rounded-lg bg-white px-3 py-2 shadow-lg">
+              <img
+                src={displayedBrandLogo}
+                alt={displayedBrandName}
+                className="h-auto max-h-11 w-[155px] max-w-full object-contain object-left"
+              />
+            </div>
+
+            <div className="mt-2 text-[10px] leading-relaxed text-steel-400">
+              <span className="font-semibold text-steel-300">{displayedBrandName}</span>{' '}
+              Capacitaciones
             </div>
 
             {showPoweredBy && (
-              <div className="text-[10px] text-steel-400 leading-tight">
+              <div className="mt-0.5 text-[10px] text-steel-500 leading-tight">
                 Powered by BondiApps
               </div>
             )}
           </div>
+        ) : (
+          <>
+            <div
+              className={`flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border flex items-center justify-center p-1 shadow-lg ${
+                collapsed ? 'mx-auto' : ''
+              }`}
+              style={
+                useCustomBranding
+                  ? {
+                      borderColor: brandTheme.borderStrong,
+                      boxShadow: `0 8px 24px ${brandTheme.softAccent}`,
+                    }
+                  : undefined
+              }
+            >
+              <img
+                src={displayedBrandLogo}
+                alt={displayedBrandName}
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            {!collapsed && (
+              <div className="min-w-0">
+                <div className="text-base font-bold leading-tight tracking-wide truncate text-amber-400">
+                  {displayedBrandName}
+                </div>
+
+                {showPoweredBy && (
+                  <div className="text-[10px] text-steel-400 leading-tight">
+                    Powered by BondiApps
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -611,21 +635,23 @@ export default function Sidebar({
   return (
     <>
       {/* Mobile toggle */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className={`lg:hidden fixed top-4 left-4 z-50 p-2 border rounded-lg text-steel-300 ${styles.mobileButton}`}
-        style={
-          useCustomBranding
-            ? {
-                backgroundColor: brandTheme.sidebarBackground,
-                borderColor: brandTheme.borderStrong,
-              }
-            : undefined
-        }
-        aria-label="Abrir menú"
-      >
-        <Menu size={20} />
-      </button>
+      {!mobileOpen && (
+        <button
+          onClick={() => setMobileOpen(true)}
+          className={`lg:hidden fixed top-4 left-4 z-50 p-2 border rounded-lg text-steel-300 ${styles.mobileButton}`}
+          style={
+            useCustomBranding
+              ? {
+                  backgroundColor: brandTheme.sidebarBackground,
+                  borderColor: brandTheme.borderStrong,
+                }
+              : undefined
+          }
+          aria-label="Abrir menú"
+        >
+          <Menu size={20} />
+        </button>
+      )}
 
       {/* Mobile overlay */}
       {mobileOpen && (

@@ -80,7 +80,7 @@ export default function Header({ title, subtitle }: HeaderProps) {
 
   return (
     <header
-      className={`border-b px-6 py-4 flex items-center justify-between flex-shrink-0 transition-colors duration-300 ${styles.header} ${styles.border}`}
+      className={`border-b pl-16 pr-4 sm:pr-6 lg:px-6 py-4 flex items-center justify-between flex-shrink-0 transition-colors duration-300 ${styles.header} ${styles.border}`}
       style={
         useCustomBranding
           ? {

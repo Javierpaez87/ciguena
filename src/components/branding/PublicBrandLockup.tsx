@@ -16,14 +16,55 @@ export default function PublicBrandLockup({
     branding.logoNegativeUrl?.trim() ||
     branding.logoUrl?.trim() ||
     branding.logoCompactUrl?.trim();
-  const emphasizeBrand = !compact && branding.isCustomBranding;
+  const customLogo =
+    branding.logoUrl?.trim() ||
+    branding.logoNegativeUrl?.trim() ||
+    branding.logoCompactUrl?.trim();
+
+  if (branding.isCustomBranding) {
+    return (
+      <div
+        className={`flex flex-col ${centered ? 'items-center text-center' : 'items-start'} ${className}`}
+      >
+        <div
+          className={`${
+            compact ? 'px-4 py-2.5' : 'px-5 py-3.5'
+          } rounded-xl bg-white shadow-lg`}
+          style={{ boxShadow: '0 12px 34px rgb(0 0 0 / 0.18)' }}
+        >
+          <img
+            src={customLogo}
+            alt={branding.brandName}
+            className={`${
+              compact
+                ? 'w-[180px] sm:w-[200px] max-h-14'
+                : 'w-[240px] xl:w-[280px] max-h-20'
+            } h-auto object-contain ${centered ? 'mx-auto' : ''}`}
+          />
+        </div>
+
+        <div
+          className={`${compact ? 'mt-2 text-[11px]' : 'mt-3 text-xs'} text-steel-400 leading-relaxed`}
+        >
+          <span className="font-semibold text-steel-300">{branding.brandName}</span>{' '}
+          Plataforma de capacitaciones
+        </div>
+
+        {branding.showPoweredByBondiApps && (
+          <div className="mt-1 text-[10px] text-steel-500">
+            Powered by BondiApps
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`flex items-center ${emphasizeBrand ? 'gap-4' : 'gap-3'} ${centered ? 'justify-center' : ''} ${className}`}
+      className={`flex items-center gap-3 ${centered ? 'justify-center' : ''} ${className}`}
     >
       <div
-        className={`${compact ? 'w-10 h-10' : emphasizeBrand ? 'w-14 h-14' : 'w-12 h-12'} ${emphasizeBrand ? 'rounded-2xl p-2' : 'rounded-xl p-1.5'} bg-steel-950/75 border brand-border flex items-center justify-center`}
+        className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} rounded-xl p-1.5 bg-steel-950/75 border brand-border flex items-center justify-center`}
         style={{
           boxShadow:
             '0 12px 34px rgb(var(--brand-accent-rgb) / 0.12), inset 0 0 0 1px rgb(var(--brand-accent-rgb) / 0.04)',
@@ -38,7 +79,7 @@ export default function PublicBrandLockup({
 
       <div className={centered ? 'text-left' : ''}>
         <div
-          className={`${compact ? 'text-xl' : emphasizeBrand ? 'text-[1.75rem]' : 'text-2xl'} leading-none font-bold brand-text tracking-wide`}
+          className={`${compact ? 'text-xl' : 'text-2xl'} leading-none font-bold brand-text tracking-wide`}
         >
           {branding.brandName}
         </div>
