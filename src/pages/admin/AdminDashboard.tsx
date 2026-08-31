@@ -24,6 +24,13 @@ import {
   getOperationalRole,
   mergeProfilesWithDirectory,
 } from '../../lib/workerRoster';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  filterWorkersByCriterion,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
 interface ChartItem {
   label: string;
@@ -512,7 +519,8 @@ export default function AdminDashboard() {
   const [liveCertificates, setLiveCertificates] = useState<LiveTrainingCertificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [filterCriterion, setFilterCriterion] = useState<WorkerFilterKey>('work_role');
+  const [filterValue, setFilterValue] = useState('all');
   const [showExportModal, setShowExportModal] = useState(false);
 
   useEffect(() => {
@@ -669,23 +677,20 @@ export default function AdminDashboard() {
     return workers.length > 0 ? workers : users.filter((u) => normalizeStatus(u.role) !== 'admin');
   }, [users]);
 
-  const roleOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    workerUsers.forEach((profile) => {
-      const role = getOperationalRole(profile as any);
-      counts.set(role, (counts.get(role) ?? 0) + 1);
-    });
-    return Array.from(counts.entries())
-      .map(([role, count]) => ({ role, count }))
-      .sort((a, b) => a.role.localeCompare(b.role));
-  }, [workerUsers]);
+  const filterOptions = useMemo(
+    () => getWorkerFilterOptions(workerUsers as any, filterCriterion),
+    [workerUsers, filterCriterion]
+  );
+
+  const activeFilterDefinition = getWorkerFilterDefinition(filterCriterion);
+  const hasActiveWorkerFilter = filterValue !== 'all';
 
   const filteredWorkerUsers = useMemo(
     () =>
-      roleFilter === 'all'
-        ? workerUsers
-        : workerUsers.filter((profile) => getOperationalRole(profile as any) === roleFilter),
-    [workerUsers, roleFilter]
+      hasActiveWorkerFilter
+        ? (filterWorkersByCriterion(workerUsers as any, filterCriterion, [filterValue]) as Profile[])
+        : workerUsers,
+    [workerUsers, filterCriterion, filterValue, hasActiveWorkerFilter]
   );
 
   const selectedWorkerIds = useMemo(
@@ -694,25 +699,60 @@ export default function AdminDashboard() {
   );
 
   const filteredAssignments = useMemo(
-    () => roleFilter === 'all' ? assignments : assignments.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id))),
-    [assignments, roleFilter, selectedWorkerIds]
+    () =>
+      hasActiveWorkerFilter
+        ? assignments.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id)))
+        : assignments,
+    [assignments, hasActiveWorkerFilter, selectedWorkerIds]
   );
+
   const filteredCertificates = useMemo(
-    () => roleFilter === 'all' ? certificates : certificates.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id))),
-    [certificates, roleFilter, selectedWorkerIds]
+    () =>
+      hasActiveWorkerFilter
+        ? certificates.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id)))
+        : certificates,
+    [certificates, hasActiveWorkerFilter, selectedWorkerIds]
   );
+
   const filteredAttempts = useMemo(
-    () => roleFilter === 'all' ? attempts : attempts.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id))),
-    [attempts, roleFilter, selectedWorkerIds]
+    () =>
+      hasActiveWorkerFilter
+        ? attempts.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id)))
+        : attempts,
+    [attempts, hasActiveWorkerFilter, selectedWorkerIds]
   );
+
   const filteredLiveParticipants = useMemo(
-    () => roleFilter === 'all' ? liveParticipants : liveParticipants.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id))),
-    [liveParticipants, roleFilter, selectedWorkerIds]
+    () =>
+      hasActiveWorkerFilter
+        ? liveParticipants.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id)))
+        : liveParticipants,
+    [liveParticipants, hasActiveWorkerFilter, selectedWorkerIds]
   );
+
   const filteredLiveCertificates = useMemo(
-    () => roleFilter === 'all' ? liveCertificates : liveCertificates.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id))),
-    [liveCertificates, roleFilter, selectedWorkerIds]
+    () =>
+      hasActiveWorkerFilter
+        ? liveCertificates.filter((item) => Boolean(item.user_id && selectedWorkerIds.has(item.user_id)))
+        : liveCertificates,
+    [liveCertificates, hasActiveWorkerFilter, selectedWorkerIds]
   );
+
+  const filteredLiveTrainings = useMemo(() => {
+    if (!hasActiveWorkerFilter) return liveTrainings;
+
+    const liveTrainingIds = new Set(
+      filteredLiveParticipants
+        .map((participant) => participant.live_training_id)
+        .filter((value): value is string => Boolean(value))
+    );
+
+    return liveTrainings.filter((training) => liveTrainingIds.has(training.id));
+  }, [liveTrainings, filteredLiveParticipants, hasActiveWorkerFilter]);
+
+  const activeFilterSummary = hasActiveWorkerFilter
+    ? `${activeFilterDefinition.label}: ${filterValue}`
+    : 'Empresa completa';
 
   const metrics = useMemo(() => {
     const activeUsers = filteredWorkerUsers.filter((u) => {
@@ -787,10 +827,10 @@ export default function AdminDashboard() {
     const expiredCertRate = percent(expiredCerts, Math.max(filteredCertificates.length, 1));
     const expiringSoonRate = percent(expiringSoon, Math.max(filteredCertificates.length, 1));
 
-    const liveScheduled = liveTrainings.filter((training) =>
+    const liveScheduled = filteredLiveTrainings.filter((training) =>
       ['draft', 'scheduled'].includes(normalizeStatus(training.status))
     ).length;
-    const liveCompleted = liveTrainings.filter((training) =>
+    const liveCompleted = filteredLiveTrainings.filter((training) =>
       ['completed', 'closed'].includes(normalizeStatus(training.status))
     ).length;
     const liveAttended = filteredLiveParticipants.filter(hasLiveAttendanceEvidence).length;
@@ -825,7 +865,7 @@ export default function AdminDashboard() {
       liveAttendanceRate,
       liveCertificates: filteredLiveCertificates.length,
     };
-  }, [filteredWorkerUsers, filteredAssignments, filteredCertificates, filteredAttempts, liveTrainings, filteredLiveParticipants, filteredLiveCertificates]);
+  }, [filteredWorkerUsers, filteredAssignments, filteredCertificates, filteredAttempts, filteredLiveTrainings, filteredLiveParticipants, filteredLiveCertificates]);
 
   const trainingStatusItems: ChartItem[] = [
     { label: 'Completados', value: metrics.completed, className: 'text-emerald-400' },
@@ -1007,28 +1047,76 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-steel-100">Filtrar dashboard por rol operativo</div>
-          <div className="text-xs text-steel-500 mt-1">El filtro se aplica a trabajadores, asignaciones, certificados, exámenes y asistencia.</div>
+      <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4 space-y-3">
+        <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-steel-100">Filtrar dashboard</div>
+            <div className="text-xs text-steel-500 mt-1">
+              El criterio se aplica a trabajadores, asignaciones, certificados, exámenes, asistencia y métricas asociadas.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:flex gap-2 w-full xl:w-auto">
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-steel-400 mb-1">Filtrar por</span>
+              <select
+                value={filterCriterion}
+                onChange={(event) => {
+                  setFilterCriterion(event.target.value as WorkerFilterKey);
+                  setFilterValue('all');
+                }}
+                className="select w-full xl:min-w-[190px]"
+              >
+                {WORKER_FILTER_DEFINITIONS.map((definition) => (
+                  <option key={definition.key} value={definition.key}>
+                    {definition.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-steel-400 mb-1">
+                {activeFilterDefinition.label}
+              </span>
+              <select
+                value={filterValue}
+                onChange={(event) => setFilterValue(event.target.value)}
+                className="select w-full xl:min-w-[240px]"
+              >
+                <option value="all">Todos ({workerUsers.length})</option>
+                {filterOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="sm:col-span-2 xl:col-span-1 flex items-end gap-2">
+              {hasActiveWorkerFilter && (
+                <button
+                  type="button"
+                  onClick={() => setFilterValue('all')}
+                  className="btn-secondary text-xs whitespace-nowrap"
+                >
+                  Limpiar filtro
+                </button>
+              )}
+              <button onClick={() => setShowExportModal(true)} className="btn-secondary text-xs whitespace-nowrap">
+                <Download size={14} />
+                Exportar CSV
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-          <select
-            value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value)}
-            className="select sm:min-w-[240px]"
-          >
-            <option value="all">Todos los roles ({workerUsers.length})</option>
-            {roleOptions.map((option) => (
-              <option key={option.role} value={option.role}>
-                {option.role} ({option.count})
-              </option>
-            ))}
-          </select>
-          <button onClick={() => setShowExportModal(true)} className="btn-secondary text-xs">
-            <Download size={14} />
-            Exportar CSV
-          </button>
+
+        <div className="pt-3 border-t border-steel-700/70 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-steel-400">
+          <span>
+            Mostrando <span className="font-semibold text-steel-200">{filteredWorkerUsers.length}</span> de {workerUsers.length} trabajadores
+          </span>
+          <span className="text-steel-600">·</span>
+          <span className={hasActiveWorkerFilter ? 'brand-text' : 'text-steel-500'}>{activeFilterSummary}</span>
         </div>
       </div>
 
@@ -1067,9 +1155,9 @@ export default function AdminDashboard() {
             value={metrics.liveScheduled}
             icon={<CalendarClock size={20} />}
             accent="blue"
-            subtitle={`${liveTrainings.length} capacitaciones en vivo totales`}
+            subtitle={`${filteredLiveTrainings.length} capacitaciones en vivo en la vista`}
             chartType="bar"
-            chartValue={percent(metrics.liveScheduled, Math.max(liveTrainings.length, 1))}
+            chartValue={percent(metrics.liveScheduled, Math.max(filteredLiveTrainings.length, 1))}
             chartLabel="en agenda"
           />
 
@@ -1111,7 +1199,7 @@ export default function AdminDashboard() {
             value={`${metrics.avgProgress}%`}
             icon={<TrendingUp size={20} />}
             accent="brand"
-            subtitle={roleFilter === 'all' ? 'promedio de la empresa' : `promedio · ${roleFilter}`}
+            subtitle={hasActiveWorkerFilter ? `promedio · ${activeFilterSummary}` : 'promedio de la empresa'}
             chartType="bar"
             chartValue={metrics.avgProgress}
             chartLabel="avance general"
@@ -1387,7 +1475,7 @@ export default function AdminDashboard() {
         filename={`dashboard-${brandSlug}.csv`}
         rows={dashboardExportRows}
         columns={dashboardExportColumns}
-        description={`Se exportarán ${dashboardExportRows.length} trabajador(es) respetando el filtro de rol operativo actual.`}
+        description={`Se exportarán ${dashboardExportRows.length} trabajador(es) respetando el filtro actual: ${activeFilterSummary}.`}
       />
 
       <div className="text-xs text-steel-600">
