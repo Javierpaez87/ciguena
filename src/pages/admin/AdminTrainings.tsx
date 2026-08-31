@@ -46,8 +46,15 @@ import {
   isWorkerRecord,
   mergeProfilesWithDirectory,
 } from '../../lib/workerRoster';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  filterWorkersByCriterion,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
-type AssignMode = 'all' | 'role' | 'individual';
+type AssignMode = 'all' | 'criterion' | 'individual';
 
 type TenantTrainingConfigRow = TenantTrainingConfiguration & {
   training_id: string;
@@ -234,7 +241,8 @@ export default function AdminTrainings() {
   const [expandedAssignmentUserIds, setExpandedAssignmentUserIds] = useState<Set<string>>(new Set());
 
   const [assignMode, setAssignMode] = useState<AssignMode>('individual');
-  const [selectedRole, setSelectedRole] = useState('');
+  const [selectedFilterCriterion, setSelectedFilterCriterion] = useState<WorkerFilterKey>('work_role');
+  const [selectedFilterValues, setSelectedFilterValues] = useState<string[]>([]);
 
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignMessage, setAssignMessage] = useState<string | null>(null);
@@ -350,49 +358,50 @@ export default function AdminTrainings() {
     return getTrainingTestByTrainingId(showQuestions.id);
   }, [showQuestions]);
 
-  const roleGroups = useMemo(() => {
-    const map = new Map<string, Profile[]>();
+  const selectedFilterDefinition = useMemo(
+    () => getWorkerFilterDefinition(selectedFilterCriterion),
+    [selectedFilterCriterion]
+  );
 
-    users.forEach(worker => {
-      const workerRole = getWorkerRole(worker);
+  const criterionFilterOptions = useMemo(
+    () => getWorkerFilterOptions(users as any[], selectedFilterCriterion),
+    [users, selectedFilterCriterion]
+  );
 
-      if (!map.has(workerRole)) {
-        map.set(workerRole, []);
-      }
+  const criterionUsers = useMemo(() => {
+    if (selectedFilterValues.length === 0) return [];
 
-      map.get(workerRole)?.push(worker);
-    });
-
-    return Array.from(map.entries())
-      .map(([role, workers]) => ({
-        role,
-        workers,
-        count: workers.length,
-      }))
-      .sort((a, b) => a.role.localeCompare(b.role));
-  }, [users]);
-
-  const selectedRoleUsers = useMemo(() => {
-    if (!selectedRole) return [];
-    return users.filter(worker => getWorkerRole(worker) === selectedRole);
-  }, [users, selectedRole]);
+    return filterWorkersByCriterion(
+      users as any[],
+      selectedFilterCriterion,
+      selectedFilterValues
+    ) as Profile[];
+  }, [users, selectedFilterCriterion, selectedFilterValues]);
 
   const getTargetUserIds = () => {
     if (assignMode === 'all') {
       return users.map(worker => worker.id);
     }
 
-    if (assignMode === 'role') {
-      return selectedRoleUsers.map(worker => worker.id);
+    if (assignMode === 'criterion') {
+      return criterionUsers.map(worker => worker.id);
     }
 
     return Array.from(selectedUsers);
   };
 
-  const getAssignTargetCount = () => {
+  const getAssignSelectionSummary = () => {
     const targets = getTargetUserIds();
-    return targets.filter(userId => !assignedUserIds.has(userId)).length;
+    const newTargets = targets.filter(userId => !assignedUserIds.has(userId));
+
+    return {
+      total: targets.length,
+      newCount: newTargets.length,
+      alreadyAssignedCount: targets.length - newTargets.length,
+    };
   };
+
+  const getAssignTargetCount = () => getAssignSelectionSummary().newCount;
 
   const getQuestionsByAttempt = (test: TrainingTest) => {
     const attempts: Array<{
@@ -503,7 +512,8 @@ export default function AdminTrainings() {
     setEmailNotificationsByAssignmentId({});
     setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
-    setSelectedRole('');
+    setSelectedFilterCriterion('work_role');
+    setSelectedFilterValues([]);
     setAssignMessage(null);
     setAssignError(null);
   };
@@ -589,7 +599,8 @@ export default function AdminTrainings() {
     setEmailNotificationsByAssignmentId({});
     setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
-    setSelectedRole('');
+    setSelectedFilterCriterion('work_role');
+    setSelectedFilterValues([]);
     setAssignMessage(null);
     setAssignError(null);
 
@@ -602,7 +613,8 @@ export default function AdminTrainings() {
 
     setSelectedUsers(assignedIds);
     setAssignMode('individual');
-    setSelectedRole('');
+    setSelectedFilterCriterion('work_role');
+    setSelectedFilterValues([]);
   };
 
   const sendAssignmentEmails = async (assignmentIds: string[]) => {
@@ -669,13 +681,13 @@ export default function AdminTrainings() {
       targets = users.map(worker => worker.id);
     }
 
-    if (assignMode === 'role') {
-      if (!selectedRole) {
-        setAssignError('Seleccioná un rol para asignar el training.');
+    if (assignMode === 'criterion') {
+      if (selectedFilterValues.length === 0) {
+        setAssignError(`Seleccioná al menos un valor de ${selectedFilterDefinition.label.toLowerCase()} para asignar el training.`);
         return;
       }
 
-      targets = selectedRoleUsers.map(worker => worker.id);
+      targets = criterionUsers.map(worker => worker.id);
     }
 
     if (assignMode === 'individual') {
@@ -761,8 +773,8 @@ export default function AdminTrainings() {
     const modeLabel =
       assignMode === 'all'
         ? 'todos los usuarios activos'
-        : assignMode === 'role'
-          ? `el rol "${selectedRole}"`
+        : assignMode === 'criterion'
+          ? `${selectedFilterDefinition.label.toLowerCase()}: ${selectedFilterValues.join(', ')}`
           : 'los usuarios seleccionados';
 
     const emailText =
@@ -1687,32 +1699,48 @@ export default function AdminTrainings() {
           }}
           title={`Asignar: ${showAssign.title}`}
           size="lg"
+          stickyFooter
           footer={
-            <>
-              <button
-                onClick={() => {
-                  if (isAssigning) return;
-                  resetAssignModal();
-                }}
-                className="btn-ghost"
-                disabled={isAssigning}
-              >
-                Cancelar
-              </button>
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-steel-400">
+                <span className="font-semibold text-steel-200">
+                  {getAssignSelectionSummary().total} seleccionado(s)
+                </span>
+                {' · '}
+                <span className="font-semibold brand-text">
+                  {getAssignSelectionSummary().newCount} nueva(s) asignación(es)
+                </span>
+                {getAssignSelectionSummary().alreadyAssignedCount > 0 && (
+                  <span> · {getAssignSelectionSummary().alreadyAssignedCount} ya asignado(s)</span>
+                )}
+              </div>
 
-              <button
-                onClick={handleAssign}
-                disabled={
-                  isAssigning ||
-                  getAssignTargetCount() === 0 ||
-                  (assignMode === 'role' && !selectedRole)
-                }
-                className="btn-primary"
-              >
-                <Plus size={15} />
-                {isAssigning ? 'Asignando...' : `Asignar (${getAssignTargetCount()})`}
-              </button>
-            </>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => {
+                    if (isAssigning) return;
+                    resetAssignModal();
+                  }}
+                  className="btn-ghost"
+                  disabled={isAssigning}
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  onClick={handleAssign}
+                  disabled={
+                    isAssigning ||
+                    getAssignTargetCount() === 0 ||
+                    (assignMode === 'criterion' && selectedFilterValues.length === 0)
+                  }
+                  className="btn-primary"
+                >
+                  <Plus size={15} />
+                  {isAssigning ? 'Asignando...' : `Asignar (${getAssignTargetCount()})`}
+                </button>
+              </div>
+            </div>
           }
         >
           <div className="space-y-3">
@@ -1747,7 +1775,7 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('all');
-                  setSelectedRole('');
+                  setSelectedFilterValues([]);
                   setSelectedUsers(new Set(users.map(worker => worker.id)));
                 }}
                 disabled={isAssigning}
@@ -1766,19 +1794,20 @@ export default function AdminTrainings() {
               <button
                 type="button"
                 onClick={() => {
-                  setAssignMode('role');
+                  setAssignMode('criterion');
+                  setSelectedFilterValues([]);
                   setSelectedUsers(new Set(assignedUserIds));
                 }}
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
-                  assignMode === 'role'
+                  assignMode === 'criterion'
                     ? 'brand-bg-soft brand-border'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
-                <div className="text-sm font-semibold text-steel-100">Por rol</div>
+                <div className="text-sm font-semibold text-steel-100">Por criterio</div>
                 <div className="text-xs text-steel-400 mt-1">
-                  {roleGroups.length} roles detectados
+                  Rol, área, yacimiento y más
                 </div>
               </button>
 
@@ -1786,7 +1815,7 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('individual');
-                  setSelectedRole('');
+                  setSelectedFilterValues([]);
                   setSelectedUsers(new Set(assignedUserIds));
                 }}
                 disabled={isAssigning}
@@ -1810,42 +1839,135 @@ export default function AdminTrainings() {
               </div>
             )}
 
-            {assignMode === 'role' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="label">Rol operativo</label>
-                  <select
-                    value={selectedRole}
-                    onChange={event => setSelectedRole(event.target.value)}
-                    className="select"
-                    disabled={isAssigning}
-                  >
-                    <option value="">Seleccionar rol...</option>
-                    {roleGroups.map(group => {
-                      const newCount = group.workers.filter(worker => !assignedUserIds.has(worker.id)).length;
-
-                      return (
-                        <option key={group.role} value={group.role}>
-                          {group.role} · {group.count} usuario(s) · {newCount} nuevos
+            {assignMode === 'criterion' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="label">Filtrar por</label>
+                    <select
+                      value={selectedFilterCriterion}
+                      onChange={event => {
+                        setSelectedFilterCriterion(event.target.value as WorkerFilterKey);
+                        setSelectedFilterValues([]);
+                      }}
+                      className="select"
+                      disabled={isAssigning}
+                    >
+                      {WORKER_FILTER_DEFINITIONS.map(definition => (
+                        <option key={definition.key} value={definition.key}>
+                          {definition.label}
                         </option>
-                      );
-                    })}
-                  </select>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="rounded-xl border border-steel-700 bg-steel-900/70 p-3">
+                    <div className="text-xs text-steel-500">Selección actual</div>
+                    <div className="mt-1 text-sm font-semibold text-steel-100">
+                      {selectedFilterValues.length === 0
+                        ? `Sin ${selectedFilterDefinition.label.toLowerCase()} seleccionado`
+                        : `${selectedFilterValues.length} valor(es) seleccionado(s)`}
+                    </div>
+                    <div className="mt-1 text-xs text-steel-400">
+                      {criterionUsers.length} trabajador(es) coinciden · {' '}
+                      {criterionUsers.filter(worker => !assignedUserIds.has(worker.id)).length} nueva(s) asignación(es)
+                    </div>
+                  </div>
                 </div>
 
-                {selectedRole && (
+                <div className="rounded-xl border border-steel-700 bg-steel-900/50">
+                  <div className="flex flex-col gap-2 border-b border-steel-700 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-steel-100">
+                        Elegir {selectedFilterDefinition.label.toLowerCase()}
+                      </div>
+                      <div className="text-xs text-steel-400">
+                        Podés seleccionar uno o varios valores.
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        disabled={isAssigning || criterionFilterOptions.length === 0}
+                        onClick={() => setSelectedFilterValues(criterionFilterOptions.map(option => option.value))}
+                      >
+                        Seleccionar todos
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        disabled={isAssigning || selectedFilterValues.length === 0}
+                        onClick={() => setSelectedFilterValues([])}
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto p-2">
+                    {criterionFilterOptions.length === 0 && (
+                      <div className="p-3 text-sm text-steel-400">
+                        No hay valores disponibles para este criterio.
+                      </div>
+                    )}
+
+                    {criterionFilterOptions.map(option => {
+                      const checked = selectedFilterValues.includes(option.value);
+                      const optionWorkers = filterWorkersByCriterion(
+                        users as any[],
+                        selectedFilterCriterion,
+                        [option.value]
+                      ) as Profile[];
+                      const newCount = optionWorkers.filter(worker => !assignedUserIds.has(worker.id)).length;
+
+                      return (
+                        <label
+                          key={option.value}
+                          className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 transition-colors ${
+                            checked ? 'brand-bg-soft' : 'hover:bg-steel-800'
+                          }`}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={isAssigning}
+                              onChange={() => {
+                                setSelectedFilterValues(previous =>
+                                  previous.includes(option.value)
+                                    ? previous.filter(value => value !== option.value)
+                                    : [...previous, option.value]
+                                );
+                              }}
+                              className="h-4 w-4"
+                            />
+                            <span className="truncate text-sm text-steel-200">{option.label}</span>
+                          </div>
+
+                          <span className="flex-shrink-0 text-xs text-steel-500">
+                            {option.count} total · {newCount} nuevos
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {selectedFilterValues.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs text-steel-400 font-medium">
-                      Usuarios incluidos en este rol:
+                    <p className="text-xs font-medium text-steel-400">
+                      Trabajadores incluidos por {selectedFilterDefinition.label.toLowerCase()}:
                     </p>
 
-                    {selectedRoleUsers.map(worker => renderWorkerAssignmentRow(worker))}
+                    {criterionUsers.map(worker => renderWorkerAssignmentRow(worker))}
                   </div>
                 )}
 
-                {!selectedRole && (
+                {selectedFilterValues.length === 0 && (
                   <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
-                    Seleccioná un rol para ver qué usuarios serán asignados.
+                    Seleccioná uno o varios valores para ver exactamente qué trabajadores serán incluidos.
                   </div>
                 )}
               </div>
