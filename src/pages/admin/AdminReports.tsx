@@ -20,6 +20,17 @@ import { useBranding } from '../../contexts/BrandingContext';
 import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
+import {
+  EmployeeDirectoryRecord,
+  mergeProfilesWithDirectory,
+} from '../../lib/workerRoster';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  filterWorkersByCriterion,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
 type ReportType = 'user' | 'training' | 'area' | 'live';
 type Accent = 'brand' | 'amber' | 'blue' | 'green' | 'red' | 'steel';
@@ -51,6 +62,14 @@ interface Profile {
   role?: string | null;
   position?: string | null;
   area?: string | null;
+  work_role?: string | null;
+  job_role?: string | null;
+  supervisor?: string | null;
+  shift?: string | null;
+  base?: string | null;
+  site?: string | null;
+  region?: string | null;
+  oilfield?: string | null;
   contractor_company?: string | null;
   employee_code?: string | null;
   dni?: string | null;
@@ -517,6 +536,8 @@ export default function AdminReports() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [workerFilterKey, setWorkerFilterKey] = useState<WorkerFilterKey>('work_role');
+  const [workerFilterValue, setWorkerFilterValue] = useState('all');
 
   async function loadReportsData() {
     if (!tenantId) {
@@ -531,6 +552,7 @@ export default function AdminReports() {
     try {
       const [
         usersResult,
+        directoryResult,
         assignmentsResult,
         certificatesResult,
         trainingsResult,
@@ -538,6 +560,7 @@ export default function AdminReports() {
         liveParticipantsResult,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+        supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
         supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
         supabase.from('certificates').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
@@ -546,15 +569,16 @@ export default function AdminReports() {
       ]);
 
       if (usersResult.error) throw usersResult.error;
+      if (directoryResult.error) throw directoryResult.error;
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (certificatesResult.error) throw certificatesResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
       if (liveTrainingsResult.error) throw liveTrainingsResult.error;
       if (liveParticipantsResult.error) throw liveParticipantsResult.error;
 
-      const loadedUsers = ((usersResult.data ?? []) as Profile[]).filter(
-        (profile) => !isAdminUser(profile)
-      );
+      const rawUsers = (usersResult.data ?? []) as Profile[];
+      const directoryRows = (directoryResult.data ?? []) as EmployeeDirectoryRecord[];
+      const loadedUsers = mergeProfilesWithDirectory(rawUsers as any, directoryRows) as Profile[];
       const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
       const loadedCertificatesRaw = (certificatesResult.data ?? []) as Certificate[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
@@ -642,56 +666,122 @@ export default function AdminReports() {
 
   const completedStatuses = ['certificate_issued', 'completed', 'passed', 'approved'];
 
+  const workerFilterOptions = useMemo(
+    () => getWorkerFilterOptions(users as any, workerFilterKey),
+    [users, workerFilterKey]
+  );
+
+  const filteredUsers = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? users
+        : (filterWorkersByCriterion(users as any, workerFilterKey, [workerFilterValue]) as Profile[]),
+    [users, workerFilterKey, workerFilterValue]
+  );
+
+  const filteredUserIds = useMemo(
+    () => new Set(filteredUsers.map((profile) => profile.id).filter(Boolean)),
+    [filteredUsers]
+  );
+
+  const filteredAssignments = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? assignments
+        : assignments.filter(
+            (assignment) => assignment.user_id && filteredUserIds.has(assignment.user_id)
+          ),
+    [assignments, filteredUserIds, workerFilterValue]
+  );
+
+  const filteredCertificates = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? certificates
+        : certificates.filter(
+            (certificate) => certificate.user_id && filteredUserIds.has(certificate.user_id)
+          ),
+    [certificates, filteredUserIds, workerFilterValue]
+  );
+
+  const filteredLiveParticipants = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? liveParticipants
+        : liveParticipants.filter(
+            (participant) => participant.user_id && filteredUserIds.has(participant.user_id)
+          ),
+    [liveParticipants, filteredUserIds, workerFilterValue]
+  );
+
+  const filteredLiveTrainingIds = useMemo(
+    () =>
+      new Set(
+        filteredLiveParticipants
+          .map((participant) => participant.live_training_id)
+          .filter((value): value is string => Boolean(value))
+      ),
+    [filteredLiveParticipants]
+  );
+
+  const filteredLiveTrainings = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? liveTrainings
+        : liveTrainings.filter((training) => filteredLiveTrainingIds.has(training.id)),
+    [liveTrainings, filteredLiveTrainingIds, workerFilterValue]
+  );
+
   const reports = useMemo(() => {
-    const completedAssignments = assignments.filter((assignment) =>
+    const completedAssignments = filteredAssignments.filter((assignment) =>
       completedStatuses.includes(normalize(assignment.status))
     ).length;
 
-    const inProgressAssignments = assignments.filter((assignment) =>
+    const inProgressAssignments = filteredAssignments.filter((assignment) =>
       ['in_progress', 'started'].includes(normalize(assignment.status))
     ).length;
 
-    const pendingAssignments = assignments.filter((assignment) =>
+    const pendingAssignments = filteredAssignments.filter((assignment) =>
       ['not_started', 'pending', 'assigned'].includes(normalize(assignment.status))
     ).length;
 
-    const pendingTestAssignments = assignments.filter(
+    const pendingTestAssignments = filteredAssignments.filter(
       (assignment) => normalize(assignment.status) === 'pending_test'
     ).length;
 
-    const failedAssignments = assignments.filter((assignment) =>
+    const failedAssignments = filteredAssignments.filter((assignment) =>
       ['failed', 'reproved', 'reprobado'].includes(normalize(assignment.status))
     ).length;
 
-    const avgProgress = assignments.length
+    const avgProgress = filteredAssignments.length
       ? Math.round(
-          assignments.reduce((sum, assignment) => sum + getAssignmentProgress(assignment), 0) /
-            assignments.length
+          filteredAssignments.reduce((sum, assignment) => sum + getAssignmentProgress(assignment), 0) /
+            filteredAssignments.length
         )
       : 0;
 
-    const completionRate = percent(completedAssignments, assignments.length);
+    const completionRate = percent(completedAssignments, filteredAssignments.length);
 
-    const validCerts = certificates.filter(
+    const validCerts = filteredCertificates.filter(
       (certificate) => getCertificateStatus(certificate) === 'valid'
     ).length;
 
-    const expiringSoonCerts = certificates.filter(
+    const expiringSoonCerts = filteredCertificates.filter(
       (certificate) => getCertificateStatus(certificate) === 'expiring_soon'
     ).length;
 
-    const expiredCerts = certificates.filter(
+    const expiredCerts = filteredCertificates.filter(
       (certificate) => getCertificateStatus(certificate) === 'expired'
     ).length;
 
     const certificateRiskRate = percent(
       expiringSoonCerts + expiredCerts,
-      Math.max(certificates.length, 1)
+      Math.max(filteredCertificates.length, 1)
     );
 
-    const userReport = users.map((profile) => {
-      const userAssignments = assignments.filter((assignment) => assignment.user_id === profile.id);
-      const userCerts = certificates.filter((certificate) => certificate.user_id === profile.id);
+    const userReport = filteredUsers.map((profile) => {
+      const userAssignments = filteredAssignments.filter((assignment) => assignment.user_id === profile.id);
+      const userCerts = filteredCertificates.filter((certificate) => certificate.user_id === profile.id);
 
       const completed = userAssignments.filter((assignment) =>
         completedStatuses.includes(normalize(assignment.status))
@@ -725,7 +815,7 @@ export default function AdminReports() {
 
     const trainingIds = Array.from(
       new Set(
-        assignments
+        filteredAssignments
           .map(
             (assignment) =>
               assignment.tenant_training_id || assignment.training_id || assignment.training?.id
@@ -735,7 +825,7 @@ export default function AdminReports() {
     );
 
     const trainingReport = trainingIds.map((trainingId) => {
-      const trainingAssignments = assignments.filter((assignment) => {
+      const trainingAssignments = filteredAssignments.filter((assignment) => {
         const assignmentTrainingId =
           assignment.tenant_training_id || assignment.training_id || assignment.training?.id;
 
@@ -772,12 +862,12 @@ export default function AdminReports() {
       };
     });
 
-    const areaNames = Array.from(new Set(users.map((profile) => profile.area || 'Sin área')));
+    const areaNames = Array.from(new Set(filteredUsers.map((profile) => profile.area || 'Sin área')));
 
     const areaReport = areaNames.map((area) => {
-      const areaUsers = users.filter((profile) => (profile.area || 'Sin área') === area);
+      const areaUsers = filteredUsers.filter((profile) => (profile.area || 'Sin área') === area);
       const areaUserIds = new Set(areaUsers.map((profile) => profile.id));
-      const areaAssignments = assignments.filter(
+      const areaAssignments = filteredAssignments.filter(
         (assignment) => assignment.user_id && areaUserIds.has(assignment.user_id)
       );
 
@@ -807,8 +897,8 @@ export default function AdminReports() {
       };
     });
 
-    const liveTrainingReport = liveTrainings.map((training) => {
-      const trainingParticipants = liveParticipants.filter(
+    const liveTrainingReport = filteredLiveTrainings.map((training) => {
+      const trainingParticipants = filteredLiveParticipants.filter(
         (participant) => participant.live_training_id === training.id
       );
       const attended = trainingParticipants.filter(hasLiveAttendanceEvidence).length;
@@ -831,8 +921,8 @@ export default function AdminReports() {
       };
     });
 
-    const liveAttended = liveParticipants.filter(hasLiveAttendanceEvidence).length;
-    const liveAttendanceRate = percent(liveAttended, liveParticipants.length);
+    const liveAttended = filteredLiveParticipants.filter(hasLiveAttendanceEvidence).length;
+    const liveAttendanceRate = percent(liveAttended, filteredLiveParticipants.length);
 
     const criticalUsers = [...userReport]
       .filter((report) => report.total > 0)
@@ -844,7 +934,7 @@ export default function AdminReports() {
       .sort((a, b) => a.avgProgress - b.avgProgress)
       .slice(0, 5);
 
-    const expiringCertificates = certificates
+    const expiringCertificates = filteredCertificates
       .filter((certificate) => getCertificateStatus(certificate) !== 'valid')
       .slice()
       .sort((a, b) => {
@@ -893,7 +983,13 @@ export default function AdminReports() {
       statusItems,
       certItems,
     };
-  }, [users, assignments, certificates, liveTrainings, liveParticipants]);
+  }, [
+    filteredUsers,
+    filteredAssignments,
+    filteredCertificates,
+    filteredLiveTrainings,
+    filteredLiveParticipants,
+  ]);
 
   const reportExportConfig = useMemo(() => {
     let rows: ReportExportRow[] = [];
@@ -1058,11 +1154,77 @@ export default function AdminReports() {
           </div>
         </div>
 
+        <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+          <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+              <label className="space-y-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-steel-500">
+                  Filtrar por
+                </span>
+                <select
+                  value={workerFilterKey}
+                  onChange={(event) => {
+                    setWorkerFilterKey(event.target.value as WorkerFilterKey);
+                    setWorkerFilterValue('all');
+                  }}
+                  className="select w-full"
+                >
+                  {WORKER_FILTER_DEFINITIONS.map((definition) => (
+                    <option key={definition.key} value={definition.key}>
+                      {definition.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-steel-500">
+                  Valor
+                </span>
+                <select
+                  value={workerFilterValue}
+                  onChange={(event) => setWorkerFilterValue(event.target.value)}
+                  className="select w-full"
+                >
+                  <option value="all">Todos</option>
+                  {workerFilterOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 xl:pb-0.5">
+              <div className="text-xs text-steel-400">
+                Mostrando <span className="font-semibold text-steel-100">{filteredUsers.length}</span> de{' '}
+                <span className="font-semibold text-steel-100">{users.length}</span> trabajadores
+                {workerFilterValue !== 'all' && (
+                  <span>
+                    {' '}· {getWorkerFilterDefinition(workerFilterKey).label}: {workerFilterValue}
+                  </span>
+                )}
+              </div>
+
+              {workerFilterValue !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setWorkerFilterValue('all')}
+                  className="btn-secondary text-xs whitespace-nowrap"
+                >
+                  Limpiar filtro
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <ReportMetricCard
             title="Cumplimiento general"
             value={`${reports.completionRate}%`}
-            subtitle={`${reports.completedAssignments} de ${assignments.length} asignaciones completadas`}
+            subtitle={`${reports.completedAssignments} de ${filteredAssignments.length} asignaciones completadas`}
             icon={<CheckCircle size={20} />}
             accent="green"
             chartType="donut"
@@ -1092,7 +1254,7 @@ export default function AdminReports() {
           <ReportMetricCard
             title="Asistencia en vivo"
             value={`${reports.liveAttendanceRate}%`}
-            subtitle={`${reports.liveAttended} de ${liveParticipants.length} invitados a vivos`}
+            subtitle={`${reports.liveAttended} de ${filteredLiveParticipants.length} invitados a vivos`}
             icon={<CalendarClock size={20} />}
             accent="blue"
             chartType="donut"
@@ -1101,14 +1263,14 @@ export default function AdminReports() {
 
           <ReportMetricCard
             title="Usuarios alcanzados"
-            value={users.length}
+            value={filteredUsers.length}
             subtitle={`${reports.userReport.filter((report) => report.total > 0).length} con trainings asignados`}
             icon={<Users size={20} />}
             accent="blue"
             chartType="donut"
             chartValue={percent(
               reports.userReport.filter((report) => report.total > 0).length,
-              users.length
+              filteredUsers.length
             )}
           />
         </div>
@@ -1123,7 +1285,7 @@ export default function AdminReports() {
           <p className="text-xs text-steel-500 mb-5">
             Distribución general por estado operativo.
           </p>
-          <DonutChart items={reports.statusItems} centerLabel="total" centerValue={assignments.length} />
+          <DonutChart items={reports.statusItems} centerLabel="total" centerValue={filteredAssignments.length} />
         </div>
 
         <div className="card">
@@ -1134,7 +1296,7 @@ export default function AdminReports() {
           <p className="text-xs text-steel-500 mb-5">
             Vigencia y riesgos próximos para seguimiento HSE.
           </p>
-          <DonutChart items={reports.certItems} centerLabel="certs" centerValue={certificates.length} />
+          <DonutChart items={reports.certItems} centerLabel="certs" centerValue={filteredCertificates.length} />
         </div>
 
         <div className="card">

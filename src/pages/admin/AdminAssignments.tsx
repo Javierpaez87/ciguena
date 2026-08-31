@@ -41,6 +41,13 @@ import {
   isDirectoryOnlyWorker,
   mergeProfilesWithDirectory,
 } from '../../lib/workerRoster';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  matchesWorkerFilter,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -79,8 +86,11 @@ interface Profile {
   position?: string | null;
   area?: string | null;
   supervisor?: string | null;
+  shift?: string | null;
   base?: string | null;
   site?: string | null;
+  region?: string | null;
+  oilfield?: string | null;
   employee_code?: string | null;
   dni?: string | null;
   status?: string | null;
@@ -392,7 +402,8 @@ export default function AdminAssignments() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [workerFilterKey, setWorkerFilterKey] = useState<WorkerFilterKey>('work_role');
+  const [workerFilterValue, setWorkerFilterValue] = useState('all');
   const [trainingFilter, setTrainingFilter] = useState('all');
 
   const [remindSent, setRemindSent] = useState<Set<string>>(new Set());
@@ -618,6 +629,11 @@ export default function AdminAssignments() {
       .sort((a, b) => a.role.localeCompare(b.role));
   }, [workerUsers]);
 
+  const workerFilterOptions = useMemo(
+    () => getWorkerFilterOptions(workerUsers as any, workerFilterKey),
+    [workerUsers, workerFilterKey]
+  );
+
   const reminderPositionOptions = useMemo(() => {
     return Array.from(
       new Set(
@@ -672,19 +688,20 @@ export default function AdminAssignments() {
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [tenantTrainings]);
 
-  const filtered = useMemo(() => {
+  const filteredBeforeStatus = useMemo(() => {
     const searchValue = normalize(search);
 
     return assignments.filter((assignment) => {
-      const status = normalize(assignment.status);
-      const matchesStatus = statusFilter === 'all' || status === statusFilter;
-
       const userName = getFullName(assignment.user);
       const userEmail = assignment.user?.email || '';
       const userArea = assignment.user?.area || '';
       const userJobRole = assignment.user?.job_role || '';
       const userPosition = assignment.user?.position || '';
-      const userRole = getWorkerRole(assignment.user);
+      const userSupervisor = assignment.user?.supervisor || '';
+      const userBase = assignment.user?.base || '';
+      const userSite = assignment.user?.site || '';
+      const userOilfield = assignment.user?.oilfield || '';
+      const userShift = assignment.user?.shift || '';
       const trainingTitle = getTrainingTitle(assignment.training, assignment);
       const trainingKey =
         assignment.training_id ||
@@ -693,7 +710,12 @@ export default function AdminAssignments() {
         assignment.training?.id ||
         '';
 
-      const matchesRole = roleFilter === 'all' || userRole === roleFilter;
+      const matchesWorkerCriterion =
+        workerFilterValue === 'all' ||
+        Boolean(
+          assignment.user &&
+            matchesWorkerFilter(assignment.user as any, workerFilterKey, [workerFilterValue])
+        );
       const matchesTraining = trainingFilter === 'all' || trainingKey === trainingFilter;
 
       const matchesSearch =
@@ -703,11 +725,24 @@ export default function AdminAssignments() {
         normalize(userArea).includes(searchValue) ||
         normalize(userJobRole).includes(searchValue) ||
         normalize(userPosition).includes(searchValue) ||
+        normalize(userSupervisor).includes(searchValue) ||
+        normalize(userBase).includes(searchValue) ||
+        normalize(userSite).includes(searchValue) ||
+        normalize(userOilfield).includes(searchValue) ||
+        normalize(userShift).includes(searchValue) ||
         normalize(trainingTitle).includes(searchValue);
 
-      return matchesStatus && matchesRole && matchesTraining && matchesSearch;
+      return matchesWorkerCriterion && matchesTraining && matchesSearch;
     });
-  }, [assignments, search, statusFilter, roleFilter, trainingFilter]);
+  }, [assignments, search, workerFilterKey, workerFilterValue, trainingFilter]);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === 'all') return filteredBeforeStatus;
+    return filteredBeforeStatus.filter(
+      (assignment) => normalize(assignment.status) === statusFilter
+    );
+  }, [filteredBeforeStatus, statusFilter]);
+
 
   const bulkReminderTargets = useMemo(() => {
     const searchValue = normalize(reminderSearch);
@@ -919,8 +954,10 @@ export default function AdminAssignments() {
   }, [finalAssignmentTargets]);
 
   function getStatusCount(statusValue: string) {
-    if (statusValue === 'all') return assignments.length;
-    return assignments.filter((assignment) => normalize(assignment.status) === statusValue).length;
+    if (statusValue === 'all') return filteredBeforeStatus.length;
+    return filteredBeforeStatus.filter(
+      (assignment) => normalize(assignment.status) === statusValue
+    ).length;
   }
 
 
@@ -949,9 +986,17 @@ export default function AdminAssignments() {
     setLastEmailEvidence(null);
     setBulkReminderResult(null);
     setReminderSearch(search);
-    setReminderRoleFilter(roleFilter);
+    setReminderRoleFilter(
+      workerFilterKey === 'work_role' && workerFilterValue !== 'all'
+        ? workerFilterValue
+        : 'all'
+    );
     setReminderPositionFilter('all');
-    setReminderAreaFilter('all');
+    setReminderAreaFilter(
+      workerFilterKey === 'area' && workerFilterValue !== 'all'
+        ? workerFilterValue
+        : 'all'
+    );
     setReminderTrainingFilter(trainingFilter);
     setReminderStatusFilter(
       ['not_started', 'in_progress', 'pending_test', 'expired'].includes(statusFilter)
@@ -975,8 +1020,9 @@ export default function AdminAssignments() {
 
     const firstTraining = enabledTrainingOptions[0] ?? null;
     setSelectedTrainingId(firstTraining?.id ?? '');
-    setAssignTargetMode(roleFilter !== 'all' ? 'role' : 'filtered');
-    setAssignRole(roleFilter !== 'all' ? roleFilter : 'all');
+    const canReuseRoleFilter = workerFilterKey === 'work_role' && workerFilterValue !== 'all';
+    setAssignTargetMode(canReuseRoleFilter ? 'role' : 'filtered');
+    setAssignRole(canReuseRoleFilter ? workerFilterValue : 'all');
     setDueDate(calculateDefaultDueDateISODate(firstTraining));
     setSendEmail(true);
     setIncludeCertifiedUsers(false);
@@ -1616,14 +1662,29 @@ export default function AdminAssignments() {
           </div>
 
           <select
-            value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value)}
+            value={workerFilterKey}
+            onChange={(event) => {
+              setWorkerFilterKey(event.target.value as WorkerFilterKey);
+              setWorkerFilterValue('all');
+            }}
+            className="select sm:min-w-[190px]"
+          >
+            {WORKER_FILTER_DEFINITIONS.map((definition) => (
+              <option key={definition.key} value={definition.key}>
+                {definition.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={workerFilterValue}
+            onChange={(event) => setWorkerFilterValue(event.target.value)}
             className="select sm:min-w-[220px]"
           >
-            <option value="all">Todos los roles ({workerUsers.length} trabajadores)</option>
-            {roleOptions.map((roleOption) => (
-              <option key={roleOption.role} value={roleOption.role}>
-                {roleOption.role} ({roleOption.count} trabajadores)
+            <option value="all">Todos</option>
+            {workerFilterOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label} ({option.count})
               </option>
             ))}
           </select>
@@ -1663,6 +1724,29 @@ export default function AdminAssignments() {
             Reminder masivo
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-steel-500">
+        <div>
+          {workerFilterValue === 'all' ? (
+            <>Sin filtro organizacional aplicado.</>
+          ) : (
+            <>
+              Filtro activo: <span className="text-steel-200 font-medium">{getWorkerFilterDefinition(workerFilterKey).label}</span>
+              {' '}· <span className="text-steel-200 font-medium">{workerFilterValue}</span>
+            </>
+          )}
+        </div>
+
+        {workerFilterValue !== 'all' && (
+          <button
+            type="button"
+            onClick={() => setWorkerFilterValue('all')}
+            className="text-xs text-steel-300 hover:text-steel-100 underline underline-offset-2"
+          >
+            Limpiar filtro organizacional
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 flex-wrap">
