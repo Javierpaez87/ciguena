@@ -14,6 +14,8 @@ import {
   FileText,
   CheckCircle,
   Download,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -22,6 +24,14 @@ import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  matchesWorkerFilter,
+  workerMatchesSearch,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
 interface Profile {
   id: string;
@@ -835,7 +845,8 @@ export default function AdminUsers() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [filterCriterion, setFilterCriterion] = useState<WorkerFilterKey>('work_role');
+  const [filterValue, setFilterValue] = useState('all');
 
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Profile | null>(null);
@@ -996,22 +1007,19 @@ export default function AdminUsers() {
     loadUsersData();
   }, [tenantId]);
 
-  const roleOptions = useMemo(() => {
-    const counts = new Map<string, number>();
+  const filterOptions = useMemo(
+    () => getWorkerFilterOptions(users, filterCriterion),
+    [users, filterCriterion]
+  );
 
-    users.forEach((profile) => {
-      const workerRole = getWorkerRole(profile);
-      counts.set(workerRole, (counts.get(workerRole) ?? 0) + 1);
-    });
+  const detectedRoleCount = useMemo(
+    () => getWorkerFilterOptions(users, 'work_role').length,
+    [users]
+  );
 
-    return Array.from(counts.entries())
-      .map(([role, count]) => ({ role, count }))
-      .sort((a, b) => a.role.localeCompare(b.role));
-  }, [users]);
+  const activeFilterDefinition = getWorkerFilterDefinition(filterCriterion);
 
   const filtered = useMemo(() => {
-    const searchValue = normalize(search);
-
     return users.filter((profile) => {
       const profileStatus = normalize(profile.status || 'active');
       const normalizedStatus = profileStatus === 'activo' ? 'active' : profileStatus;
@@ -1021,25 +1029,23 @@ export default function AdminUsers() {
         normalizedStatus === statusFilter ||
         (statusFilter === 'active' && isActive(profile));
 
-      const workerRole = getWorkerRole(profile);
-      const matchesRole = roleFilter === 'all' || workerRole === roleFilter;
+      const matchesCriterion = matchesWorkerFilter(
+        profile,
+        filterCriterion,
+        filterValue === 'all' ? [] : [filterValue]
+      );
 
-      const matchesSearch =
-        !searchValue ||
-        normalize(getFullName(profile)).includes(searchValue) ||
-        normalize(profile.email).includes(searchValue) ||
-        normalize(profile.work_role).includes(searchValue) ||
-        normalize(profile.job_role).includes(searchValue) ||
-        normalize(profile.position).includes(searchValue) ||
-        normalize(profile.area).includes(searchValue) ||
-        normalize(profile.employee_code).includes(searchValue) ||
-        normalize(profile.dni).includes(searchValue) ||
-        normalize(profile.phone).includes(searchValue) ||
-        normalize(profile.contractor_company).includes(searchValue);
-
-      return matchesStatus && matchesRole && matchesSearch;
+      return matchesStatus && matchesCriterion && workerMatchesSearch(profile, search);
     });
-  }, [users, search, statusFilter, roleFilter]);
+  }, [users, search, statusFilter, filterCriterion, filterValue]);
+
+  const hasActiveFilters = Boolean(search.trim()) || statusFilter !== 'all' || filterValue !== 'all';
+
+  function clearFilters() {
+    setSearch('');
+    setStatusFilter('all');
+    setFilterValue('all');
+  }
 
   const activeCount = users.filter(isActive).length;
   const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
@@ -2003,99 +2009,149 @@ export default function AdminUsers() {
         }}
       />
 
-      <div className="flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full xl:max-w-3xl">
-          <div className="relative flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="input pl-9"
-              placeholder="Buscar usuario, rol, área, legajo..."
-            />
-          </div>
+      <div className="card p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(320px,1.5fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_minmax(150px,0.65fr)] gap-3 items-end">
+          <label className="block">
+            <span className="block text-xs font-semibold text-steel-300 mb-1.5">Buscar trabajadores</span>
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400 pointer-events-none" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="input pl-10 w-full"
+                placeholder="Escribí nombre, apellido, DNI, email o legajo..."
+              />
+            </div>
+          </label>
 
-          <select
-            value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value)}
-            className="select sm:min-w-[210px]"
-          >
-            <option value="all">Todos los roles ({users.length})</option>
-            {roleOptions.map((roleOption) => (
-              <option key={roleOption.role} value={roleOption.role}>
-                {roleOption.role} ({roleOption.count})
-              </option>
-            ))}
-          </select>
+          <label className="block">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-steel-300 mb-1.5">
+              <SlidersHorizontal size={13} />
+              Filtrar por
+            </span>
+            <select
+              value={filterCriterion}
+              onChange={(event) => {
+                setFilterCriterion(event.target.value as WorkerFilterKey);
+                setFilterValue('all');
+              }}
+              className="select w-full"
+            >
+              {WORKER_FILTER_DEFINITIONS.map((definition) => (
+                <option key={definition.key} value={definition.key}>
+                  {definition.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className="select sm:w-auto"
-          >
-            <option value="all">Todos</option>
-            <option value="active">Activos</option>
-            <option value="pending">Pendientes</option>
-            <option value="preapproved">Preaprobados</option>
-            <option value="invited">Invitados</option>
-            <option value="inactive">Inactivos</option>
-          </select>
+          <label className="block">
+            <span className="block text-xs font-semibold text-steel-300 mb-1.5">
+              {activeFilterDefinition.label}
+            </span>
+            <select
+              value={filterValue}
+              onChange={(event) => setFilterValue(event.target.value)}
+              className="select w-full"
+            >
+              <option value="all">Todos ({users.length})</option>
+              {filterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="block text-xs font-semibold text-steel-300 mb-1.5">Estado</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="select w-full"
+            >
+              <option value="all">Todos</option>
+              <option value="active">Activos</option>
+              <option value="pending">Pendientes</option>
+              <option value="preapproved">Preaprobados</option>
+              <option value="invited">Invitados</option>
+              <option value="inactive">Inactivos</option>
+            </select>
+          </label>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => loadUsersData()} className="btn-secondary text-xs">
-            <RefreshCw size={14} />
-            Actualizar
-          </button>
+        <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between pt-3 border-t border-steel-700/70">
+          <div className="flex items-center gap-2 min-h-9">
+            <span className="text-xs text-steel-400">
+              Mostrando <span className="font-semibold text-steel-200">{filtered.length}</span> de {users.length} trabajadores
+            </span>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 text-xs text-steel-300 hover:text-white transition-colors"
+              >
+                <X size={13} />
+                Limpiar filtros
+              </button>
+            )}
+          </div>
 
-          <button
-            onClick={() => {
-              setCsvRows([]);
-              setDeactivateMissing(false);
-              setShowCsvModal(true);
-            }}
-            className="btn-secondary text-xs"
-          >
-            <Upload size={14} />
-            Cargar / actualizar nómina
-          </button>
+          <div className="flex flex-wrap gap-2 lg:justify-end">
+            <button onClick={() => loadUsersData()} className="btn-secondary text-xs">
+              <RefreshCw size={14} />
+              Actualizar
+            </button>
 
-          <button onClick={exportRosterCsv} className="btn-secondary text-xs">
-            <Download size={14} />
-            Exportar nómina
-          </button>
+            <button
+              onClick={() => {
+                setCsvRows([]);
+                setDeactivateMissing(false);
+                setShowCsvModal(true);
+              }}
+              className="btn-secondary text-xs"
+            >
+              <Upload size={14} />
+              Cargar / actualizar nómina
+            </button>
 
-          <button
-            onClick={() => {
-              setErrorMessage(null);
-              setSuccessMessage(null);
-              resetInvitationModal();
-              setShowBulkInvite(true);
-            }}
-            disabled={saving}
-            className="btn-secondary text-xs"
-          >
-            <Mail size={14} />
-            Enviar invitaciones{bulkInvitationRows.length > 0 ? ` (${bulkInvitationRows.length})` : ''}
-          </button>
+            <button onClick={exportRosterCsv} className="btn-secondary text-xs">
+              <Download size={14} />
+              Exportar nómina
+            </button>
 
-          <button
-            onClick={() => {
-              setErrorMessage(null);
-              setSuccessMessage(null);
-              resetInvitationModal();
-              setShowInvite(true);
-            }}
-            className="btn-secondary text-xs"
-          >
-            <Mail size={14} />
-            Invitar emails puntuales
-          </button>
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                setSuccessMessage(null);
+                resetInvitationModal();
+                setShowBulkInvite(true);
+              }}
+              disabled={saving}
+              className="btn-secondary text-xs"
+            >
+              <Mail size={14} />
+              Enviar invitaciones{bulkInvitationRows.length > 0 ? ` (${bulkInvitationRows.length})` : ''}
+            </button>
 
-          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-            <Plus size={16} />
-            Nuevo usuario
-          </button>
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                setSuccessMessage(null);
+                resetInvitationModal();
+                setShowInvite(true);
+              }}
+              className="btn-secondary text-xs"
+            >
+              <Mail size={14} />
+              Invitar emails puntuales
+            </button>
+
+            <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+              <Plus size={16} />
+              Nuevo usuario
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2119,7 +2175,7 @@ export default function AdminUsers() {
 
         <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
           <span className="text-xs text-steel-400">
-            {roleOptions.length} roles detectados
+            {detectedRoleCount} roles detectados
           </span>
         </div>
 
