@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
 import { supabase } from '../../lib/supabase';
@@ -532,6 +533,7 @@ function StatCard({
 
 export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsProps) {
   const { user, isReadOnly } = useAuth();
+  const { branding } = useBranding();
 
   const tenantId = user?.tenant_id || user?.profile?.tenant_id || null;
   const adminProfileId = user?.profile?.id || null;
@@ -915,8 +917,8 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
 
         setSuccessMessage(
           emailInviteFailedCount > 0
-            ? `Capacitación creada, Google Meet generado y ${emailInviteCount} mails Cigüeña enviados. Hubo ${emailInviteFailedCount} mail(s) con error.`
-            : `Capacitación creada, Google Meet generado y ${emailInviteCount} mails Cigüeña enviados. Google Calendar invitó a ${attendeeCount} participante(s).`
+            ? `Capacitación creada, Google Meet generado y ${emailInviteCount} mails ${branding.brandName} enviados. Hubo ${emailInviteFailedCount} mail(s) con error.`
+            : `Capacitación creada, Google Meet generado y ${emailInviteCount} mails ${branding.brandName} enviados. Google Calendar invitó a ${attendeeCount} participante(s).`
         );
       } catch (calendarError) {
         setSuccessMessage('Capacitación en vivo creada correctamente.');
@@ -1140,8 +1142,8 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
 
         setSuccessMessage(
           emailInviteFailedCount > 0
-            ? `Google Calendar/Meet creado. ${emailInviteCount} mails Cigüeña enviados y ${emailInviteFailedCount} con error.`
-            : `Google Calendar/Meet creado. Google Calendar invitó a ${attendeeCount} participante(s) y Cigüeña envió ${emailInviteCount} mail(s).`
+            ? `Google Calendar/Meet creado. ${emailInviteCount} mails ${branding.brandName} enviados y ${emailInviteFailedCount} con error.`
+            : `Google Calendar/Meet creado. Google Calendar invitó a ${attendeeCount} participante(s) y ${branding.brandName} envió ${emailInviteCount} mail(s).`
         );
       }
     } catch (err) {
@@ -1753,7 +1755,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
             Capacitaciones en Vivo
           </h1>
           <p className="mt-1 text-sm text-steel-400">
-            Creá capacitaciones por Google Meet, invitá trabajadores y registrá el ingreso desde Cigüeña.
+            Creá capacitaciones por Google Meet, invitá trabajadores y registrá el ingreso desde {branding.brandName}.
           </p>
         </div>
 
@@ -2006,7 +2008,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                             Paso obligatorio pendiente: crear un nuevo Calendar/Meet
                           </p>
                           <p className="mt-1 text-sm text-amber-100/80">
-                            Esta capacitación no tiene un Meet activo. Si fue restaurada desde papelera, el evento anterior fue cancelado y no debe reutilizarse. Creá un nuevo Calendar/Meet para invitar a los participantes y habilitar el ingreso desde Cigüeña.
+                            Esta capacitación no tiene un Meet activo. Si fue restaurada desde papelera, el evento anterior fue cancelado y no debe reutilizarse. Creá un nuevo Calendar/Meet para invitar a los participantes y habilitar el ingreso desde {branding.brandName}.
                           </p>
                         </div>
                       </div>
@@ -2041,7 +2043,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                       Participantes
                     </h3>
                     <p className="text-xs text-steel-500">
-                      La asistencia se calcula según el click en “Ingresar a Google Meet” desde Cigüeña.
+                      La asistencia se calcula según el click en “Ingresar a Google Meet” desde {branding.brandName}.
                     </p>
                   </div>
 
@@ -2067,7 +2069,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
                               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Worker</th>
                               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Rol / Área</th>
                               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Asistencia</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Abrió Cigüeña</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Abrió {branding.brandName}</th>
                               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Click Meet</th>
                               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-steel-500">Cumplimiento</th>
                             </tr>

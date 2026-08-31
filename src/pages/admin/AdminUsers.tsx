@@ -5,6 +5,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Eye,
+  Pencil,
   Mail,
   Users,
   RefreshCw,
@@ -13,12 +14,24 @@ import {
   FileText,
   CheckCircle,
   Download,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  matchesWorkerFilter,
+  workerMatchesSearch,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
 interface Profile {
   id: string;
@@ -129,6 +142,34 @@ type FormState = {
   status: string;
 };
 
+type EditFormState = {
+  first_name: string;
+  last_name: string;
+  dni: string;
+  phone: string;
+  work_role: string;
+  position: string;
+  area: string;
+  contractor_company: string;
+  employee_code: string;
+  supervisor: string;
+  shift: string;
+  hire_date: string;
+  base: string;
+  site: string;
+  region: string;
+  oilfield: string;
+};
+
+type CsvRowAction = 'new' | 'update' | 'unchanged' | 'conflict';
+
+type CsvFieldChange = {
+  field: string;
+  label: string;
+  from: string;
+  to: string;
+};
+
 type CsvPreviewRow = {
   rowNumber: number;
   first_name: string;
@@ -151,7 +192,14 @@ type CsvPreviewRow = {
   oilfield: string;
   custom_fields: Record<string, string>;
   status: string;
+  status_provided: boolean;
   errors: string[];
+  action: CsvRowAction;
+  changes: CsvFieldChange[];
+  matched_user_id?: string;
+  matched_profile_id?: string;
+  matched_directory_id?: string;
+  match_reason?: string;
 };
 
 type InvitationResultStatus = 'accepted' | 'failed' | 'skipped' | 'not_processed';
@@ -188,6 +236,25 @@ const emptyForm: FormState = {
   contractor_company: '',
   employee_code: '',
   status: 'active',
+};
+
+const emptyEditForm: EditFormState = {
+  first_name: '',
+  last_name: '',
+  dni: '',
+  phone: '',
+  work_role: '',
+  position: '',
+  area: '',
+  contractor_company: '',
+  employee_code: '',
+  supervisor: '',
+  shift: '',
+  hire_date: '',
+  base: '',
+  site: '',
+  region: '',
+  oilfield: '',
 };
 
 function normalize(value?: string | null) {
@@ -391,7 +458,7 @@ function getColumnValue(row: Record<string, string>, keys: string[]) {
 function mapStatus(value: string) {
   const status = normalize(value);
 
-  if (!status) return 'preapproved';
+  if (!status) return '';
   if (['activo', 'active', 'habilitado'].includes(status)) return 'active';
   if (['inactivo', 'inactive', 'deshabilitado'].includes(status)) return 'inactive';
   if (['pendiente', 'pending', 'preaprobado', 'preapproved'].includes(status)) return 'preapproved';
@@ -403,7 +470,7 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
+function parseCsv(text: string): CsvPreviewRow[] {
   const cleanedText = text.replace(/\r/g, '').trim();
 
   if (!cleanedText) return [];
@@ -415,6 +482,8 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
   const delimiter = detectCsvDelimiter(lines[0]);
   const headers = parseCsvLine(lines[0], delimiter).map(normalizeHeader);
   const emailsInCsv = new Set<string>();
+  const employeeCodesInCsv = new Set<string>();
+  const dnisInCsv = new Set<string>();
 
   return lines.slice(1).map((line, index) => {
     const values = parseCsvLine(line, delimiter);
@@ -440,8 +509,7 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
       'job_role',
       'rol',
     ]);
-    const position =
-      getColumnValue(row, ['puesto', 'position', 'cargo']) || workRole;
+    const position = getColumnValue(row, ['puesto', 'position', 'cargo']);
     const area = getColumnValue(row, ['area', 'sector', 'departamento', 'department']);
     const employeeCode = getColumnValue(row, ['legajo', 'employee_code', 'codigo_empleado']);
     const contractorCompany = getColumnValue(row, [
@@ -450,7 +518,8 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
       'contractor_company',
       'empresa',
     ]);
-    const status = mapStatus(getColumnValue(row, ['estado', 'status']));
+    const rawStatus = getColumnValue(row, ['estado', 'status']);
+    const status = rawStatus ? mapStatus(rawStatus) : '';
     const supervisor = getColumnValue(row, ['supervisor', 'responsable']);
     const shift = getColumnValue(row, ['turno', 'shift', 'diagrama']);
     const hireDate = getColumnValue(row, ['fecha_ingreso', 'hire_date', 'fecha_de_ingreso']);
@@ -469,18 +538,24 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
     const fullName = fullNameFromCsv || [firstName, lastName].filter(Boolean).join(' ');
 
     const errors: string[] = [];
+    const normalizedEmail = normalize(email);
+    const normalizedEmployeeCode = normalize(employeeCode);
+    const normalizedDni = normalize(dni);
 
     if (!email) errors.push('Falta email');
     if (email && !isValidEmail(email)) errors.push('Email inválido');
-    if (email && existingEmails.has(email)) errors.push('Email ya existe');
-    if (email && emailsInCsv.has(email)) errors.push('Email duplicado en el CSV');
+    if (normalizedEmail && emailsInCsv.has(normalizedEmail)) errors.push('Email duplicado en el CSV');
+    if (normalizedEmployeeCode && employeeCodesInCsv.has(normalizedEmployeeCode)) {
+      errors.push('Legajo duplicado en el CSV');
+    }
+    if (normalizedDni && dnisInCsv.has(normalizedDni)) errors.push('DNI duplicado en el CSV');
     if (!fullName) errors.push('Falta nombre');
-    if (!['active', 'inactive', 'preapproved'].includes(status)) errors.push('Estado inválido');
+    if (status && !['active', 'inactive', 'preapproved'].includes(status)) errors.push('Estado inválido');
     if (hireDate && !isValidIsoDate(hireDate)) errors.push('Fecha de ingreso inválida');
 
-    if (email) {
-      emailsInCsv.add(email);
-    }
+    if (normalizedEmail) emailsInCsv.add(normalizedEmail);
+    if (normalizedEmployeeCode) employeeCodesInCsv.add(normalizedEmployeeCode);
+    if (normalizedDni) dnisInCsv.add(normalizedDni);
 
     return {
       rowNumber: index + 2,
@@ -504,9 +579,173 @@ function parseCsv(text: string, existingEmails: Set<string>): CsvPreviewRow[] {
       oilfield,
       custom_fields: customFields,
       status,
+      status_provided: Boolean(rawStatus),
       errors,
+      action: errors.length > 0 ? 'conflict' : 'new',
+      changes: [],
     };
   });
+}
+
+function addProfileToIndex(index: Map<string, Profile[]>, key: string, profile: Profile) {
+  if (!key) return;
+  const current = index.get(key) || [];
+  if (!current.some((item) => item.id === profile.id)) current.push(profile);
+  index.set(key, current);
+}
+
+function classifyCsvRows(rows: CsvPreviewRow[], users: Profile[]): CsvPreviewRow[] {
+  const byEmail = new Map<string, Profile[]>();
+  const byEmployeeCode = new Map<string, Profile[]>();
+  const byDni = new Map<string, Profile[]>();
+
+  users.forEach((profile) => {
+    addProfileToIndex(byEmail, normalize(profile.email), profile);
+    addProfileToIndex(byEmployeeCode, normalize(profile.employee_code), profile);
+    addProfileToIndex(byDni, normalize(profile.dni), profile);
+  });
+
+  const labels: Record<string, string> = {
+    first_name: 'Nombre',
+    last_name: 'Apellido',
+    full_name: 'Nombre completo',
+    email: 'Email',
+    dni: 'DNI',
+    phone: 'Teléfono',
+    work_role: 'Rol operativo',
+    position: 'Puesto',
+    area: 'Área',
+    contractor_company: 'Contratista',
+    employee_code: 'Legajo',
+    supervisor: 'Supervisor',
+    shift: 'Turno',
+    hire_date: 'Fecha de ingreso',
+    base: 'Base',
+    site: 'Sede',
+    region: 'Región',
+    oilfield: 'Yacimiento',
+  };
+
+  return rows.map((row) => {
+    if (row.errors.length > 0) return { ...row, action: 'conflict' };
+
+    const candidateMap = new Map<string, Profile>();
+    const reasons = new Set<string>();
+    const employeeCode = normalize(row.employee_code);
+    const dni = normalize(row.dni);
+    const email = normalize(row.email);
+
+    const addCandidates = (items: Profile[] | undefined, reason: string) => {
+      (items || []).forEach((profile) => candidateMap.set(profile.id, profile));
+      if (items && items.length > 0) reasons.add(reason);
+    };
+
+    if (employeeCode) addCandidates(byEmployeeCode.get(employeeCode), 'legajo');
+    if (dni) addCandidates(byDni.get(dni), 'DNI');
+    if (email) addCandidates(byEmail.get(email), 'email');
+
+    const candidates = Array.from(candidateMap.values());
+
+    if (candidates.length > 1) {
+      return {
+        ...row,
+        action: 'conflict',
+        errors: [...row.errors, 'Legajo, DNI o email corresponden a trabajadores distintos'],
+      };
+    }
+
+    const existing = candidates[0];
+    if (!existing) return { ...row, action: 'new' };
+
+    const currentEmail = normalize(existing.email);
+    if (existing.auth_user_id && currentEmail && email && currentEmail !== email) {
+      return {
+        ...row,
+        action: 'conflict',
+        matched_user_id: existing.id,
+        matched_profile_id: isDirectoryOnly(existing) ? undefined : existing.id,
+        matched_directory_id: existing.employee_directory_id,
+        match_reason: Array.from(reasons).join(' + '),
+        errors: [...row.errors, 'El usuario ya tiene cuenta: el email no se cambia por CSV'],
+      };
+    }
+
+    const changes: CsvFieldChange[] = [];
+    const values: Array<[keyof CsvPreviewRow, string]> = [
+      ['first_name', existing.first_name || ''],
+      ['last_name', existing.last_name || ''],
+      ['full_name', existing.full_name || getFullName(existing)],
+      ['dni', existing.dni || ''],
+      ['phone', existing.phone || ''],
+      ['work_role', existing.work_role || existing.job_role || ''],
+      ['position', existing.position || ''],
+      ['area', existing.area || ''],
+      ['contractor_company', existing.contractor_company || ''],
+      ['employee_code', existing.employee_code || ''],
+      ['supervisor', existing.supervisor || ''],
+      ['shift', existing.shift || ''],
+      ['hire_date', existing.hire_date || ''],
+      ['base', existing.base || ''],
+      ['site', existing.site || ''],
+      ['region', existing.region || ''],
+      ['oilfield', existing.oilfield || ''],
+    ];
+
+    values.forEach(([field, currentValue]) => {
+      const nextValue = String(row[field] || '').trim();
+      if (nextValue && String(currentValue || '').trim() !== nextValue) {
+        changes.push({
+          field: String(field),
+          label: labels[String(field)] || String(field),
+          from: String(currentValue || '').trim(),
+          to: nextValue,
+        });
+      }
+    });
+
+    if (currentEmail !== email) {
+      changes.push({ field: 'email', label: 'Email', from: existing.email || '', to: row.email });
+    }
+
+    if (row.status_provided) {
+      const currentStatus = isActive(existing) ? 'active' : normalize(existing.status);
+      const nextStatus = row.status === 'inactive' ? 'inactive' : 'active';
+      if (currentStatus !== nextStatus) {
+        changes.push({ field: 'status', label: 'Estado', from: currentStatus, to: nextStatus });
+      }
+    }
+
+    return {
+      ...row,
+      action: changes.length > 0 ? 'update' : 'unchanged',
+      changes,
+      matched_user_id: existing.id,
+      matched_profile_id: isDirectoryOnly(existing) ? undefined : existing.id,
+      matched_directory_id: existing.employee_directory_id,
+      match_reason: Array.from(reasons).join(' + '),
+    };
+  });
+}
+
+function profileToEditForm(profile: Profile): EditFormState {
+  return {
+    first_name: profile.first_name || '',
+    last_name: profile.last_name || '',
+    dni: profile.dni || '',
+    phone: profile.phone || '',
+    work_role: profile.work_role || profile.job_role || '',
+    position: profile.position || '',
+    area: profile.area || '',
+    contractor_company: profile.contractor_company || '',
+    employee_code: profile.employee_code || '',
+    supervisor: profile.supervisor || '',
+    shift: profile.shift || '',
+    hire_date: profile.hire_date || '',
+    base: profile.base || '',
+    site: profile.site || '',
+    region: profile.region || '',
+    oilfield: profile.oilfield || '',
+  };
 }
 
 function sortByCreatedAtDesc<T extends { created_at?: string | null; assigned_at?: string | null }>(
@@ -519,7 +758,7 @@ function sortByCreatedAtDesc<T extends { created_at?: string | null; assigned_at
   });
 }
 
-function downloadCsvTemplate() {
+function downloadCsvTemplate(brandSlug: string) {
   const headers = [
     'nombre',
     'apellido',
@@ -583,7 +822,7 @@ function downloadCsvTemplate() {
 
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'modelo_carga_trabajadores_ciguena.csv';
+  link.download = `modelo_carga_trabajadores_${brandSlug}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -592,6 +831,8 @@ function downloadCsvTemplate() {
 
 export default function AdminUsers() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -604,17 +845,21 @@ export default function AdminUsers() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [filterCriterion, setFilterCriterion] = useState<WorkerFilterKey>('work_role');
+  const [filterValue, setFilterValue] = useState('all');
 
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Profile | null>(null);
+  const [showEdit, setShowEdit] = useState<Profile | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
 
   const [inviteEmails, setInviteEmails] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [editForm, setEditForm] = useState<EditFormState>(emptyEditForm);
   const [csvRows, setCsvRows] = useState<CsvPreviewRow[]>([]);
+  const [deactivateMissing, setDeactivateMissing] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -762,22 +1007,19 @@ export default function AdminUsers() {
     loadUsersData();
   }, [tenantId]);
 
-  const roleOptions = useMemo(() => {
-    const counts = new Map<string, number>();
+  const filterOptions = useMemo(
+    () => getWorkerFilterOptions(users, filterCriterion),
+    [users, filterCriterion]
+  );
 
-    users.forEach((profile) => {
-      const workerRole = getWorkerRole(profile);
-      counts.set(workerRole, (counts.get(workerRole) ?? 0) + 1);
-    });
+  const detectedRoleCount = useMemo(
+    () => getWorkerFilterOptions(users, 'work_role').length,
+    [users]
+  );
 
-    return Array.from(counts.entries())
-      .map(([role, count]) => ({ role, count }))
-      .sort((a, b) => a.role.localeCompare(b.role));
-  }, [users]);
+  const activeFilterDefinition = getWorkerFilterDefinition(filterCriterion);
 
   const filtered = useMemo(() => {
-    const searchValue = normalize(search);
-
     return users.filter((profile) => {
       const profileStatus = normalize(profile.status || 'active');
       const normalizedStatus = profileStatus === 'activo' ? 'active' : profileStatus;
@@ -787,25 +1029,23 @@ export default function AdminUsers() {
         normalizedStatus === statusFilter ||
         (statusFilter === 'active' && isActive(profile));
 
-      const workerRole = getWorkerRole(profile);
-      const matchesRole = roleFilter === 'all' || workerRole === roleFilter;
+      const matchesCriterion = matchesWorkerFilter(
+        profile,
+        filterCriterion,
+        filterValue === 'all' ? [] : [filterValue]
+      );
 
-      const matchesSearch =
-        !searchValue ||
-        normalize(getFullName(profile)).includes(searchValue) ||
-        normalize(profile.email).includes(searchValue) ||
-        normalize(profile.work_role).includes(searchValue) ||
-        normalize(profile.job_role).includes(searchValue) ||
-        normalize(profile.position).includes(searchValue) ||
-        normalize(profile.area).includes(searchValue) ||
-        normalize(profile.employee_code).includes(searchValue) ||
-        normalize(profile.dni).includes(searchValue) ||
-        normalize(profile.phone).includes(searchValue) ||
-        normalize(profile.contractor_company).includes(searchValue);
-
-      return matchesStatus && matchesRole && matchesSearch;
+      return matchesStatus && matchesCriterion && workerMatchesSearch(profile, search);
     });
-  }, [users, search, statusFilter, roleFilter]);
+  }, [users, search, statusFilter, filterCriterion, filterValue]);
+
+  const hasActiveFilters = Boolean(search.trim()) || statusFilter !== 'all' || filterValue !== 'all';
+
+  function clearFilters() {
+    setSearch('');
+    setStatusFilter('all');
+    setFilterValue('all');
+  }
 
   const activeCount = users.filter(isActive).length;
   const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
@@ -856,6 +1096,94 @@ export default function AdminUsers() {
       return acc;
     }, {});
   }, [assignments]);
+
+  function exportRosterCsv() {
+    const headers = [
+      'nombre',
+      'apellido',
+      'email',
+      'dni',
+      'telefono',
+      'rol_operativo',
+      'area',
+      'legajo',
+      'empresa_contratista',
+      'estado',
+      'puesto',
+      'supervisor',
+      'turno',
+      'fecha_ingreso',
+      'base',
+      'sede',
+      'region',
+      'yacimiento',
+      'campo_personalizado_1',
+      'campo_personalizado_2',
+      'campo_personalizado_3',
+      'campo_personalizado_4',
+      'campo_personalizado_5',
+    ];
+
+    const rows = users.map((profile) => {
+      const customFields =
+        profile.custom_fields ||
+        ((profile.raw_payload?.custom_fields as Record<string, string> | undefined) ?? {});
+
+      const rosterStatus =
+        normalize(profile.status) === 'inactive' || normalize(profile.directory_status) === 'inactive'
+          ? 'inactive'
+          : 'active';
+
+      return [
+        profile.first_name || '',
+        profile.last_name || '',
+        profile.email || '',
+        profile.dni || '',
+        profile.phone || '',
+        profile.work_role || profile.job_role || '',
+        profile.area || '',
+        profile.employee_code || '',
+        profile.contractor_company || '',
+        rosterStatus,
+        profile.position || '',
+        profile.supervisor || '',
+        profile.shift || '',
+        profile.hire_date || '',
+        profile.base || '',
+        profile.site || '',
+        profile.region || '',
+        profile.oilfield || '',
+        customFields.campo_personalizado_1 || '',
+        customFields.campo_personalizado_2 || '',
+        customFields.campo_personalizado_3 || '',
+        customFields.campo_personalizado_4 || '',
+        customFields.campo_personalizado_5 || '',
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeTenantName = (tenantName || 'empresa')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const today = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `nomina_${brandSlug}_${safeTenantName || 'empresa'}_${today}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
 
   async function toggleStatus(profile: Profile) {
     if (!profile.id || !tenantId) return;
@@ -943,6 +1271,102 @@ export default function AdminUsers() {
       setErrorMessage(
         error instanceof Error ? error.message : 'No se pudo actualizar el usuario.'
       );
+    }
+  }
+
+  async function callRosterSync(body: Record<string, unknown>) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      throw new Error('Tu sesión venció. Volvé a ingresar antes de modificar la nómina.');
+    }
+
+    const response = await fetch('/.netlify/functions/sync-worker-roster', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(result?.error || 'No pudimos actualizar la nómina.');
+    }
+
+    return result;
+  }
+
+  function openEditWorker(profile: Profile) {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setEditForm(profileToEditForm(profile));
+    setShowEdit(profile);
+  }
+
+  async function handleSaveEdit() {
+    if (!tenantId || !showEdit) return;
+
+    const fullName =
+      [editForm.first_name.trim(), editForm.last_name.trim()].filter(Boolean).join(' ') ||
+      getFullName(showEdit);
+
+    if (!fullName) {
+      setErrorMessage('El trabajador debe tener nombre.');
+      return;
+    }
+
+    if (editForm.hire_date && !isValidIsoDate(editForm.hire_date)) {
+      setErrorMessage('La fecha de ingreso debe tener formato AAAA-MM-DD.');
+      return;
+    }
+
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      await callRosterSync({
+        mode: 'single',
+        tenantId,
+        worker: {
+          profileId: isDirectoryOnly(showEdit) ? null : showEdit.id,
+          directoryId:
+            showEdit.employee_directory_id ||
+            (isDirectoryOnly(showEdit) ? String(showEdit.id).replace('directory:', '') : null),
+          first_name: editForm.first_name,
+          last_name: editForm.last_name,
+          full_name: fullName,
+          email: showEdit.email,
+          dni: editForm.dni,
+          phone: editForm.phone,
+          work_role: editForm.work_role,
+          position: editForm.position,
+          area: editForm.area,
+          contractor_company: editForm.contractor_company,
+          employee_code: editForm.employee_code,
+          supervisor: editForm.supervisor,
+          shift: editForm.shift,
+          hire_date: editForm.hire_date,
+          base: editForm.base,
+          site: editForm.site,
+          region: editForm.region,
+          oilfield: editForm.oilfield,
+          status_provided: false,
+        },
+      });
+
+      setShowEdit(null);
+      setEditForm(emptyEditForm);
+      await loadUsersData({ silent: true });
+      setSuccessMessage('Datos del trabajador actualizados correctamente.');
+    } catch (error) {
+      console.error('Error editing worker:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo actualizar el trabajador.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1423,13 +1847,13 @@ export default function AdminUsers() {
 
     try {
       const text = await file.text();
-      const existingEmails = new Set<string>(users.map((profile) => normalize(profile.email)));
-      const parsedRows = parseCsv(text, existingEmails);
+      const parsedRows = classifyCsvRows(parseCsv(text), users);
 
       if (parsedRows.length === 0) {
         throw new Error('El CSV no tiene filas válidas o está vacío.');
       }
 
+      setDeactivateMissing(false);
       setCsvRows(parsedRows);
       setShowCsvModal(true);
     } catch (error) {
@@ -1441,16 +1865,24 @@ export default function AdminUsers() {
     }
   }
 
-  async function importCsvRows() {
+  async function syncCsvRows() {
     if (!tenantId) {
-      setErrorMessage('No se encontró tenant_id para importar usuarios.');
+      setErrorMessage('No se encontró tenant_id para actualizar la nómina.');
       return;
     }
 
-    const validRows = csvRows.filter((row) => row.errors.length === 0);
+    const validRows = csvRows.filter((row) => row.errors.length === 0 && row.action !== 'conflict');
+    const invalidRows = csvRows.filter((row) => row.errors.length > 0 || row.action === 'conflict');
 
     if (validRows.length === 0) {
-      setErrorMessage('No hay filas válidas para importar.');
+      setErrorMessage('No hay filas válidas para procesar.');
+      return;
+    }
+
+    if (deactivateMissing && invalidRows.length > 0) {
+      setErrorMessage(
+        'Para renovar la nómina completa primero resolvé todos los errores o conflictos del archivo. No se desactivará a nadie mientras existan filas dudosas.'
+      );
       return;
     }
 
@@ -1459,136 +1891,69 @@ export default function AdminUsers() {
     setSuccessMessage(null);
 
     try {
-      const now = new Date().toISOString();
-
-      const directoryRowsToInsert = validRows.map((row) => {
-        const cleanWorkRole = clean(row.work_role);
-        const cleanPosition = clean(row.position);
-
-        return {
-          tenant_id: tenantId,
-          source: 'csv',
-          external_id: clean(row.employee_code),
-          first_name: clean(row.first_name),
-          last_name: clean(row.last_name),
+      const result = await callRosterSync({
+        mode: 'roster',
+        tenantId,
+        deactivateMissing,
+        rows: validRows.map((row) => ({
+          rowNumber: row.rowNumber,
+          first_name: row.first_name,
+          last_name: row.last_name,
           full_name: row.full_name,
           email: row.email,
-          dni: clean(row.dni),
-          phone: clean(row.phone),
-          work_role: cleanWorkRole || cleanPosition,
-          position: cleanPosition || cleanWorkRole,
-          area: clean(row.area),
-          contractor_company: clean(row.contractor_company),
-          employee_code: clean(row.employee_code),
-          status: row.status === 'inactive' ? 'inactive' : 'preapproved',
-          raw_payload: {
-            source: 'csv',
-            row_number: row.rowNumber,
-            work_role: clean(row.work_role),
-            position: clean(row.position),
-            supervisor: clean(row.supervisor),
-            shift: clean(row.shift),
-            hire_date: clean(row.hire_date),
-            base: clean(row.base),
-            site: clean(row.site),
-            region: clean(row.region),
-            oilfield: clean(row.oilfield),
-            custom_fields: row.custom_fields,
-          },
-          created_at: now,
-          updated_at: now,
-        };
+          dni: row.dni,
+          phone: row.phone,
+          work_role: row.work_role,
+          position: row.position,
+          area: row.area,
+          contractor_company: row.contractor_company,
+          employee_code: row.employee_code,
+          supervisor: row.supervisor,
+          shift: row.shift,
+          hire_date: row.hire_date,
+          base: row.base,
+          site: row.site,
+          region: row.region,
+          oilfield: row.oilfield,
+          custom_fields: row.custom_fields,
+          status: row.status,
+          status_provided: row.status_provided,
+        })),
       });
 
-      const { data, error } = await supabase
-        .from('employee_directory')
-        .insert(directoryRowsToInsert)
-        .select('*');
-
-      if (error) throw error;
-
-      const createdRows = (data ?? []) as EmployeeDirectory[];
-      const rowByEmail = new Map(validRows.map((row) => [normalize(row.email), row]));
-
-      const placeholderProfilesPayload = createdRows.map((directoryRow) => {
-        const sourceRow = rowByEmail.get(normalize(directoryRow.email));
-        const workRole = clean(sourceRow?.work_role) || clean(sourceRow?.position);
-        const position = clean(sourceRow?.position) || workRole;
-
-        return {
-          tenant_id: tenantId,
-          auth_user_id: null,
-          first_name: clean(directoryRow.first_name),
-          last_name: clean(directoryRow.last_name),
-          full_name:
-            directoryRow.full_name ||
-            [directoryRow.first_name, directoryRow.last_name].filter(Boolean).join(' '),
-          email: normalize(directoryRow.email),
-          phone: clean(directoryRow.phone),
-          dni: clean(directoryRow.dni),
-          work_role: workRole,
-          position,
-          area: clean(directoryRow.area),
-          contractor_company: clean(directoryRow.contractor_company),
-          employee_code: clean(directoryRow.employee_code || directoryRow.external_id),
-          role: 'worker',
-          status: normalize(directoryRow.status) === 'inactive' ? 'inactive' : 'active',
-          preapproved: true,
-        };
-      });
-
-      const { data: placeholderProfiles, error: placeholderError } = await supabase
-        .from('profiles')
-        .insert(placeholderProfilesPayload)
-        .select('*');
-
-      if (placeholderError) {
-        if (createdRows.length > 0) {
-          await supabase
-            .from('employee_directory')
-            .delete()
-            .in('id', createdRows.map((row) => row.id));
-        }
-        throw placeholderError;
-      }
-
-      const directoryByEmail = new Map(createdRows.map((row) => [normalize(row.email), row]));
-      const createdProfiles = ((placeholderProfiles ?? []) as Profile[]).map((profile) => {
-        const directoryRow = directoryByEmail.get(normalize(profile.email));
-        return {
-          ...profile,
-          employee_directory_id: directoryRow?.id,
-          directory_status: directoryRow?.status,
-          work_role: profile.work_role || directoryRow?.work_role,
-          job_role: profile.job_role || profile.work_role || directoryRow?.work_role || directoryRow?.position,
-          position: profile.position || directoryRow?.position || directoryRow?.work_role,
-          source: directoryRow?.source || 'csv',
-        };
-      });
-
-      setEmployeeDirectory((currentRows) => [...currentRows, ...createdRows]);
-      setUsers((currentUsers) =>
-        [...currentUsers, ...createdProfiles].sort((a, b) =>
-          getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
-        )
-      );
-
+      const summary = result?.summary || {};
       setCsvRows([]);
+      setDeactivateMissing(false);
       setShowCsvModal(false);
+      await loadUsersData({ silent: true });
       setSuccessMessage(
-        `${createdRows.length} trabajador(es) importado(s) a la nómina y preparados para asignaciones antes del primer login.`
+        `Nómina actualizada: ${summary.created || 0} nuevos, ${summary.updated || 0} modificados, ${summary.unchanged || 0} sin cambios${
+          deactivateMissing ? `, ${summary.deactivated || 0} desactivados` : ''
+        }.`
       );
     } catch (error) {
-      console.error('Error importing CSV:', error);
-      setErrorMessage(error instanceof Error ? error.message : 'No se pudo importar el CSV.');
+      console.error('Error syncing roster:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo actualizar la nómina.');
     } finally {
       setSaving(false);
     }
   }
 
   const detailAssignments = showDetail ? assignmentsByUser[showDetail.id] ?? [] : [];
-  const validCsvRows = csvRows.filter((row) => row.errors.length === 0);
-  const invalidCsvRows = csvRows.filter((row) => row.errors.length > 0);
+  const newCsvRows = csvRows.filter((row) => row.action === 'new' && row.errors.length === 0);
+  const updatedCsvRows = csvRows.filter((row) => row.action === 'update' && row.errors.length === 0);
+  const unchangedCsvRows = csvRows.filter((row) => row.action === 'unchanged' && row.errors.length === 0);
+  const invalidCsvRows = csvRows.filter((row) => row.action === 'conflict' || row.errors.length > 0);
+  const validCsvRows = csvRows.filter((row) => row.action !== 'conflict' && row.errors.length === 0);
+  const matchedCsvUserIds = new Set(
+    csvRows.map((row) => row.matched_user_id).filter((value): value is string => Boolean(value))
+  );
+  const missingCsvUsers = csvRows.length > 0
+    ? users.filter((profile) => normalize(profile.status) !== 'inactive' && !matchedCsvUserIds.has(profile.id))
+    : [];
+  const csvChangesToApply =
+    newCsvRows.length + updatedCsvRows.length + (deactivateMissing ? missingCsvUsers.length : 0);
+
 
   if (loading) {
     return (
@@ -1644,93 +2009,149 @@ export default function AdminUsers() {
         }}
       />
 
-      <div className="flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-2 flex-1 w-full xl:max-w-3xl">
-          <div className="relative flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="input pl-9"
-              placeholder="Buscar usuario, rol, área, legajo..."
-            />
-          </div>
+      <div className="card p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(320px,1.5fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_minmax(150px,0.65fr)] gap-3 items-end">
+          <label className="block">
+            <span className="block text-xs font-semibold text-steel-300 mb-1.5">Buscar trabajadores</span>
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400 pointer-events-none" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="input pl-10 w-full"
+                placeholder="Escribí nombre, apellido, DNI, email o legajo..."
+              />
+            </div>
+          </label>
 
-          <select
-            value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value)}
-            className="select sm:min-w-[210px]"
-          >
-            <option value="all">Todos los roles ({users.length})</option>
-            {roleOptions.map((roleOption) => (
-              <option key={roleOption.role} value={roleOption.role}>
-                {roleOption.role} ({roleOption.count})
-              </option>
-            ))}
-          </select>
+          <label className="block">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-steel-300 mb-1.5">
+              <SlidersHorizontal size={13} />
+              Filtrar por
+            </span>
+            <select
+              value={filterCriterion}
+              onChange={(event) => {
+                setFilterCriterion(event.target.value as WorkerFilterKey);
+                setFilterValue('all');
+              }}
+              className="select w-full"
+            >
+              {WORKER_FILTER_DEFINITIONS.map((definition) => (
+                <option key={definition.key} value={definition.key}>
+                  {definition.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className="select sm:w-auto"
-          >
-            <option value="all">Todos</option>
-            <option value="active">Activos</option>
-            <option value="pending">Pendientes</option>
-            <option value="preapproved">Preaprobados</option>
-            <option value="invited">Invitados</option>
-            <option value="inactive">Inactivos</option>
-          </select>
+          <label className="block">
+            <span className="block text-xs font-semibold text-steel-300 mb-1.5">
+              {activeFilterDefinition.label}
+            </span>
+            <select
+              value={filterValue}
+              onChange={(event) => setFilterValue(event.target.value)}
+              className="select w-full"
+            >
+              <option value="all">Todos ({users.length})</option>
+              {filterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="block text-xs font-semibold text-steel-300 mb-1.5">Estado</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="select w-full"
+            >
+              <option value="all">Todos</option>
+              <option value="active">Activos</option>
+              <option value="pending">Pendientes</option>
+              <option value="preapproved">Preaprobados</option>
+              <option value="invited">Invitados</option>
+              <option value="inactive">Inactivos</option>
+            </select>
+          </label>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => loadUsersData()} className="btn-secondary text-xs">
-            <RefreshCw size={14} />
-            Actualizar
-          </button>
+        <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between pt-3 border-t border-steel-700/70">
+          <div className="flex items-center gap-2 min-h-9">
+            <span className="text-xs text-steel-400">
+              Mostrando <span className="font-semibold text-steel-200">{filtered.length}</span> de {users.length} trabajadores
+            </span>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 text-xs text-steel-300 hover:text-white transition-colors"
+              >
+                <X size={13} />
+                Limpiar filtros
+              </button>
+            )}
+          </div>
 
-          <button
-            onClick={() => {
-              setCsvRows([]);
-              setShowCsvModal(true);
-            }}
-            className="btn-secondary text-xs"
-          >
-            <Upload size={14} />
-            Cargar CSV
-          </button>
+          <div className="flex flex-wrap gap-2 lg:justify-end">
+            <button onClick={() => loadUsersData()} className="btn-secondary text-xs">
+              <RefreshCw size={14} />
+              Actualizar
+            </button>
 
-          <button
-            onClick={() => {
-              setErrorMessage(null);
-              setSuccessMessage(null);
-              resetInvitationModal();
-              setShowBulkInvite(true);
-            }}
-            disabled={saving}
-            className="btn-secondary text-xs"
-          >
-            <Mail size={14} />
-            Enviar invitaciones{bulkInvitationRows.length > 0 ? ` (${bulkInvitationRows.length})` : ''}
-          </button>
+            <button
+              onClick={() => {
+                setCsvRows([]);
+                setDeactivateMissing(false);
+                setShowCsvModal(true);
+              }}
+              className="btn-secondary text-xs"
+            >
+              <Upload size={14} />
+              Cargar / actualizar nómina
+            </button>
 
-          <button
-            onClick={() => {
-              setErrorMessage(null);
-              setSuccessMessage(null);
-              resetInvitationModal();
-              setShowInvite(true);
-            }}
-            className="btn-secondary text-xs"
-          >
-            <Mail size={14} />
-            Invitar emails puntuales
-          </button>
+            <button onClick={exportRosterCsv} className="btn-secondary text-xs">
+              <Download size={14} />
+              Exportar nómina
+            </button>
 
-          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-            <Plus size={16} />
-            Nuevo usuario
-          </button>
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                setSuccessMessage(null);
+                resetInvitationModal();
+                setShowBulkInvite(true);
+              }}
+              disabled={saving}
+              className="btn-secondary text-xs"
+            >
+              <Mail size={14} />
+              Enviar invitaciones{bulkInvitationRows.length > 0 ? ` (${bulkInvitationRows.length})` : ''}
+            </button>
+
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                setSuccessMessage(null);
+                resetInvitationModal();
+                setShowInvite(true);
+              }}
+              className="btn-secondary text-xs"
+            >
+              <Mail size={14} />
+              Invitar emails puntuales
+            </button>
+
+            <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+              <Plus size={16} />
+              Nuevo usuario
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1754,7 +2175,7 @@ export default function AdminUsers() {
 
         <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
           <span className="text-xs text-steel-400">
-            {roleOptions.length} roles detectados
+            {detectedRoleCount} roles detectados
           </span>
         </div>
 
@@ -1860,6 +2281,14 @@ export default function AdminUsers() {
                         </button>
 
                         <button
+                          onClick={() => openEditWorker(profile)}
+                          className="p-1.5 rounded hover:bg-steel-700 text-steel-400 hover:text-amber-300 transition-colors"
+                          title="Editar trabajador"
+                        >
+                          <Pencil size={14} />
+                        </button>
+
+                        <button
                           onClick={() => toggleStatus(profile)}
                           className="p-1.5 rounded hover:bg-steel-700 transition-colors"
                           title={isActive(profile) ? 'Desactivar' : 'Activar'}
@@ -1910,7 +2339,7 @@ export default function AdminUsers() {
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
-            Esto agrega el trabajador a la nómina preaprobada. Cuando se registre con este email, Cigüeña lo validará automáticamente contra employee_directory.
+            Esto agrega el trabajador a la nómina preaprobada. Cuando se registre con este email, {branding.brandName} lo validará automáticamente contra employee_directory.
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2082,12 +2511,199 @@ export default function AdminUsers() {
       </Modal>
 
       <Modal
+        open={!!showEdit}
+        onClose={() => {
+          if (!saving) {
+            setShowEdit(null);
+            setEditForm(emptyEditForm);
+          }
+        }}
+        title={showEdit ? `Editar trabajador · ${getFullName(showEdit)}` : 'Editar trabajador'}
+        size="xl"
+        footer={
+          <>
+            <button
+              onClick={() => {
+                setShowEdit(null);
+                setEditForm(emptyEditForm);
+              }}
+              disabled={saving}
+              className="btn-ghost"
+            >
+              Cancelar
+            </button>
+            <button onClick={handleSaveEdit} disabled={saving || !showEdit} className="btn-primary">
+              <Pencil size={15} />
+              {saving ? 'Guardando...' : 'Guardar cambios'}
+            </button>
+          </>
+        }
+      >
+        {showEdit && (
+          <div className="space-y-5">
+            <div className="rounded-xl border border-steel-700 bg-steel-900 p-4">
+              <div className="text-sm font-semibold text-steel-200">Email de acceso</div>
+              <div className="mt-1 text-sm text-steel-400 break-all">{showEdit.email || 'Sin email'}</div>
+              <p className="mt-2 text-xs text-steel-500">
+                El email no se modifica desde este formulario porque puede estar vinculado a la cuenta de acceso.
+              </p>
+            </div>
+
+            {errorMessage && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {errorMessage}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Nombre</label>
+                <input
+                  value={editForm.first_name}
+                  onChange={(event) => setEditForm((current) => ({ ...current, first_name: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Apellido</label>
+                <input
+                  value={editForm.last_name}
+                  onChange={(event) => setEditForm((current) => ({ ...current, last_name: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">DNI</label>
+                <input
+                  value={editForm.dni}
+                  onChange={(event) => setEditForm((current) => ({ ...current, dni: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Teléfono</label>
+                <input
+                  value={editForm.phone}
+                  onChange={(event) => setEditForm((current) => ({ ...current, phone: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Rol operativo</label>
+                <input
+                  value={editForm.work_role}
+                  onChange={(event) => setEditForm((current) => ({ ...current, work_role: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Puesto</label>
+                <input
+                  value={editForm.position}
+                  onChange={(event) => setEditForm((current) => ({ ...current, position: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Área</label>
+                <input
+                  value={editForm.area}
+                  onChange={(event) => setEditForm((current) => ({ ...current, area: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Legajo</label>
+                <input
+                  value={editForm.employee_code}
+                  onChange={(event) => setEditForm((current) => ({ ...current, employee_code: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Empresa contratista</label>
+                <input
+                  value={editForm.contractor_company}
+                  onChange={(event) => setEditForm((current) => ({ ...current, contractor_company: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Supervisor</label>
+                <input
+                  value={editForm.supervisor}
+                  onChange={(event) => setEditForm((current) => ({ ...current, supervisor: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Turno</label>
+                <input
+                  value={editForm.shift}
+                  onChange={(event) => setEditForm((current) => ({ ...current, shift: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Fecha de ingreso</label>
+                <input
+                  type="date"
+                  value={editForm.hire_date}
+                  onChange={(event) => setEditForm((current) => ({ ...current, hire_date: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Base</label>
+                <input
+                  value={editForm.base}
+                  onChange={(event) => setEditForm((current) => ({ ...current, base: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Sede</label>
+                <input
+                  value={editForm.site}
+                  onChange={(event) => setEditForm((current) => ({ ...current, site: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Región</label>
+                <input
+                  value={editForm.region}
+                  onChange={(event) => setEditForm((current) => ({ ...current, region: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Yacimiento</label>
+                <input
+                  value={editForm.oilfield}
+                  onChange={(event) => setEditForm((current) => ({ ...current, oilfield: event.target.value }))}
+                  className="input"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100/80">
+              Guardar sincroniza los datos de nómina y perfil sin tocar capacitaciones, progreso, certificados ni firma.
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={showCsvModal}
         onClose={() => {
-          setShowCsvModal(false);
-          setCsvRows([]);
+          if (!saving) {
+            setShowCsvModal(false);
+            setCsvRows([]);
+            setDeactivateMissing(false);
+          }
         }}
-        title={csvRows.length > 0 ? 'Previsualizar importación CSV' : 'Cargar trabajadores por CSV'}
+        title={csvRows.length > 0 ? 'Previsualizar nómina' : 'Cargar / actualizar nómina'}
         size="xl"
         footer={
           <>
@@ -2095,7 +2711,9 @@ export default function AdminUsers() {
               onClick={() => {
                 setShowCsvModal(false);
                 setCsvRows([]);
+                setDeactivateMissing(false);
               }}
+              disabled={saving}
               className="btn-ghost"
             >
               Cancelar
@@ -2103,12 +2721,17 @@ export default function AdminUsers() {
 
             {csvRows.length > 0 ? (
               <button
-                onClick={importCsvRows}
-                disabled={saving || validCsvRows.length === 0}
+                onClick={syncCsvRows}
+                disabled={
+                  saving ||
+                  validCsvRows.length === 0 ||
+                  csvChangesToApply === 0 ||
+                  (deactivateMissing && invalidCsvRows.length > 0)
+                }
                 className="btn-primary"
               >
                 <Upload size={15} />
-                {saving ? 'Importando...' : `Importar ${validCsvRows.length}`}
+                {saving ? 'Actualizando...' : `Aplicar ${csvChangesToApply} cambio(s)`}
               </button>
             ) : (
               <button onClick={() => fileInputRef.current?.click()} className="btn-primary">
@@ -2123,28 +2746,24 @@ export default function AdminUsers() {
           <div className="space-y-5">
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
               <div className="text-sm font-semibold text-amber-200 mb-1">
-                Carga masiva de trabajadores
+                Un mismo archivo para cargar o actualizar
               </div>
               <p className="text-sm text-amber-100/80">
-                Subí un archivo CSV con la nómina de trabajadores de la empresa. Los trabajadores
-                cargados quedarán en la nómina preaprobada para que, cuando se registren con su email, puedan
-                validarse automáticamente.
+                {branding.brandName} compara el CSV contra la nómina actual. Los nuevos se agregan, los existentes con datos distintos se actualizan y los que no cambiaron se dejan intactos. Nada se modifica hasta que confirmes el preview.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                onClick={downloadCsvTemplate}
+                onClick={() => downloadCsvTemplate(brandSlug)}
                 className="rounded-xl border border-steel-700 bg-steel-900 hover:bg-steel-800 transition-colors p-4 text-left"
               >
                 <div className="flex items-center gap-3 mb-2">
                   <Download size={20} className="text-amber-400" />
-                  <div className="text-sm font-semibold text-steel-100">
-                    Descargar modelo CSV
-                  </div>
+                  <div className="text-sm font-semibold text-steel-100">Descargar modelo CSV</div>
                 </div>
                 <p className="text-xs text-steel-400">
-                  Bajá una plantilla con las columnas correctas y dos filas de ejemplo.
+                  Usá la misma estructura para una carga inicial o para una actualización posterior.
                 </p>
               </button>
 
@@ -2154,116 +2773,135 @@ export default function AdminUsers() {
               >
                 <div className="flex items-center gap-3 mb-2">
                   <Upload size={20} className="text-emerald-400" />
-                  <div className="text-sm font-semibold text-steel-100">
-                    Seleccionar archivo CSV
-                  </div>
+                  <div className="text-sm font-semibold text-steel-100">Seleccionar archivo CSV</div>
                 </div>
                 <p className="text-xs text-steel-400">
-                  Elegí el archivo completo para validar e importar trabajadores.
+                  Primero se analiza el archivo; después elegís si querés aplicar los cambios.
                 </p>
               </button>
             </div>
 
             <div className="rounded-xl border border-steel-700 bg-steel-900 p-4">
-              <div className="text-sm font-semibold text-steel-200 mb-3">
-                Columnas aceptadas
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-steel-400">
-                <div>
-                  <div className="text-steel-300 font-medium mb-1">Obligatorias</div>
-                  <ul className="space-y-1">
-                    <li>email</li>
-                    <li>nombre y apellido, o nombre_completo</li>
-                  </ul>
-                </div>
-
-                <div>
-                  <div className="text-steel-300 font-medium mb-1">Opcionales</div>
-                  <ul className="space-y-1">
-                    <li>dni</li>
-                    <li>telefono</li>
-                    <li>rol_operativo / puesto / cargo</li>
-                    <li>area</li>
-                    <li>legajo</li>
-                    <li>empresa_contratista</li>
-                    <li>estado: pending, active o inactive</li>
-                    <li>puesto, supervisor, turno y fecha_ingreso</li>
-                    <li>base, sede, region y yacimiento</li>
-                    <li>campo_personalizado_1 a 5</li>
-                  </ul>
-                </div>
+              <div className="text-sm font-semibold text-steel-200 mb-3">Reglas de actualización</div>
+              <div className="space-y-2 text-xs text-steel-400 leading-5">
+                <p>• {branding.brandName} identifica trabajadores por legajo, DNI y email.</p>
+                <p>• Las celdas vacías no borran datos existentes.</p>
+                <p>• El email de una persona que ya tiene cuenta no se modifica por CSV: se marca como conflicto.</p>
+                <p>• Si indicás que el archivo es la nómina completa, los trabajadores ausentes pueden marcarse inactivos; nunca se elimina su historial.</p>
               </div>
             </div>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-steel-900 rounded-lg p-3">
-                <div className="text-xs text-steel-500">Filas detectadas</div>
-                <div className="text-xl font-bold text-steel-100">{csvRows.length}</div>
-              </div>
-
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
-                <div className="text-xs text-emerald-500">Válidas</div>
-                <div className="text-xl font-bold text-emerald-300">{validCsvRows.length}</div>
+                <div className="text-xs text-emerald-400">Nuevos</div>
+                <div className="text-xl font-bold text-emerald-300">{newCsvRows.length}</div>
               </div>
-
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                <div className="text-xs text-amber-400">Modificados</div>
+                <div className="text-xl font-bold text-amber-300">{updatedCsvRows.length}</div>
+              </div>
+              <div className="bg-steel-900 rounded-lg p-3">
+                <div className="text-xs text-steel-500">Sin cambios</div>
+                <div className="text-xl font-bold text-steel-100">{unchangedCsvRows.length}</div>
+              </div>
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                <div className="text-xs text-red-400">Con errores</div>
+                <div className="text-xs text-red-400">Conflictos</div>
                 <div className="text-xl font-bold text-red-300">{invalidCsvRows.length}</div>
+              </div>
+              <div className="bg-sky-500/10 border border-sky-500/20 rounded-lg p-3">
+                <div className="text-xs text-sky-300">Filas</div>
+                <div className="text-xl font-bold text-sky-200">{csvRows.length}</div>
               </div>
             </div>
 
-            <div className="rounded-xl border border-steel-700 overflow-hidden max-h-[420px] overflow-y-auto">
+            <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-900 p-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deactivateMissing}
+                onChange={(event) => setDeactivateMissing(event.target.checked)}
+                className="mt-1"
+              />
+              <div>
+                <div className="text-sm font-semibold text-steel-200">
+                  Este archivo representa la nómina completa vigente
+                </div>
+                <p className="mt-1 text-xs text-steel-500 leading-5">
+                  Si lo activás, {missingCsvUsers.length} trabajador(es) activos que hoy existen en {branding.brandName} y no aparecen en este archivo serán marcados como inactivos. No se borran cuentas, asignaciones, progreso ni certificados.
+                </p>
+              </div>
+            </label>
+
+            {deactivateMissing && invalidCsvRows.length > 0 && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                No se puede renovar una nómina completa mientras haya conflictos. Corregí el CSV y volvé a cargarlo; así evitamos desactivar personas por error.
+              </div>
+            )}
+
+            {deactivateMissing && invalidCsvRows.length === 0 && missingCsvUsers.length > 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100/80">
+                Al confirmar también se desactivarán {missingCsvUsers.length} trabajador(es) ausentes del archivo.
+              </div>
+            )}
+
+            <div className="rounded-xl border border-steel-700 overflow-hidden max-h-[440px] overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-steel-900 sticky top-0">
                   <tr>
                     <th className="table-header">Fila</th>
-                    <th className="table-header">Nombre</th>
+                    <th className="table-header">Resultado</th>
+                    <th className="table-header">Trabajador</th>
                     <th className="table-header">Email</th>
-                    <th className="table-header">DNI</th>
-                    <th className="table-header">Rol operativo</th>
-                    <th className="table-header">Puesto</th>
-                    <th className="table-header">Área</th>
-                    <th className="table-header">Base / sede</th>
-                    <th className="table-header">Región / yacimiento</th>
                     <th className="table-header">Legajo</th>
-                    <th className="table-header">Estado</th>
+                    <th className="table-header">Detalle</th>
                   </tr>
                 </thead>
-
                 <tbody>
                   {csvRows.map((row) => (
                     <tr
                       key={row.rowNumber}
-                      className={`border-b border-steel-800 ${
-                        row.errors.length > 0 ? 'bg-red-500/5' : ''
-                      }`}
+                      className={`border-b border-steel-800 ${row.action === 'conflict' ? 'bg-red-500/5' : ''}`}
                     >
                       <td className="table-cell text-steel-500">{row.rowNumber}</td>
-                      <td className="table-cell text-steel-200">
-                        <div>{row.full_name || '—'}</div>
-                        {row.errors.length > 0 && (
-                          <div className="text-xs text-red-400 mt-1">
-                            {row.errors.join(' · ')}
-                          </div>
+                      <td className="table-cell">
+                        {row.action === 'new' && (
+                          <span className="text-xs font-semibold text-emerald-300">Nuevo</span>
+                        )}
+                        {row.action === 'update' && (
+                          <span className="text-xs font-semibold text-amber-300">Actualizar</span>
+                        )}
+                        {row.action === 'unchanged' && (
+                          <span className="text-xs font-semibold text-steel-400">Sin cambios</span>
+                        )}
+                        {row.action === 'conflict' && (
+                          <span className="text-xs font-semibold text-red-300">Revisar</span>
                         )}
                       </td>
+                      <td className="table-cell text-steel-200">{row.full_name || '—'}</td>
                       <td className="table-cell text-steel-300">{row.email || '—'}</td>
-                      <td className="table-cell text-steel-300">{row.dni || '—'}</td>
-                      <td className="table-cell text-steel-300">{row.work_role || '—'}</td>
-                      <td className="table-cell text-steel-300">{row.position || '—'}</td>
-                      <td className="table-cell text-steel-300">{row.area || '—'}</td>
-                      <td className="table-cell text-steel-300">
-                        {[row.base, row.site].filter(Boolean).join(' / ') || '—'}
-                      </td>
-                      <td className="table-cell text-steel-300">
-                        {[row.region, row.oilfield].filter(Boolean).join(' / ') || '—'}
-                      </td>
                       <td className="table-cell text-steel-300">{row.employee_code || '—'}</td>
-                      <td className="table-cell">
-                        <StatusBadge status={row.status || 'pending'} />
+                      <td className="table-cell min-w-[260px]">
+                        {row.errors.length > 0 ? (
+                          <div className="text-xs text-red-400">{row.errors.join(' · ')}</div>
+                        ) : row.action === 'update' ? (
+                          <div className="space-y-1 text-xs text-steel-400">
+                            {row.changes.slice(0, 4).map((change) => (
+                              <div key={`${row.rowNumber}-${change.field}`}>
+                                <span className="text-steel-300">{change.label}:</span>{' '}
+                                <span className="line-through text-steel-500">{change.from || '—'}</span>{' '}
+                                → <span className="text-amber-300">{change.to || '—'}</span>
+                              </div>
+                            ))}
+                            {row.changes.length > 4 && (
+                              <div className="text-steel-500">+ {row.changes.length - 4} cambio(s) más</div>
+                            )}
+                          </div>
+                        ) : row.action === 'new' ? (
+                          <div className="text-xs text-emerald-400/80">Se agregará a la nómina preaprobada.</div>
+                        ) : (
+                          <div className="text-xs text-steel-500">No se modificará.</div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -2275,16 +2913,17 @@ export default function AdminUsers() {
               <div className="text-xs text-steel-500 flex items-start gap-2">
                 <FileText size={14} className="mt-0.5" />
                 <div>
-                  Las filas válidas se importarán como trabajadores preaprobados. Las filas con
-                  errores no se importan.
+                  Sólo se aplican altas y cambios confirmados. Las filas con conflicto se omiten; si elegís nómina completa, no se permite confirmar hasta resolver todos los conflictos.
                 </div>
               </div>
 
               <button
                 onClick={() => {
                   setCsvRows([]);
+                  setDeactivateMissing(false);
                   fileInputRef.current?.click();
                 }}
+                disabled={saving}
                 className="btn-secondary text-xs"
               >
                 <Upload size={14} />

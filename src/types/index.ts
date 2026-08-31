@@ -84,6 +84,7 @@ export interface Profile {
   source?: string | null;
   created_at: string;
   updated_at?: string | null;
+  profile_validated_at?: string | null;
 }
 
 export interface EmployeeDirectory {
@@ -429,6 +430,10 @@ export interface EthicsCode {
   content_hash?: string | null;
   is_active?: boolean;
   created_at?: string;
+  created_by?: string | null;
+  source?: 'superadmin' | 'admin';
+  document_url?: string | null;
+  published_at?: string | null;
 }
 
 export interface EthicsAcceptance {

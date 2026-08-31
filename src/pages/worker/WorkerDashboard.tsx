@@ -60,7 +60,7 @@ function SimpleMetricCard({
         ? 'text-amber-300 bg-amber-500/10'
         : tone === 'success'
           ? 'text-emerald-300 bg-emerald-500/10'
-          : 'text-amber-400 bg-steel-800';
+          : 'brand-text bg-steel-800';
 
   return (
     <div className="card">
@@ -553,11 +553,11 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-steel-100 flex items-center gap-2">
-            <TrendingUp size={16} className="text-amber-400" />
+            <TrendingUp size={16} className="brand-text" />
             Tu progreso general
           </h3>
 
-          <span className="text-2xl font-bold text-amber-400">
+          <span className="text-2xl font-bold brand-text">
             {avgProgress}%
           </span>
         </div>
@@ -602,7 +602,7 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
             return (
               <div
                 key={assignment.id}
-                className={`card hover:border-amber-500/40 transition-all cursor-pointer ${
+                className={`card brand-hover-border transition-all cursor-pointer ${
                   dueInfo.isOverdue
                     ? 'border-red-500/40'
                     : dueInfo.isDueSoon

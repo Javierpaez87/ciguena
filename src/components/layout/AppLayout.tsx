@@ -2,6 +2,8 @@ import React from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getTenantBrandTheme } from '../../lib/brandTheme';
 
 interface AppLayoutProps {
   activeView: string;
@@ -36,12 +38,23 @@ export default function AppLayout({
   children,
 }: AppLayoutProps) {
   const { user } = useAuth();
+  const { branding } = useBranding();
 
+  const normalizedRole = (user?.role || '').trim().toLowerCase();
+  const isSuperAdmin =
+    normalizedRole === 'superadmin' || normalizedRole === 'super_admin';
+  const useCustomBranding = !isSuperAdmin && branding.isCustomBranding;
+  const brandTheme = getTenantBrandTheme(branding);
   const backgroundClass = getBackgroundClass(user?.role);
 
   return (
     <div
       className={`flex h-screen overflow-hidden transition-colors duration-300 ${backgroundClass}`}
+      style={
+        useCustomBranding
+          ? { backgroundColor: brandTheme.pageBackground }
+          : undefined
+      }
     >
       <Sidebar activeView={activeView} onNavigate={onNavigate} />
 

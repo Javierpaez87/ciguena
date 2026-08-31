@@ -10,9 +10,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import {
+  getBrandDocumentLogoUrl,
+  getBrandDocumentSubtitle,
+} from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
 import type { EthicsAcceptance } from '../../types';
+import type { WorkerSignatureConsent } from '../../lib/workerOnboarding';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -43,6 +49,19 @@ type SupabaseCertificate = {
   } | null;
 };
 
+type EthicsCodeInfo = {
+  id: string;
+  title: string;
+  version: string;
+};
+
+type TenantSignature = {
+  id: string;
+  signature_image_url: string;
+  signer_name: string;
+  signer_role?: string | null;
+};
+
 const getCompanySignerLabel = (cert: SupabaseCertificate, fallbackTenantName = 'Empresa / Tenant') => {
   const name = cert.company_signer_name || 'Responsable de capacitaciones';
   const role = cert.company_signer_role || fallbackTenantName;
@@ -67,9 +86,14 @@ const getCertificateStatus = (cert: SupabaseCertificate) => {
 
 export default function WorkerCertificates() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandLogoUrl = getBrandDocumentLogoUrl(branding);
 
   const [certificates, setCertificates] = useState<SupabaseCertificate[]>([]);
   const [ethicsAcceptance, setEthicsAcceptance] = useState<EthicsAcceptance | null>(null);
+  const [workerSignatureConsent, setWorkerSignatureConsent] = useState<WorkerSignatureConsent | null>(null);
+  const [ethicsCodeInfo, setEthicsCodeInfo] = useState<EthicsCodeInfo | null>(null);
+  const [ethicsCompanySignature, setEthicsCompanySignature] = useState<TenantSignature | null>(null);
   const [isEthicsModalOpen, setIsEthicsModalOpen] = useState(false);
   const [selectedCertificate, setSelectedCertificate] = useState<SupabaseCertificate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,6 +113,9 @@ export default function WorkerCertificates() {
     if (!user?.id) {
       setCertificates([]);
       setEthicsAcceptance(null);
+      setWorkerSignatureConsent(null);
+      setEthicsCodeInfo(null);
+      setEthicsCompanySignature(null);
       setIsLoading(false);
       return;
     }
@@ -109,6 +136,59 @@ export default function WorkerCertificates() {
     }
 
     setEthicsAcceptance((ethicsData as EthicsAcceptance | null) ?? null);
+
+    if (ethicsData?.ethics_code_id) {
+      const { data: codeData, error: codeError } = await supabase
+        .from('ethics_codes')
+        .select('id, title, version')
+        .eq('id', ethicsData.ethics_code_id)
+        .maybeSingle();
+
+      if (codeError) {
+        console.error('Error cargando metadata del Código de Ética:', codeError);
+      }
+
+      setEthicsCodeInfo((codeData as EthicsCodeInfo | null) ?? null);
+    } else {
+      setEthicsCodeInfo(null);
+    }
+
+    const ethicsTenantId = ethicsData?.tenant_id || user.tenant_id || null;
+
+    if (ethicsTenantId) {
+      const { data: tenantSignatureData, error: tenantSignatureError } = await supabase
+        .from('tenant_signatures')
+        .select('id, signature_image_url, signer_name, signer_role')
+        .eq('tenant_id', ethicsTenantId)
+        .eq('is_default', true)
+        .eq('is_active', true)
+        .not('signature_image_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tenantSignatureError) {
+        console.error('Error cargando firma responsable para Código de Ética:', tenantSignatureError);
+      }
+
+      setEthicsCompanySignature((tenantSignatureData as TenantSignature | null) ?? null);
+    } else {
+      setEthicsCompanySignature(null);
+    }
+
+    const { data: signatureConsentData, error: signatureConsentError } = await supabase
+      .from('worker_signature_consents')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (signatureConsentError) {
+      console.error('Error cargando firma electrónica del worker:', signatureConsentError);
+    }
+
+    setWorkerSignatureConsent((signatureConsentData as WorkerSignatureConsent | null) ?? null);
 
     const { data: certificatesData, error: certificatesError } = await supabase
       .from('certificates')
@@ -183,6 +263,15 @@ export default function WorkerCertificates() {
   const printEthicsDocument = () => {
     if (!ethicsAcceptance) return;
 
+    const ethicsDocumentTitle = ethicsCodeInfo?.title || `Código de Ética ${branding.brandName}`;
+    const ethicsDocumentVersion = ethicsCodeInfo?.version || null;
+    const companySignerLabel = ethicsCompanySignature
+      ? `${ethicsCompanySignature.signer_name}${ethicsCompanySignature.signer_role ? ` · ${ethicsCompanySignature.signer_role}` : ''}`
+      : `Responsable autorizado · ${branding.brandName}`;
+    const companySignatureBlock = ethicsCompanySignature?.signature_image_url
+      ? `<img src="${ethicsCompanySignature.signature_image_url}" alt="Firma responsable" />`
+      : '<span style="color:#64748b;font-size:12px;">Firma responsable no disponible</span>';
+
     const html = `
       <!doctype html>
       <html>
@@ -192,7 +281,9 @@ export default function WorkerCertificates() {
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; background: #f8fafc; }
             .document { background: white; max-width: 820px; margin: 0 auto; padding: 54px; border: 1px solid #cbd5e1; min-height: 900px; }
-            .brand { color: #f59e0b; font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+            .brand-row { display:flex; align-items:center; gap:12px; }
+            .brand-logo { max-height:44px; max-width:150px; object-fit:contain; }
+            .brand { color: ${branding.accentColor}; font-size: 24px; font-weight: 800; letter-spacing: 1px; }
             .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
             h1 { margin: 42px 0 18px; font-size: 30px; color: #0f172a; }
             h2 { margin-top: 28px; font-size: 16px; color: #0f172a; }
@@ -209,12 +300,17 @@ export default function WorkerCertificates() {
         </head>
         <body>
           <main class="document">
-            <div class="brand">CIGÜEÑA</div>
-            <div class="subtitle">by BondiApps · Registro de aceptación electrónica</div>
-            <h1>Código de Ética BondiApps</h1>
-            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.</p>
+            <div class="brand-row">
+              <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+              <div>
+                <div class="brand">${branding.brandName}</div>
+                <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Registro de aceptación electrónica')}</div>
+              </div>
+            </div>
+            <h1>${ethicsDocumentTitle}</h1>
+            <p>Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable a ${branding.brandName} y a las capacitaciones asignadas por la organización.${ethicsDocumentVersion ? ` Versión ${ethicsDocumentVersion}.` : ''}</p>
             <h2>Declaración de aceptación</h2>
-            <p>${ethicsAcceptance.acceptance_text || 'Declaro haber leído y aceptado el Código de Ética BondiApps.'}</p>
+            <p>${ethicsAcceptance.acceptance_text || `Declaro haber leído y aceptado el ${ethicsDocumentTitle}.`}</p>
             <section class="box">
               <div class="label">Firmante</div>
               <div><strong>Nombre:</strong> ${ethicsAcceptance.accepted_name || user?.full_name || 'Sin nombre'}</div>
@@ -231,8 +327,9 @@ export default function WorkerCertificates() {
                 <div class="line">Firma electrónica del trabajador</div>
               </div>
               <div>
-                <div style="height:90px;display:flex;align-items:center;font-weight:800;color:#f59e0b;">BondiApps</div>
-                <div class="line">Registro emitido por Cigüeña</div>
+                <div class="signature-box">${companySignatureBlock}</div>
+                <div class="line">${companySignerLabel}</div>
+                <div style="margin-top:4px;color:#64748b;font-size:11px;">Responsable autorizado de ${branding.brandName}</div>
               </div>
             </section>
             <div class="code">Registro auditable · ${ethicsAcceptance.id || 'sin-id'}</div>
@@ -250,7 +347,7 @@ export default function WorkerCertificates() {
   };
 
   const printCertificate = (cert: SupabaseCertificate) => {
-    const workerSignatureUrl = cert.worker_signature_url || ethicsAcceptance?.signature_image_url;
+    const workerSignatureUrl = cert.worker_signature_url || workerSignatureConsent?.signature_image_url || ethicsAcceptance?.signature_image_url;
 
     const workerSignatureBlock = workerSignatureUrl
       ? `<img src="${workerSignatureUrl}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
@@ -271,9 +368,11 @@ export default function WorkerCertificates() {
           <title>${cert.certificate_code}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
-            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
-            .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
-            .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
+            .certificate { border: 3px solid ${branding.accentColor}; padding: 42px; min-height: 700px; }
+            .brand-row { display:flex; flex-direction:column; align-items:flex-start; gap:0; }
+            .brand-logo { max-height:64px; max-width:250px; object-fit:contain; }
+            .subtitle { color: #64748b; font-size: 13px; line-height: 1.45; margin-top: 8px; }
+            .subtitle strong { color: inherit; font-weight: 700; }
             h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
             .lead { text-align: center; color: #475569; font-size: 16px; }
             .name { text-align: center; font-size: 30px; font-weight: 800; margin: 24px 0; }
@@ -291,8 +390,10 @@ export default function WorkerCertificates() {
         </head>
         <body>
           <main class="certificate">
-            <div class="brand">CIGÜEÑA</div>
-            <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
+            <div class="brand-row">
+              <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+              <div class="subtitle"><strong>${branding.brandName}</strong> ${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
+            </div>
             <h1>Certificado de capacitación</h1>
             <p class="lead">Se certifica que</p>
             <div class="name">${user?.full_name ?? 'Trabajador'}</div>
@@ -584,12 +685,20 @@ export default function WorkerCertificates() {
             </div>
 
             <div className="p-5">
-              <div className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4 border-amber-500">
-                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                  CIGÜEÑA
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  by BondiApps · Plataforma de capacitaciones y certificaciones
+              <div
+                className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4"
+                style={{ borderColor: branding.accentColor }}
+              >
+                <div className="flex flex-col items-start">
+                  <img
+                    src={brandLogoUrl}
+                    alt={branding.brandName}
+                    className="max-h-16 max-w-[250px] object-contain"
+                  />
+                  <div className="mt-2 text-xs leading-relaxed text-slate-500">
+                    <span className="font-semibold">{branding.brandName}</span>{' '}
+                    {getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}
+                  </div>
                 </div>
 
                 <h1 className="mt-12 text-center text-4xl font-bold text-slate-900">
@@ -664,9 +773,9 @@ export default function WorkerCertificates() {
                 <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
                   <div>
                     <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
-                      {(selectedCertificate.worker_signature_url || ethicsAcceptance?.signature_image_url) ? (
+                      {(selectedCertificate.worker_signature_url || workerSignatureConsent?.signature_image_url || ethicsAcceptance?.signature_image_url) ? (
                         <img
-                          src={selectedCertificate.worker_signature_url || ethicsAcceptance?.signature_image_url || ''}
+                          src={selectedCertificate.worker_signature_url || workerSignatureConsent?.signature_image_url || ethicsAcceptance?.signature_image_url || ''}
                           alt="Firma trabajador"
                           className="max-h-24 max-w-full object-contain"
                           style={{ filter: 'invert(1) contrast(1.4)' }}
@@ -747,20 +856,33 @@ export default function WorkerCertificates() {
 
             <div className="p-5">
               <div className="mx-auto min-h-[900px] max-w-[760px] rounded-xl bg-white p-10 text-slate-900 shadow-xl">
-                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                  CIGÜEÑA
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  by BondiApps · Registro de aceptación electrónica
+                <div className="flex items-center gap-3">
+                  <img
+                    src={brandLogoUrl}
+                    alt={branding.brandName}
+                    className="max-h-12 max-w-[170px] object-contain"
+                  />
+                  <div>
+                    <div
+                      className="text-2xl font-extrabold tracking-wide"
+                      style={{ color: branding.accentColor }}
+                    >
+                      {branding.brandName}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {getBrandDocumentSubtitle(branding, 'Registro de aceptación electrónica')}
+                    </div>
+                  </div>
                 </div>
 
                 <h1 className="mt-10 text-3xl font-bold text-slate-900">
-                  Código de Ética BondiApps
+                  {ethicsCodeInfo?.title || `Código de Ética ${branding.brandName}`}
                 </h1>
 
                 <p className="mt-5 text-sm leading-7 text-slate-700">
                   Este documento deja constancia de la lectura y aceptación del Código de Ética aplicable
-                  al uso de la plataforma Cigüeña y a las capacitaciones asignadas por la organización.
+                  a {branding.brandName} y a las capacitaciones asignadas por la organización.
+                  {ethicsCodeInfo?.version ? ` Versión ${ethicsCodeInfo.version}.` : ''}
                 </p>
 
                 <h2 className="mt-8 text-base font-bold text-slate-900">
@@ -769,7 +891,7 @@ export default function WorkerCertificates() {
 
                 <p className="mt-3 text-sm leading-7 text-slate-700">
                   {ethicsAcceptance.acceptance_text ||
-                    'Declaro haber leído y aceptado el Código de Ética BondiApps.'}
+                    `Declaro haber leído y aceptado el ${ethicsCodeInfo?.title || `Código de Ética ${branding.brandName}`}.`}
                 </p>
 
                 <div className="mt-8 rounded-xl border border-slate-300 p-4 text-sm text-slate-700">
@@ -815,11 +937,25 @@ export default function WorkerCertificates() {
                   </div>
 
                   <div>
-                    <div className="flex min-h-[110px] items-center font-extrabold text-amber-500">
-                      BondiApps
+                    <div className="flex min-h-[110px] items-center justify-center rounded-xl border border-slate-300 bg-slate-100 p-3">
+                      {ethicsCompanySignature?.signature_image_url ? (
+                        <img
+                          src={ethicsCompanySignature.signature_image_url}
+                          alt="Firma responsable"
+                          className="max-h-24 max-w-full object-contain"
+                          style={{ filter: 'invert(1) contrast(1.4)' }}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">Firma responsable no disponible</span>
+                      )}
                     </div>
                     <div className="mt-3 border-t border-slate-700 pt-2 text-xs text-slate-700">
-                      Registro emitido por Cigüeña
+                      {ethicsCompanySignature
+                        ? `${ethicsCompanySignature.signer_name}${ethicsCompanySignature.signer_role ? ` · ${ethicsCompanySignature.signer_role}` : ''}`
+                        : `Responsable autorizado · ${branding.brandName}`}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Responsable autorizado de {branding.brandName}
                     </div>
                   </div>
                 </div>

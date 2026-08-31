@@ -15,6 +15,7 @@ import {
 import { baseTrainings } from '../../data/baseTrainings';
 import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
+import { useBranding } from '../../contexts/BrandingContext';
 
 type SelectedTraining = {
   id: string;
@@ -51,6 +52,8 @@ function formatValidity(months?: number | null) {
 }
 
 export default function AdminTrainingCatalog() {
+  const { branding } = useBranding();
+  const providerLabel = branding.showPoweredByBondiApps ? 'BondiApps' : 'tu proveedor';
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [selectedTraining, setSelectedTraining] = useState<SelectedTraining | null>(null);
@@ -91,9 +94,9 @@ export default function AdminTrainingCatalog() {
       <div className="rounded-2xl border border-steel-700 bg-steel-900/70 p-5">
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300 mb-3">
+            <div className="inline-flex items-center gap-2 rounded-full border brand-border-soft brand-bg-soft px-3 py-1 text-xs font-semibold brand-text mb-3">
               <BookOpen size={13} />
-              Catálogo Cigüeña
+              Catálogo {branding.brandName}
             </div>
 
             <h1 className="text-2xl font-bold text-steel-50">
@@ -103,7 +106,7 @@ export default function AdminTrainingCatalog() {
             <p className="mt-2 max-w-2xl text-sm text-steel-400">
               Conocé los trainings disponibles en la plataforma. Si necesitás habilitar
               nuevos contenidos para tu empresa, alojar capacitaciones propias o generar
-              material a medida, contactá a tu proveedor BondiApps.
+              material a medida, contactá a {providerLabel}.
             </p>
           </div>
 
@@ -173,8 +176,8 @@ export default function AdminTrainingCatalog() {
             >
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="flex items-start gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                    <BookOpen size={20} className="text-amber-400" />
+                  <div className="w-11 h-11 rounded-xl brand-bg-soft border brand-border-soft flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={20} className="brand-text" />
                   </div>
 
                   <div>
@@ -202,7 +205,7 @@ export default function AdminTrainingCatalog() {
               </div>
 
               <p className="min-h-[48px] text-sm leading-6 text-steel-400">
-                {training.description || 'Training disponible en el catálogo de Cigüeña.'}
+                {training.description || `Training disponible en el catálogo de ${branding.brandName}.`}
               </p>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
@@ -240,31 +243,31 @@ export default function AdminTrainingCatalog() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5">
+      <div className="rounded-2xl border brand-border-soft brand-bg-soft p-5">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-              <UploadCloud size={19} className="text-amber-300" />
+            <div className="w-10 h-10 rounded-xl brand-bg-soft border brand-border-soft flex items-center justify-center flex-shrink-0">
+              <UploadCloud size={19} className="brand-text" />
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-amber-200">
+              <div className="text-sm font-semibold brand-text">
                 Alojar trainings propios
               </div>
               <p className="mt-1 text-xs leading-5 text-steel-400">
-                Cigüeña puede alojar materiales, videos, evaluaciones y certificados
+                {branding.brandName} puede alojar materiales, videos, evaluaciones y certificados
                 de capacitaciones que tu empresa ya utiliza.
               </p>
             </div>
           </div>
 
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-              <Sparkles size={19} className="text-amber-300" />
+            <div className="w-10 h-10 rounded-xl brand-bg-soft border brand-border-soft flex items-center justify-center flex-shrink-0">
+              <Sparkles size={19} className="brand-text" />
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-amber-200">
+              <div className="text-sm font-semibold brand-text">
                 Generar contenido a medida
               </div>
               <p className="mt-1 text-xs leading-5 text-steel-400">
@@ -275,17 +278,17 @@ export default function AdminTrainingCatalog() {
           </div>
 
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-              <MessageCircle size={19} className="text-amber-300" />
+            <div className="w-10 h-10 rounded-xl brand-bg-soft border brand-border-soft flex items-center justify-center flex-shrink-0">
+              <MessageCircle size={19} className="brand-text" />
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-amber-200">
+              <div className="text-sm font-semibold brand-text">
                 Contactá a tu proveedor
               </div>
               <p className="mt-1 text-xs leading-5 text-steel-400">
                 Si necesitás nuevos trainings, carga de contenidos propios o servicios
-                adicionales, ponete en contacto con tu proveedor BondiApps.
+                adicionales, ponete en contacto con {providerLabel}.
               </p>
             </div>
           </div>
@@ -308,8 +311,8 @@ export default function AdminTrainingCatalog() {
           <div className="space-y-4">
             <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
               <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={20} className="text-amber-400" />
+                <div className="w-11 h-11 rounded-xl brand-bg-soft border brand-border-soft flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={20} className="brand-text" />
                 </div>
 
                 <div>
@@ -324,18 +327,17 @@ export default function AdminTrainingCatalog() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="rounded-xl border brand-border-soft brand-bg-soft p-4">
               <div className="flex items-start gap-3">
-                <MessageCircle size={18} className="text-amber-300 mt-0.5" />
+                <MessageCircle size={18} className="brand-text mt-0.5" />
 
                 <div>
-                  <div className="text-sm font-semibold text-amber-200">
-                    Ponete en contacto con tu proveedor BondiApps
+                  <div className="text-sm font-semibold brand-text">
+                    Ponete en contacto con {providerLabel}
                   </div>
 
                   <p className="mt-2 text-sm leading-6 text-steel-300">
-                    Para solicitar acceso a este u otros trainings, contactá a tu
-                    proveedor BondiApps. También podés consultar por la carga de
+                    Para solicitar acceso a este u otros trainings, contactá a {providerLabel}. También podés consultar por la carga de
                     trainings propios de tu empresa o por la generación de nuevos
                     materiales a medida.
                   </p>

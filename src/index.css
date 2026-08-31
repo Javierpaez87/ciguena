@@ -4,6 +4,15 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --brand-primary: #F59E0B;
+  --brand-accent: #FBBF24;
+  --brand-primary-contrast: #071B24;
+  --brand-accent-contrast: #071B24;
+  --brand-primary-rgb: 245 158 11;
+  --brand-accent-rgb: 251 191 36;
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -42,7 +51,10 @@
   }
 
   .sidebar-item-active {
-    @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+    @apply border;
+    background-color: rgb(var(--brand-primary-rgb) / 0.18);
+    color: var(--brand-accent);
+    border-color: rgb(var(--brand-accent-rgb) / 0.30);
   }
 
   .sidebar-item-inactive {
@@ -61,12 +73,39 @@
     @apply bg-steel-800 border border-steel-700 rounded-xl p-5 hover:border-steel-600 transition-colors;
   }
 
+  /* Default Cigüeña keeps its legacy primary CTA color. */
   .btn-primary {
-    @apply bg-amber-500 hover:bg-amber-400 text-petroleum-950 font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: var(--brand-primary);
+    color: var(--brand-primary-contrast);
+  }
+
+  /* Custom White Labels use Accent as the interaction color.
+   * This avoids painting large controls with a very dark corporate Primary.
+   */
+  :root[data-branding='custom'] .btn-primary {
+    background-color: var(--brand-accent);
+    color: var(--brand-accent-contrast);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.1);
   }
 
   .btn-secondary {
     @apply bg-steel-700 hover:bg-steel-600 text-steel-100 font-medium px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2;
+  }
+
+  .btn-brand-outline {
+    @apply font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-2;
+    color: var(--brand-accent-readable, var(--brand-accent));
+    border: 1px solid rgb(var(--brand-accent-rgb) / 0.48);
+    background-color: rgb(var(--brand-accent-rgb) / 0.08);
+  }
+
+  .btn-brand-outline:hover:not(:disabled) {
+    border-color: rgb(var(--brand-accent-rgb) / 0.72);
+    background-color: rgb(var(--brand-accent-rgb) / 0.14);
   }
 
   .btn-ghost {
@@ -78,11 +117,31 @@
   }
 
   .input {
-    @apply bg-steel-900 border border-steel-700 text-steel-100 placeholder-steel-500 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-200;
+    @apply bg-steel-900 border border-steel-700 text-steel-100 placeholder-steel-500 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none transition-all duration-200;
+  }
+
+  .input:focus {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
+  }
+
+  :root[data-branding='custom'] .input:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgb(var(--brand-accent-rgb) / 0.28);
   }
 
   .select {
-    @apply bg-steel-900 border border-steel-700 text-steel-100 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all duration-200;
+    @apply bg-steel-900 border border-steel-700 text-steel-100 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none transition-all duration-200;
+  }
+
+  .select:focus {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
+  }
+
+  :root[data-branding='custom'] .select:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgb(var(--brand-accent-rgb) / 0.28);
   }
 
   .label {
@@ -142,8 +201,96 @@
   }
 
   .progress-fill {
-    @apply h-full bg-amber-500 rounded-full transition-all duration-500;
+    @apply h-full rounded-full transition-all duration-500;
+    background-color: var(--brand-primary);
   }
+
+  :root[data-branding='custom'] .progress-fill {
+    background-color: var(--brand-accent);
+  }
+
+  /* White Label visual utilities.
+   * Only decorative / interactive brand accents are dynamic.
+   * Success, warning and danger keep their semantic colors.
+   */
+  .brand-text {
+    color: var(--brand-accent-readable, var(--brand-accent));
+  }
+
+  .brand-text-primary {
+    color: var(--brand-primary);
+  }
+
+  .brand-bg {
+    background-color: var(--brand-primary);
+    color: var(--brand-primary-contrast);
+  }
+
+  :root[data-branding='custom'] .brand-bg {
+    background-color: var(--brand-accent);
+    color: var(--brand-accent-contrast);
+  }
+
+  .brand-bg-soft {
+    background-color: rgb(var(--brand-primary-rgb) / 0.12);
+  }
+
+  :root[data-branding='custom'] .brand-bg-soft {
+    background-color: rgb(var(--brand-accent-rgb) / 0.12);
+  }
+
+  .brand-bg-soft-accent {
+    background-color: rgb(var(--brand-accent-rgb) / 0.10);
+  }
+
+  .brand-border {
+    border-color: rgb(var(--brand-accent-rgb) / 0.34);
+  }
+
+  .brand-border-soft {
+    border-color: rgb(var(--brand-accent-rgb) / 0.22);
+  }
+
+  .brand-hover-border:hover {
+    border-color: rgb(var(--brand-accent-rgb) / 0.42);
+  }
+
+  .brand-hover-text:hover {
+    color: var(--brand-accent);
+  }
+
+  .brand-icon-surface {
+    color: var(--brand-accent);
+    background-color: rgb(var(--brand-primary-rgb) / 0.12);
+    border-color: rgb(var(--brand-accent-rgb) / 0.22);
+  }
+
+  :root[data-branding='custom'] .brand-icon-surface {
+    background-color: rgb(var(--brand-accent-rgb) / 0.11);
+  }
+
+  .brand-checkbox {
+    accent-color: var(--brand-primary);
+  }
+
+  :root[data-branding='custom'] .brand-checkbox {
+    accent-color: var(--brand-accent);
+  }
+
+  .brand-focus-ring:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgb(var(--brand-primary-rgb) / 0.35);
+  }
+
+  :root[data-branding='custom'] .brand-focus-ring:focus {
+    border-color: var(--brand-accent);
+    box-shadow: 0 0 0 2px rgb(var(--brand-accent-rgb) / 0.28);
+  }
+
+  /* Deliberately NO custom tint on cards, modals, table rows or page surfaces.
+   * Those surfaces belong to the product design system and stay neutral.
+   */
 
   .modal-overlay {
     @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4;
@@ -172,7 +319,7 @@
 
 @layer utilities {
   .text-gradient {
-    background: linear-gradient(135deg, #fbbf24, #f97316);
+    background: linear-gradient(135deg, var(--brand-accent), var(--brand-primary));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

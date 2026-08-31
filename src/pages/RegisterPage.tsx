@@ -10,7 +10,9 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useBranding } from '../contexts/BrandingContext';
 import { supabase } from '../lib/supabase';
+import PublicBrandLockup from '../components/branding/PublicBrandLockup';
 
 interface RegisterPageProps {
   onBackToLogin: () => void;
@@ -23,14 +25,22 @@ interface CompanyOption {
 
 export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const { register, isLoading } = useAuth();
+  const {
+    branding,
+    domainTenantId,
+    domainTenantName,
+    isDomainBound,
+  } = useBranding();
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(!isDomainBound);
+
+  const invitationEmail = new URLSearchParams(window.location.search).get('email')?.trim() || '';
 
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(invitationEmail);
   const [phone, setPhone] = useState('');
-  const [companyId, setCompanyId] = useState('');
+  const [companyId, setCompanyId] = useState(domainTenantId || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,6 +51,14 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
+    if (isDomainBound && domainTenantId) {
+      const name = domainTenantName || branding.brandName;
+      setCompanies([{ id: domainTenantId, name }]);
+      setCompanyId(domainTenantId);
+      setIsLoadingCompanies(false);
+      return;
+    }
+
     let ignore = false;
 
     async function loadCompanies() {
@@ -64,12 +82,12 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       setIsLoadingCompanies(false);
     }
 
-    loadCompanies();
+    void loadCompanies();
 
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [isDomainBound, domainTenantId, domainTenantName, branding.brandName]);
 
   const handleAdminRequestChange = (checked: boolean) => {
     if (checked) {
@@ -87,9 +105,9 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
 
   const clearForm = () => {
     setFullName('');
-    setEmail('');
+    setEmail(invitationEmail);
     setPhone('');
-    setCompanyId('');
+    setCompanyId(isDomainBound && domainTenantId ? domainTenantId : '');
     setPassword('');
     setConfirmPassword('');
     setRequestedAdmin(false);
@@ -101,12 +119,17 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     setSuccessMessage('');
 
     if (companyId === 'not-found') {
-      setError('Para registrar una empresa nueva, contactá a BondiApps para habilitarla previamente.');
+      setError('Para registrar una empresa nueva, contactá a la administración de la plataforma para habilitarla previamente.');
       return;
     }
 
     if (!companyId) {
       setError('Seleccioná tu empresa.');
+      return;
+    }
+
+    if (isDomainBound && domainTenantId && companyId !== domainTenantId) {
+      setError(`Este acceso está reservado para ${domainTenantName || branding.brandName}.`);
       return;
     }
 
@@ -134,10 +157,14 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       return;
     }
 
+    const companyLabel = isDomainBound
+      ? (domainTenantName || branding.brandName)
+      : 'tu empresa';
+
     setSuccessMessage(
       requestedAdmin
-        ? 'Tu cuenta fue creada correctamente y tu solicitud de acceso como administrador quedó pendiente de validación por BondiApps y la empresa seleccionada.'
-        : 'Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de tu empresa.'
+        ? `Tu cuenta fue creada correctamente y tu solicitud de acceso como administrador de ${companyLabel} quedó pendiente de validación.`
+        : `Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de ${companyLabel}.`
     );
 
     clearForm();
@@ -156,14 +183,13 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         </button>
 
         <div className="bg-steel-900 border border-steel-700 rounded-2xl p-6 sm:p-8 shadow-2xl">
-          <div className="flex items-center gap-3 mb-7">
-            <div className="w-11 h-11 rounded-xl bg-steel-950 border border-amber-500/30 flex items-center justify-center p-1.5">
-              <img src="/images/ciguena-pumpjack.png" alt="Cigüeña" className="w-full h-full object-contain" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-steel-50">Crear cuenta</h1>
-              <p className="text-sm text-steel-400">Completá tus datos para solicitar acceso a Cigüeña.</p>
-            </div>
+          <PublicBrandLockup compact className="mb-7" />
+
+          <div className="mb-7">
+            <h1 className="text-2xl font-bold text-steel-50">Crear cuenta</h1>
+            <p className="mt-1 text-sm text-steel-400">
+              Completá tus datos para solicitar acceso a {branding.brandName}.
+            </p>
           </div>
 
           {error && (
@@ -207,6 +233,11 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                   autoComplete="email"
                   disabled={isLoading}
                 />
+                {invitationEmail && (
+                  <p className="mt-1.5 text-xs text-steel-500">
+                    Precompletamos el email de tu invitación.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label" htmlFor="register-phone">Teléfono</label>
@@ -226,22 +257,28 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
 
             <div>
               <label className="label" htmlFor="register-company">Empresa</label>
-              <select
-                id="register-company"
-                className="input"
-                value={companyId}
-                onChange={e => setCompanyId(e.target.value)}
-                required
-                disabled={isLoading || isLoadingCompanies}
-              >
-                <option value="">
-                  {isLoadingCompanies ? 'Cargando empresas...' : 'Seleccioná tu empresa'}
-                </option>
-                {companies.map(company => (
-                  <option key={company.id} value={company.id}>{company.name}</option>
-                ))}
-                <option value="not-found">No encuentro mi empresa</option>
-              </select>
+              {isDomainBound && domainTenantId ? (
+                <div className="rounded-lg border brand-border brand-bg-soft px-3 py-2.5 text-sm text-steel-100">
+                  {domainTenantName || branding.brandName}
+                </div>
+              ) : (
+                <select
+                  id="register-company"
+                  className="input"
+                  value={companyId}
+                  onChange={e => setCompanyId(e.target.value)}
+                  required
+                  disabled={isLoading || isLoadingCompanies}
+                >
+                  <option value="">
+                    {isLoadingCompanies ? 'Cargando empresas...' : 'Seleccioná tu empresa'}
+                  </option>
+                  {companies.map(company => (
+                    <option key={company.id} value={company.id}>{company.name}</option>
+                  ))}
+                  <option value="not-found">No encuentro mi empresa</option>
+                </select>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -264,6 +301,8 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                     onClick={() => setShowPassword(current => !current)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-steel-400 hover:text-steel-200"
                     aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-pressed={showPassword}
+                    tabIndex={-1}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -292,13 +331,13 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                   type="checkbox"
                   checked={requestedAdmin}
                   onChange={e => handleAdminRequestChange(e.target.checked)}
-                  className="mt-1 h-4 w-4 accent-amber-500"
+                  className="brand-checkbox mt-1 h-4 w-4"
                   disabled={isLoading}
                 />
                 <span>
                   <span className="block text-sm font-semibold text-steel-100">Solicitar acceso como administrador</span>
                   <span className="block mt-1 text-xs leading-relaxed text-steel-400">
-                    El acceso administrativo requiere validación previa porque permite consultar y gestionar información sensible de la empresa.
+                    Marcá esta opción únicamente si sos administrador y necesitás gestionar la plataforma. Si sos trabajador, no la selecciones. El acceso administrativo requiere validación previa porque permite consultar y gestionar información sensible de la empresa.
                   </span>
                 </span>
               </label>
@@ -316,7 +355,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
 
           <p className="mt-6 text-center text-sm text-steel-400">
             ¿Ya tenés una cuenta?{' '}
-            <button type="button" onClick={onBackToLogin} className="font-semibold text-amber-400 hover:text-amber-300">
+            <button type="button" onClick={onBackToLogin} className="font-semibold brand-text hover:brightness-110">
               Iniciar sesión
             </button>
           </p>
@@ -328,7 +367,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
           <div className="w-full max-w-lg rounded-2xl border border-steel-700 bg-steel-900 p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 rounded-full bg-amber-500/15 p-2 text-amber-400">
+                <div className="mt-0.5 rounded-full brand-bg-soft p-2 brand-text">
                   <AlertTriangle size={20} />
                 </div>
                 <div>
@@ -337,7 +376,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                     El rol de administrador permite acceder y gestionar información sensible de la empresa, incluyendo usuarios, capacitaciones, avances y certificados.
                   </p>
                   <p className="mt-3 text-sm leading-relaxed text-steel-300">
-                    Por razones de seguridad, tu solicitud deberá ser validada por BondiApps y por la empresa seleccionada. Hasta que se complete la aprobación, tu cuenta no contará con permisos administrativos.
+                    Por razones de seguridad, tu solicitud deberá ser validada antes de habilitar permisos administrativos.
                   </p>
                 </div>
               </div>

@@ -1,4 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  getEmailSender,
+  renderEmailBrandHeader,
+  renderEmailFooter,
+  resolveTenantEmailBranding,
+  type TenantEmailBranding,
+} from './_tenant-email-branding';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -9,9 +16,6 @@ const googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 const googleCalendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
 const resendApiKey = process.env.RESEND_API_KEY;
 
-const fromEmail =
-  process.env.CIGUENA_FROM_EMAIL ||
-  'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -186,10 +190,12 @@ async function sendResendEmail({
   to,
   subject,
   html,
+  from,
 }: {
   to: string;
   subject: string;
   html: string;
+  from: string;
 }) {
   if (!resendApiKey) {
     return { ok: false, error: 'RESEND_API_KEY no configurada.' };
@@ -202,7 +208,7 @@ async function sendResendEmail({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: fromEmail,
+      from,
       to,
       subject,
       html,
@@ -221,9 +227,10 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildCancellationEmailHtml({
+export function buildCancellationEmailHtml({
   fullName,
   training,
+  branding,
 }: {
   fullName?: string | null;
   training: {
@@ -233,9 +240,11 @@ function buildCancellationEmailHtml({
     ends_at: string;
     timezone?: string | null;
   };
+  branding: TenantEmailBranding;
 }) {
   const safeName = escapeHtml(fullName || 'Hola');
   const safeTitle = escapeHtml(training.title || 'Capacitación en vivo');
+  const safeBrand = escapeHtml(branding.brandName);
   const timezone = training.timezone || 'America/Argentina/Buenos_Aires';
   const safeStart = escapeHtml(formatDateTime(training.starts_at, timezone));
   const safeEnd = escapeHtml(formatTime(training.ends_at, timezone));
@@ -244,10 +253,7 @@ function buildCancellationEmailHtml({
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
       <div style="max-width:620px;margin:0 auto;padding:32px 20px;">
         <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-          <div style="margin-bottom:24px;">
-            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">CIGÜEÑA</div>
-            <div style="font-size:13px;color:#94a3b8;">Platform by BondiApps</div>
-          </div>
+          ${renderEmailBrandHeader(branding)}
 
           <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
             Capacitación en vivo cancelada
@@ -268,7 +274,7 @@ function buildCancellationEmailHtml({
           <div style="background:#450a0a;border:1px solid #ef4444;border-radius:12px;padding:16px;margin:20px 0;">
             <p style="font-size:15px;line-height:1.6;color:#fecaca;margin:0;">
               <strong>IMPORTANTE:</strong><br/>
-              No es necesario que ingreses a Cigüeña ni a Google Meet para esta capacitación. El evento fue cancelado y Google Calendar debería quitarlo o marcarlo como cancelado en tu calendario.
+              No es necesario que ingreses a ${safeBrand} ni a Google Meet para esta capacitación. El evento fue cancelado y Google Calendar debería quitarlo o marcarlo como cancelado en tu calendario.
             </p>
           </div>
 
@@ -276,11 +282,7 @@ function buildCancellationEmailHtml({
             Si tenés dudas, contactá al administrador de tu organización.
           </p>
 
-          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-          </p>
+          ${renderEmailFooter(branding)}
         </div>
       </div>
     </div>
@@ -343,6 +345,7 @@ async function resolveRecipients({
 async function sendCancellationEmails({
   recipients,
   training,
+  branding,
 }: {
   recipients: Array<{ email: string; displayName?: string }>;
   training: {
@@ -352,15 +355,19 @@ async function sendCancellationEmails({
     ends_at: string;
     timezone?: string | null;
   };
+  branding: TenantEmailBranding;
 }) {
+  const emailFrom = getEmailSender(branding);
   const results = await Promise.all(
     recipients.map(async recipient => {
       const result = await sendResendEmail({
         to: recipient.email,
+        from: emailFrom,
         subject: `Capacitación en vivo cancelada: ${training.title}`,
         html: buildCancellationEmailHtml({
           fullName: recipient.displayName,
           training,
+          branding,
         }),
       });
 
@@ -413,6 +420,20 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       return json(404, { error: 'Capacitación en vivo no encontrada.' });
     }
 
+    const { data: tenant, error: tenantError } = await client
+      .from('tenants')
+      .select('id, name')
+      .eq('id', training.tenant_id)
+      .maybeSingle();
+
+    if (tenantError) throw tenantError;
+
+    const branding = await resolveTenantEmailBranding(
+      client,
+      training.tenant_id,
+      tenant?.name ?? null
+    );
+
     if (training.deleted_at && training.calendar_status === 'cancelled') {
       return json(200, {
         ok: true,
@@ -449,6 +470,7 @@ export async function handler(event: { httpMethod: string; body?: string | null 
     const emailResult = await sendCancellationEmails({
       recipients,
       training,
+      branding,
     });
 
     const { data: updatedTraining, error: updateError } = await client

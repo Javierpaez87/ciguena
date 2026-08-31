@@ -493,7 +493,7 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
     return (
       <div
         key={assignment.id}
-        className={`card hover:border-steel-600 transition-all ${
+        className={`card brand-hover-border transition-all ${
           dueInfo.isOverdue && !isCompleted
             ? 'border-red-500/40'
             : dueInfo.isDueSoon && !isCompleted
@@ -541,7 +541,7 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                   <span className="badge badge-info">{assignment.training.category}</span>
                 )}
                 {assignment.training?.certificate_enabled && (
-                  <span className="badge badge-warning flex items-center gap-1">
+                  <span className="badge border brand-border-soft brand-bg-soft brand-text flex items-center gap-1">
                     <Award size={9} /> Certifica
                   </span>
                 )}
@@ -725,7 +725,7 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                 onClick={() => setStatusFilter(statusItem.value)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   statusFilter === statusItem.value
-                    ? 'bg-amber-500 text-petroleum-950'
+                    ? 'brand-bg'
                     : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
                 }`}
               >

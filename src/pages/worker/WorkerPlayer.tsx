@@ -264,7 +264,7 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
 
             <div className="flex flex-col items-end gap-1">
               {training.certificate_enabled && (
-                <span className="badge badge-warning flex items-center gap-1">
+                <span className="badge border brand-border-soft brand-bg-soft brand-text flex items-center gap-1">
                   <Award size={10} /> Certifica
                 </span>
               )}
@@ -281,7 +281,7 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
             <div className="progress-bar flex-1 h-2">
               <div className="progress-fill h-full" style={{ width: `${progress}%` }} />
             </div>
-            <span className="text-sm text-amber-400 font-medium flex-shrink-0">
+            <span className="text-sm brand-text font-medium flex-shrink-0">
               {progress}%
             </span>
           </div>
@@ -352,13 +352,13 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
 
           <div className="overflow-y-auto max-h-[calc(100vh-300px)]">
             <button
-              className="w-full flex items-center gap-3 px-4 py-3 border-b border-steel-700/50 transition-colors text-left bg-amber-500/10"
+              className="w-full flex items-center gap-3 px-4 py-3 border-b border-steel-700/50 transition-colors text-left brand-bg-soft"
             >
               <div
                 className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
                   isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'
                     ? 'bg-emerald-500'
-                    : 'bg-amber-500'
+                    : 'brand-bg'
                 }`}
               >
                 {isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'
@@ -367,7 +367,7 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="text-xs truncate text-amber-300 font-medium">
+                <div className="text-xs truncate brand-text font-medium">
                   {currentLesson.title}
                 </div>
 

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle, Loader2, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useBranding } from '../contexts/BrandingContext';
+import PublicBrandLockup from '../components/branding/PublicBrandLockup';
 
 interface ForgotPasswordPageProps {
   onBackToLogin: () => void;
@@ -8,6 +10,7 @@ interface ForgotPasswordPageProps {
 
 export default function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPageProps) {
   const { resetPassword, isLoading } = useAuth();
+  const { branding } = useBranding();
 
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -40,7 +43,9 @@ export default function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPage
         </button>
 
         <div className="rounded-2xl border border-steel-700 bg-steel-900 p-6 sm:p-8 shadow-2xl">
-          <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400">
+          <PublicBrandLockup compact className="mb-6" />
+
+          <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl border brand-border brand-bg-soft brand-text">
             <Mail size={22} />
           </div>
 
@@ -48,7 +53,7 @@ export default function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPage
             <>
               <h1 className="text-2xl font-bold text-steel-50">Recuperar contraseña</h1>
               <p className="mt-2 text-sm leading-relaxed text-steel-400">
-                Ingresá el correo electrónico asociado a tu cuenta. Te enviaremos un enlace para crear una nueva contraseña.
+                Ingresá el correo electrónico asociado a tu cuenta de {branding.brandName}. Te enviaremos un enlace para crear una nueva contraseña.
               </p>
 
               {error && (
@@ -93,7 +98,7 @@ export default function ForgotPasswordPage({ onBackToLogin }: ForgotPasswordPage
 
               <h1 className="text-2xl font-bold text-steel-50">Revisá tu correo</h1>
               <p className="mt-2 text-sm leading-relaxed text-steel-400">
-                Si existe una cuenta asociada a <span className="font-medium text-steel-200">{email}</span>, recibirás un enlace para restablecer tu contraseña.
+                Si existe una cuenta asociada a <span className="font-medium text-steel-200">{email}</span>, recibirás un enlace para restablecer tu contraseña de {branding.brandName}.
               </p>
               <p className="mt-3 text-xs leading-relaxed text-steel-500">
                 El correo puede tardar unos minutos. Revisá también la carpeta de correo no deseado.

@@ -13,14 +13,30 @@ import {
   RefreshCw,
   TrendingUp,
   Users,
+  ChevronRight,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
+import MetricDetailModal, { MetricDetailColumn } from '../../components/ui/MetricDetailModal';
+import StatusBadge from '../../components/ui/StatusBadge';
+import {
+  EmployeeDirectoryRecord,
+  mergeProfilesWithDirectory,
+} from '../../lib/workerRoster';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  filterWorkersByCriterion,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
 type ReportType = 'user' | 'training' | 'area' | 'live';
-type Accent = 'amber' | 'blue' | 'green' | 'red' | 'steel';
+type Accent = 'brand' | 'amber' | 'blue' | 'green' | 'red' | 'steel';
 type ReportExportRow = Record<string, string | number | null | undefined>;
 
 interface ChartItem {
@@ -37,7 +53,15 @@ interface ReportMetricCardProps {
   accent: Accent;
   chartType: 'donut' | 'bar' | 'spark';
   chartValue: number;
+  onClick?: () => void;
 }
+
+type ReportDetailKey =
+  | 'completion'
+  | 'avgProgress'
+  | 'certificateRisk'
+  | 'liveAttendance'
+  | 'users';
 
 interface Profile {
   id: string;
@@ -49,6 +73,14 @@ interface Profile {
   role?: string | null;
   position?: string | null;
   area?: string | null;
+  work_role?: string | null;
+  job_role?: string | null;
+  supervisor?: string | null;
+  shift?: string | null;
+  base?: string | null;
+  site?: string | null;
+  region?: string | null;
+  oilfield?: string | null;
   contractor_company?: string | null;
   employee_code?: string | null;
   dni?: string | null;
@@ -136,6 +168,11 @@ interface LiveTrainingParticipant {
 }
 
 const accentStyles: Record<Accent, { icon: string; bar: string; ring: string }> = {
+  brand: {
+    icon: 'brand-icon-surface',
+    bar: 'brand-bg',
+    ring: 'brand-text',
+  },
   amber: {
     icon: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     bar: 'bg-amber-400',
@@ -167,6 +204,13 @@ function normalize(value?: string | null) {
   return (value || '').trim().toLowerCase();
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('es-AR');
+}
+
 function hasLiveAttendanceEvidence(participant: LiveTrainingParticipant) {
   const status = normalize(participant.live_attendance_status);
   return status === 'on_time' || status === 'late' || Boolean(participant.join_clicked_at);
@@ -175,6 +219,16 @@ function hasLiveAttendanceEvidence(participant: LiveTrainingParticipant) {
 function isLiveParticipantPending(participant: LiveTrainingParticipant) {
   const status = normalize(participant.live_attendance_status);
   return status === 'invited' && !participant.join_clicked_at;
+}
+
+function getLiveAttendanceLabel(participant: LiveTrainingParticipant) {
+  const status = normalize(participant.live_attendance_status);
+  if (status === 'on_time') return 'Asistió a horario';
+  if (status === 'late') return 'Asistió tarde';
+  if (status === 'absent' || status === 'invalid_after_event') return 'Ausente';
+  if (status === 'invited' && !participant.join_clicked_at) return 'Invitado / pendiente';
+  if (participant.join_clicked_at) return 'Click Meet registrado';
+  return participant.live_attendance_status || 'Sin registro';
 }
 
 
@@ -354,11 +408,12 @@ function ReportMetricCard({
   accent,
   chartType,
   chartValue,
+  onClick,
 }: ReportMetricCardProps) {
   const styles = accentStyles[accent];
 
-  return (
-    <div className="card p-4 min-h-[160px] flex flex-col justify-between">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div
           className={`h-11 w-11 rounded-xl border flex items-center justify-center flex-shrink-0 ${styles.icon}`}
@@ -371,9 +426,29 @@ function ReportMetricCard({
         <div className="text-2xl font-bold leading-tight text-steel-100">{value}</div>
         <div className="mt-1 text-sm font-medium text-steel-300 leading-snug">{title}</div>
         <div className="mt-1 text-xs text-steel-500 leading-snug">{subtitle}</div>
+        {onClick && (
+          <div className="mt-3 flex items-center gap-1 text-xs font-medium brand-text">
+            Ver detalle
+            <ChevronRight size={14} />
+          </div>
+        )}
       </div>
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="card p-4 min-h-[160px] w-full flex flex-col justify-between text-left transition-colors hover:border-steel-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-steel-950 focus:ring-[var(--brand-accent)]"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="card p-4 min-h-[160px] flex flex-col justify-between">{content}</div>;
 }
 
 function DonutChart({
@@ -496,6 +571,8 @@ function HorizontalReportBars({
 
 export default function AdminReports() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const [reportType, setReportType] = useState<ReportType>('user');
@@ -508,6 +585,9 @@ export default function AdminReports() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [workerFilterKey, setWorkerFilterKey] = useState<WorkerFilterKey>('work_role');
+  const [workerFilterValue, setWorkerFilterValue] = useState('all');
+  const [detailKey, setDetailKey] = useState<ReportDetailKey | null>(null);
 
   async function loadReportsData() {
     if (!tenantId) {
@@ -522,6 +602,7 @@ export default function AdminReports() {
     try {
       const [
         usersResult,
+        directoryResult,
         assignmentsResult,
         certificatesResult,
         trainingsResult,
@@ -529,6 +610,7 @@ export default function AdminReports() {
         liveParticipantsResult,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
+        supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
         supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
         supabase.from('certificates').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
@@ -537,15 +619,16 @@ export default function AdminReports() {
       ]);
 
       if (usersResult.error) throw usersResult.error;
+      if (directoryResult.error) throw directoryResult.error;
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (certificatesResult.error) throw certificatesResult.error;
       if (trainingsResult.error) throw trainingsResult.error;
       if (liveTrainingsResult.error) throw liveTrainingsResult.error;
       if (liveParticipantsResult.error) throw liveParticipantsResult.error;
 
-      const loadedUsers = ((usersResult.data ?? []) as Profile[]).filter(
-        (profile) => !isAdminUser(profile)
-      );
+      const rawUsers = (usersResult.data ?? []) as Profile[];
+      const directoryRows = (directoryResult.data ?? []) as EmployeeDirectoryRecord[];
+      const loadedUsers = mergeProfilesWithDirectory(rawUsers as any, directoryRows) as Profile[];
       const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
       const loadedCertificatesRaw = (certificatesResult.data ?? []) as Certificate[];
       const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
@@ -633,56 +716,140 @@ export default function AdminReports() {
 
   const completedStatuses = ['certificate_issued', 'completed', 'passed', 'approved'];
 
+  const workerFilterOptions = useMemo(
+    () => getWorkerFilterOptions(users as any, workerFilterKey),
+    [users, workerFilterKey]
+  );
+
+  const filteredUsers = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? users
+        : (filterWorkersByCriterion(users as any, workerFilterKey, [workerFilterValue]) as Profile[]),
+    [users, workerFilterKey, workerFilterValue]
+  );
+
+  const filteredUserIds = useMemo(
+    () => new Set(filteredUsers.map((profile) => profile.id).filter(Boolean)),
+    [filteredUsers]
+  );
+
+  const filteredAssignments = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? assignments
+        : assignments.filter(
+            (assignment) => assignment.user_id && filteredUserIds.has(assignment.user_id)
+          ),
+    [assignments, filteredUserIds, workerFilterValue]
+  );
+
+  const filteredCertificates = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? certificates
+        : certificates.filter(
+            (certificate) => certificate.user_id && filteredUserIds.has(certificate.user_id)
+          ),
+    [certificates, filteredUserIds, workerFilterValue]
+  );
+
+  const filteredLiveParticipants = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? liveParticipants
+        : liveParticipants.filter(
+            (participant) => participant.user_id && filteredUserIds.has(participant.user_id)
+          ),
+    [liveParticipants, filteredUserIds, workerFilterValue]
+  );
+
+  const filteredLiveTrainingIds = useMemo(
+    () =>
+      new Set(
+        filteredLiveParticipants
+          .map((participant) => participant.live_training_id)
+          .filter((value): value is string => Boolean(value))
+      ),
+    [filteredLiveParticipants]
+  );
+
+  const filteredLiveTrainings = useMemo(
+    () =>
+      workerFilterValue === 'all'
+        ? liveTrainings
+        : liveTrainings.filter((training) => filteredLiveTrainingIds.has(training.id)),
+    [liveTrainings, filteredLiveTrainingIds, workerFilterValue]
+  );
+
+  const activeFilterSummary =
+    workerFilterValue === 'all'
+      ? 'Empresa completa'
+      : `${getWorkerFilterDefinition(workerFilterKey).label}: ${workerFilterValue}`;
+
   const reports = useMemo(() => {
-    const completedAssignments = assignments.filter((assignment) =>
+    const completedAssignmentRows = filteredAssignments.filter((assignment) =>
       completedStatuses.includes(normalize(assignment.status))
-    ).length;
+    );
 
-    const inProgressAssignments = assignments.filter((assignment) =>
+    const inProgressAssignmentRows = filteredAssignments.filter((assignment) =>
       ['in_progress', 'started'].includes(normalize(assignment.status))
-    ).length;
+    );
 
-    const pendingAssignments = assignments.filter((assignment) =>
+    const pendingAssignmentRows = filteredAssignments.filter((assignment) =>
       ['not_started', 'pending', 'assigned'].includes(normalize(assignment.status))
-    ).length;
+    );
 
-    const pendingTestAssignments = assignments.filter(
+    const pendingTestAssignmentRows = filteredAssignments.filter(
       (assignment) => normalize(assignment.status) === 'pending_test'
-    ).length;
+    );
 
-    const failedAssignments = assignments.filter((assignment) =>
+    const failedAssignmentRows = filteredAssignments.filter((assignment) =>
       ['failed', 'reproved', 'reprobado'].includes(normalize(assignment.status))
-    ).length;
+    );
 
-    const avgProgress = assignments.length
+    const completedAssignments = completedAssignmentRows.length;
+    const inProgressAssignments = inProgressAssignmentRows.length;
+    const pendingAssignments = pendingAssignmentRows.length;
+    const pendingTestAssignments = pendingTestAssignmentRows.length;
+    const failedAssignments = failedAssignmentRows.length;
+
+    const avgProgress = filteredAssignments.length
       ? Math.round(
-          assignments.reduce((sum, assignment) => sum + getAssignmentProgress(assignment), 0) /
-            assignments.length
+          filteredAssignments.reduce((sum, assignment) => sum + getAssignmentProgress(assignment), 0) /
+            filteredAssignments.length
         )
       : 0;
 
-    const completionRate = percent(completedAssignments, assignments.length);
+    const completionRate = percent(completedAssignments, filteredAssignments.length);
 
-    const validCerts = certificates.filter(
+    const validCertificateRows = filteredCertificates.filter(
       (certificate) => getCertificateStatus(certificate) === 'valid'
-    ).length;
+    );
 
-    const expiringSoonCerts = certificates.filter(
+    const expiringSoonCertificateRows = filteredCertificates.filter(
       (certificate) => getCertificateStatus(certificate) === 'expiring_soon'
-    ).length;
+    );
 
-    const expiredCerts = certificates.filter(
+    const expiredCertificateRows = filteredCertificates.filter(
       (certificate) => getCertificateStatus(certificate) === 'expired'
-    ).length;
+    );
+
+    const validCerts = validCertificateRows.length;
+    const expiringSoonCerts = expiringSoonCertificateRows.length;
+    const expiredCerts = expiredCertificateRows.length;
+    const certificateRiskRows = filteredCertificates.filter(
+      (certificate) => getCertificateStatus(certificate) !== 'valid'
+    );
 
     const certificateRiskRate = percent(
       expiringSoonCerts + expiredCerts,
-      Math.max(certificates.length, 1)
+      Math.max(filteredCertificates.length, 1)
     );
 
-    const userReport = users.map((profile) => {
-      const userAssignments = assignments.filter((assignment) => assignment.user_id === profile.id);
-      const userCerts = certificates.filter((certificate) => certificate.user_id === profile.id);
+    const userReport = filteredUsers.map((profile) => {
+      const userAssignments = filteredAssignments.filter((assignment) => assignment.user_id === profile.id);
+      const userCerts = filteredCertificates.filter((certificate) => certificate.user_id === profile.id);
 
       const completed = userAssignments.filter((assignment) =>
         completedStatuses.includes(normalize(assignment.status))
@@ -716,7 +883,7 @@ export default function AdminReports() {
 
     const trainingIds = Array.from(
       new Set(
-        assignments
+        filteredAssignments
           .map(
             (assignment) =>
               assignment.tenant_training_id || assignment.training_id || assignment.training?.id
@@ -726,7 +893,7 @@ export default function AdminReports() {
     );
 
     const trainingReport = trainingIds.map((trainingId) => {
-      const trainingAssignments = assignments.filter((assignment) => {
+      const trainingAssignments = filteredAssignments.filter((assignment) => {
         const assignmentTrainingId =
           assignment.tenant_training_id || assignment.training_id || assignment.training?.id;
 
@@ -763,12 +930,12 @@ export default function AdminReports() {
       };
     });
 
-    const areaNames = Array.from(new Set(users.map((profile) => profile.area || 'Sin área')));
+    const areaNames = Array.from(new Set(filteredUsers.map((profile) => profile.area || 'Sin área')));
 
     const areaReport = areaNames.map((area) => {
-      const areaUsers = users.filter((profile) => (profile.area || 'Sin área') === area);
+      const areaUsers = filteredUsers.filter((profile) => (profile.area || 'Sin área') === area);
       const areaUserIds = new Set(areaUsers.map((profile) => profile.id));
-      const areaAssignments = assignments.filter(
+      const areaAssignments = filteredAssignments.filter(
         (assignment) => assignment.user_id && areaUserIds.has(assignment.user_id)
       );
 
@@ -798,8 +965,8 @@ export default function AdminReports() {
       };
     });
 
-    const liveTrainingReport = liveTrainings.map((training) => {
-      const trainingParticipants = liveParticipants.filter(
+    const liveTrainingReport = filteredLiveTrainings.map((training) => {
+      const trainingParticipants = filteredLiveParticipants.filter(
         (participant) => participant.live_training_id === training.id
       );
       const attended = trainingParticipants.filter(hasLiveAttendanceEvidence).length;
@@ -822,8 +989,9 @@ export default function AdminReports() {
       };
     });
 
-    const liveAttended = liveParticipants.filter(hasLiveAttendanceEvidence).length;
-    const liveAttendanceRate = percent(liveAttended, liveParticipants.length);
+    const liveAttendedRows = filteredLiveParticipants.filter(hasLiveAttendanceEvidence);
+    const liveAttended = liveAttendedRows.length;
+    const liveAttendanceRate = percent(liveAttended, filteredLiveParticipants.length);
 
     const criticalUsers = [...userReport]
       .filter((report) => report.total > 0)
@@ -835,7 +1003,7 @@ export default function AdminReports() {
       .sort((a, b) => a.avgProgress - b.avgProgress)
       .slice(0, 5);
 
-    const expiringCertificates = certificates
+    const expiringCertificates = filteredCertificates
       .filter((certificate) => getCertificateStatus(certificate) !== 'valid')
       .slice()
       .sort((a, b) => {
@@ -871,6 +1039,16 @@ export default function AdminReports() {
       validCerts,
       expiringSoonCerts,
       expiredCerts,
+      completedAssignmentRows,
+      inProgressAssignmentRows,
+      pendingAssignmentRows,
+      pendingTestAssignmentRows,
+      failedAssignmentRows,
+      validCertificateRows,
+      expiringSoonCertificateRows,
+      expiredCertificateRows,
+      certificateRiskRows,
+      liveAttendedRows,
       certificateRiskRate,
       userReport,
       trainingReport,
@@ -884,7 +1062,164 @@ export default function AdminReports() {
       statusItems,
       certItems,
     };
-  }, [users, assignments, certificates, liveTrainings, liveParticipants]);
+  }, [
+    filteredUsers,
+    filteredAssignments,
+    filteredCertificates,
+    filteredLiveTrainings,
+    filteredLiveParticipants,
+  ]);
+
+  const detailModalConfig = useMemo(() => {
+    if (!detailKey) return null;
+
+    const assignmentColumns: MetricDetailColumn<Assignment>[] = [
+      {
+        key: 'worker',
+        label: 'Trabajador',
+        render: (assignment) => (
+          <div>
+            <div className="font-medium text-steel-100">{getFullName(assignment.user)}</div>
+            <div className="text-xs text-steel-500">{assignment.user?.email || '—'}</div>
+          </div>
+        ),
+      },
+      {
+        key: 'training',
+        label: 'Training',
+        render: (assignment) => getTrainingTitle(assignment.training, assignment),
+      },
+      {
+        key: 'status',
+        label: 'Estado',
+        render: (assignment) => <StatusBadge status={assignment.status || 'assigned'} />,
+      },
+      {
+        key: 'progress',
+        label: 'Avance',
+        render: (assignment) => `${getAssignmentProgress(assignment)}%`,
+      },
+      {
+        key: 'due',
+        label: 'Deadline',
+        render: (assignment) => formatDate(assignment.due_date),
+      },
+    ];
+
+    const certificateColumns: MetricDetailColumn<Certificate>[] = [
+      {
+        key: 'worker',
+        label: 'Trabajador',
+        render: (certificate) => (
+          <div>
+            <div className="font-medium text-steel-100">{getFullName(certificate.user)}</div>
+            <div className="text-xs text-steel-500">{certificate.user?.email || '—'}</div>
+          </div>
+        ),
+      },
+      {
+        key: 'training',
+        label: 'Training / certificado',
+        render: (certificate) => getTrainingTitle(certificate.training, certificate),
+      },
+      {
+        key: 'status',
+        label: 'Estado',
+        render: (certificate) => <StatusBadge status={getCertificateStatus(certificate)} />,
+      },
+      {
+        key: 'issued',
+        label: 'Emitido',
+        render: (certificate) => formatDate(certificate.issued_at || certificate.created_at),
+      },
+      {
+        key: 'expires',
+        label: 'Vencimiento',
+        render: (certificate) => formatDate(certificate.expires_at),
+      },
+    ];
+
+    switch (detailKey) {
+      case 'completion':
+        return {
+          title: 'Detalle de cumplimiento general',
+          description: `${reports.completedAssignments} de ${filteredAssignments.length} asignación(es) están completadas. El porcentaje de la card se calcula sobre estas mismas filas.`,
+          rows: filteredAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'avgProgress':
+        return {
+          title: 'Detalle de avance promedio',
+          description: `El ${reports.avgProgress}% se calcula promediando el avance de estas ${filteredAssignments.length} asignación(es).`,
+          rows: filteredAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'certificateRisk':
+        return {
+          title: 'Certificados en riesgo',
+          description: `${reports.expiringSoonCerts} próximo(s) a vencer y ${reports.expiredCerts} vencido(s).`,
+          rows: reports.certificateRiskRows,
+          columns: certificateColumns,
+          rowKey: (certificate: Certificate) => certificate.id,
+        };
+
+      case 'liveAttendance':
+        return {
+          title: 'Detalle de asistencia en vivo',
+          description: `${reports.liveAttended} de ${filteredLiveParticipants.length} invitado(s) tienen evidencia de asistencia.`,
+          rows: filteredLiveParticipants,
+          columns: [
+            {
+              key: 'worker',
+              label: 'Trabajador',
+              render: (participant: LiveTrainingParticipant) => (
+                <div>
+                  <div className="font-medium text-steel-100">{getFullName(participant.user)}</div>
+                  <div className="text-xs text-steel-500">{participant.user?.email || '—'}</div>
+                </div>
+              ),
+            },
+            {
+              key: 'training',
+              label: 'Capacitación en vivo',
+              render: (participant: LiveTrainingParticipant) =>
+                participant.live_training?.title || 'Capacitación en vivo',
+            },
+            {
+              key: 'attendance',
+              label: 'Asistencia',
+              render: (participant: LiveTrainingParticipant) => getLiveAttendanceLabel(participant),
+            },
+            {
+              key: 'click',
+              label: 'Click Meet',
+              render: (participant: LiveTrainingParticipant) => formatDate(participant.join_clicked_at),
+            },
+          ] as MetricDetailColumn<LiveTrainingParticipant>[],
+          rowKey: (participant: LiveTrainingParticipant) => participant.id,
+        };
+
+      case 'users':
+        return {
+          title: 'Usuarios alcanzados',
+          description: `${filteredUsers.length} trabajador(es) están incluidos en el reporte actual; ${reports.userReport.filter((report) => report.total > 0).length} tienen trainings asignados.`,
+          rows: reports.userReport,
+          columns: [
+            { key: 'name', label: 'Trabajador', render: (row: typeof reports.userReport[number]) => row.name },
+            { key: 'area', label: 'Área', render: (row: typeof reports.userReport[number]) => row.area || 'Sin área' },
+            { key: 'position', label: 'Puesto', render: (row: typeof reports.userReport[number]) => row.position || '—' },
+            { key: 'assigned', label: 'Asignaciones', render: (row: typeof reports.userReport[number]) => row.total },
+            { key: 'completed', label: 'Completados', render: (row: typeof reports.userReport[number]) => row.completed },
+            { key: 'pending', label: 'Pendientes', render: (row: typeof reports.userReport[number]) => row.pending },
+          ] as MetricDetailColumn<typeof reports.userReport[number]>[],
+          rowKey: (row: typeof reports.userReport[number]) => row.id,
+        };
+    }
+  }, [detailKey, reports, filteredAssignments, filteredLiveParticipants, filteredUsers]);
 
   const reportExportConfig = useMemo(() => {
     let rows: ReportExportRow[] = [];
@@ -989,9 +1324,9 @@ export default function AdminReports() {
     return {
       rows,
       columns,
-      filename: `reporte-${reportType}-ciguena.csv`,
+      filename: `reporte-${reportType}-${brandSlug}.csv`,
     };
-  }, [reportType, reports]);
+  }, [brandSlug, reportType, reports]);
 
 
   if (loading) {
@@ -1049,15 +1384,82 @@ export default function AdminReports() {
           </div>
         </div>
 
+        <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3">
+          <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+              <label className="space-y-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-steel-500">
+                  Filtrar por
+                </span>
+                <select
+                  value={workerFilterKey}
+                  onChange={(event) => {
+                    setWorkerFilterKey(event.target.value as WorkerFilterKey);
+                    setWorkerFilterValue('all');
+                  }}
+                  className="select w-full"
+                >
+                  {WORKER_FILTER_DEFINITIONS.map((definition) => (
+                    <option key={definition.key} value={definition.key}>
+                      {definition.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-steel-500">
+                  Valor
+                </span>
+                <select
+                  value={workerFilterValue}
+                  onChange={(event) => setWorkerFilterValue(event.target.value)}
+                  className="select w-full"
+                >
+                  <option value="all">Todos</option>
+                  {workerFilterOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 xl:pb-0.5">
+              <div className="text-xs text-steel-400">
+                Mostrando <span className="font-semibold text-steel-100">{filteredUsers.length}</span> de{' '}
+                <span className="font-semibold text-steel-100">{users.length}</span> trabajadores
+                {workerFilterValue !== 'all' && (
+                  <span>
+                    {' '}· {getWorkerFilterDefinition(workerFilterKey).label}: {workerFilterValue}
+                  </span>
+                )}
+              </div>
+
+              {workerFilterValue !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setWorkerFilterValue('all')}
+                  className="btn-secondary text-xs whitespace-nowrap"
+                >
+                  Limpiar filtro
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <ReportMetricCard
             title="Cumplimiento general"
             value={`${reports.completionRate}%`}
-            subtitle={`${reports.completedAssignments} de ${assignments.length} asignaciones completadas`}
+            subtitle={`${reports.completedAssignments} de ${filteredAssignments.length} asignaciones completadas`}
             icon={<CheckCircle size={20} />}
             accent="green"
             chartType="donut"
             chartValue={reports.completionRate}
+            onClick={() => setDetailKey('completion')}
           />
 
           <ReportMetricCard
@@ -1065,9 +1467,10 @@ export default function AdminReports() {
             value={`${reports.avgProgress}%`}
             subtitle="Promedio de progreso de trainings activos"
             icon={<TrendingUp size={20} />}
-            accent="amber"
+            accent="brand"
             chartType="spark"
             chartValue={reports.avgProgress}
+            onClick={() => setDetailKey('avgProgress')}
           />
 
           <ReportMetricCard
@@ -1078,29 +1481,32 @@ export default function AdminReports() {
             accent={reports.expiringSoonCerts + reports.expiredCerts > 0 ? 'red' : 'green'}
             chartType="bar"
             chartValue={reports.certificateRiskRate}
+            onClick={() => setDetailKey('certificateRisk')}
           />
 
           <ReportMetricCard
             title="Asistencia en vivo"
             value={`${reports.liveAttendanceRate}%`}
-            subtitle={`${reports.liveAttended} de ${liveParticipants.length} invitados a vivos`}
+            subtitle={`${reports.liveAttended} de ${filteredLiveParticipants.length} invitados a vivos`}
             icon={<CalendarClock size={20} />}
             accent="blue"
             chartType="donut"
             chartValue={reports.liveAttendanceRate}
+            onClick={() => setDetailKey('liveAttendance')}
           />
 
           <ReportMetricCard
             title="Usuarios alcanzados"
-            value={users.length}
+            value={filteredUsers.length}
             subtitle={`${reports.userReport.filter((report) => report.total > 0).length} con trainings asignados`}
             icon={<Users size={20} />}
             accent="blue"
             chartType="donut"
             chartValue={percent(
               reports.userReport.filter((report) => report.total > 0).length,
-              users.length
+              filteredUsers.length
             )}
+            onClick={() => setDetailKey('users')}
           />
         </div>
       </section>
@@ -1108,29 +1514,29 @@ export default function AdminReports() {
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <BarChart2 size={16} className="text-amber-400" />
+            <BarChart2 size={16} className="brand-text" />
             Estado de asignaciones
           </h3>
           <p className="text-xs text-steel-500 mb-5">
             Distribución general por estado operativo.
           </p>
-          <DonutChart items={reports.statusItems} centerLabel="total" centerValue={assignments.length} />
+          <DonutChart items={reports.statusItems} centerLabel="total" centerValue={filteredAssignments.length} />
         </div>
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Award size={16} className="text-amber-400" />
+            <Award size={16} className="brand-text" />
             Estado de certificados
           </h3>
           <p className="text-xs text-steel-500 mb-5">
             Vigencia y riesgos próximos para seguimiento HSE.
           </p>
-          <DonutChart items={reports.certItems} centerLabel="certs" centerValue={certificates.length} />
+          <DonutChart items={reports.certItems} centerLabel="certs" centerValue={filteredCertificates.length} />
         </div>
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Building size={16} className="text-amber-400" />
+            <Building size={16} className="brand-text" />
             Cumplimiento por área
           </h3>
           <p className="text-xs text-steel-500 mb-5">Comparativo de avance por sector.</p>
@@ -1148,7 +1554,7 @@ export default function AdminReports() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <Users size={16} className="text-amber-400" />
+            <Users size={16} className="brand-text" />
             Usuarios críticos
           </h3>
           <p className="text-xs text-steel-500 mb-4">
@@ -1179,7 +1585,7 @@ export default function AdminReports() {
                 </div>
                 <div className="h-2 rounded-full bg-steel-800 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-amber-400"
+                    className="h-full rounded-full brand-bg"
                     style={{ width: `${userItem.avgProgress}%` }}
                   />
                 </div>
@@ -1190,7 +1596,7 @@ export default function AdminReports() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <BookOpen size={16} className="text-amber-400" />
+            <BookOpen size={16} className="brand-text" />
             Trainings críticos
           </h3>
           <p className="text-xs text-steel-500 mb-4">Cursos con menor avance promedio.</p>
@@ -1230,7 +1636,7 @@ export default function AdminReports() {
 
         <div className="card">
           <h3 className="text-base font-semibold text-steel-100 mb-1 flex items-center gap-2">
-            <CalendarClock size={16} className="text-amber-400" />
+            <CalendarClock size={16} className="brand-text" />
             Vencimientos próximos
           </h3>
           <p className="text-xs text-steel-500 mb-4">Certificados a revisar o renovar.</p>
@@ -1300,7 +1706,7 @@ export default function AdminReports() {
                 onClick={() => setReportType(item.id as ReportType)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                   reportType === item.id
-                    ? 'bg-amber-500 text-petroleum-950'
+                    ? 'brand-bg'
                     : 'bg-steel-800 text-steel-300 hover:bg-steel-700'
                 }`}
               >
@@ -1550,6 +1956,19 @@ export default function AdminReports() {
         columns={reportExportConfig.columns}
         description="Elegí las columnas a incluir. Se exportará el tipo de reporte que estás viendo actualmente."
       />
+
+      {detailModalConfig && (
+        <MetricDetailModal
+          open={Boolean(detailKey)}
+          onClose={() => setDetailKey(null)}
+          title={detailModalConfig.title}
+          description={detailModalConfig.description}
+          context={activeFilterSummary}
+          rows={detailModalConfig.rows as any[]}
+          columns={detailModalConfig.columns as MetricDetailColumn<any>[]}
+          rowKey={detailModalConfig.rowKey as (row: any, index: number) => React.Key}
+        />
+      )}
 
     </div>
   );

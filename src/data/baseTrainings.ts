@@ -17,8 +17,8 @@ export const baseTrainings: Training[] = [
     created_at: '2024-01-05T10:00:00Z',
     module_count: 1,
     tenant_count: 4,
-    content_type: 'local_video',
-    content_url: '/videos/cuidado-de-manos-test2.mp4',
+    content_type: 'youtube',
+    content_url: 'https://www.youtube.com/embed/Ve4pR-x5h0A',
     thumbnail_url: null,
   },
   {

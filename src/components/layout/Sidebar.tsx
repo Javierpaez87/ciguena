@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
-  Shield,
   Menu,
   X,
   Play,
@@ -21,9 +20,14 @@ import {
   LibraryBig,
   Eye,
   ArrowLeft,
+  Palette,
+  ShieldCheck,
+  Mail,
+  MailCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
+import { useBranding } from '../../contexts/BrandingContext';
+import { getTenantBrandTheme } from '../../lib/brandTheme';
 
 interface NavItem {
   id: string;
@@ -31,12 +35,20 @@ interface NavItem {
   icon: React.ReactNode;
   badge?: number;
   statusLabel?: string;
+  separatorBefore?: boolean;
 }
 
 interface SidebarProps {
   activeView: string;
   onNavigate: (view: string) => void;
 }
+
+const isQaEmailAuditHost = typeof window !== 'undefined' && (
+  window.location.hostname === 'spi-dev.bondiapps.com' ||
+  window.location.hostname === 'ciguena-dev.netlify.app' ||
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+);
 
 const superAdminNav: NavItem[] = [
   {
@@ -48,6 +60,16 @@ const superAdminNav: NavItem[] = [
     id: 'sa-tenants',
     label: 'Empresas / Tenants',
     icon: <Building2 size={18} />,
+  },
+  {
+    id: 'sa-white-label',
+    label: 'White Label',
+    icon: <Palette size={18} />,
+  },
+  {
+    id: 'sa-compliance',
+    label: 'Onboarding & Compliance',
+    icon: <ShieldCheck size={18} />,
   },
   {
     id: 'sa-trainings',
@@ -70,10 +92,23 @@ const superAdminNav: NavItem[] = [
     icon: <MessageSquare size={18} />,
   },
   {
+    id: 'sa-communications',
+    label: 'Comunicaciones',
+    icon: <Mail size={18} />,
+  },
+  {
     id: 'sa-ghost',
     label: 'Ghost View',
     icon: <Eye size={18} />,
   },
+  ...(isQaEmailAuditHost
+    ? [{
+        id: 'sa-email-qa',
+        label: 'QA Email Audit',
+        icon: <MailCheck size={18} />,
+        separatorBefore: true,
+      }]
+    : []),
 ];
 
 const adminNav: NavItem[] = [
@@ -93,14 +128,14 @@ const adminNav: NavItem[] = [
     icon: <BookOpen size={18} />,
   },
   {
-    id: 'admin-training-catalog',
-    label: 'Catálogo de Trainings',
-    icon: <LibraryBig size={18} />,
-  },
-  {
     id: 'admin-assignments',
     label: 'Asignaciones',
     icon: <ClipboardList size={18} />,
+  },
+  {
+    id: 'admin-training-catalog',
+    label: 'Catálogo de Trainings',
+    icon: <LibraryBig size={18} />,
   },
   {
     id: 'admin-live-trainings',
@@ -109,24 +144,36 @@ const adminNav: NavItem[] = [
     statusLabel: 'En desarrollo',
   },
   {
+    id: 'admin-reports',
+    label: 'Reportes',
+    icon: <BarChart2 size={18} />,
+    separatorBefore: true,
+  },
+  {
+    id: 'admin-communications',
+    label: 'Comunicaciones',
+    icon: <Mail size={18} />,
+  },
+  {
+    id: 'admin-compliance',
+    label: 'Onboarding & Compliance',
+    icon: <ShieldCheck size={18} />,
+  },
+  {
     id: 'admin-certificates',
     label: 'Certificados',
     icon: <Award size={18} />,
   },
   {
-    id: 'admin-reports',
-    label: 'Reportes',
-    icon: <BarChart2 size={18} />,
+    id: 'admin-signatures',
+    label: 'Signatures',
+    icon: <FileSignature size={18} />,
   },
   {
     id: 'admin-feedback',
     label: 'Feedback',
     icon: <MessageSquare size={18} />,
-  },
-  {
-    id: 'admin-signatures',
-    label: 'Signatures',
-    icon: <FileSignature size={18} />,
+    separatorBefore: true,
   },
 ];
 
@@ -166,31 +213,6 @@ function isSuperAdminRole(role?: string | null) {
   const normalizedRole = normalizeRole(role);
 
   return normalizedRole === 'super_admin' || normalizedRole === 'superadmin';
-}
-
-function cleanText(value?: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function getTenantId(user?: any) {
-  return (
-    cleanText(user?.tenant_id) ||
-    cleanText(user?.profile?.tenant_id) ||
-    cleanText(user?.tenant?.id) ||
-    ''
-  );
-}
-
-function getTenantNameFromUser(user?: any) {
-  return (
-    cleanText(user?.tenant?.name) ||
-    cleanText(user?.tenant_name) ||
-    cleanText(user?.tenantName) ||
-    cleanText(user?.profile?.tenant?.name) ||
-    cleanText(user?.company_name) ||
-    cleanText(user?.companyName) ||
-    ''
-  );
 }
 
 function getSidebarStyles(role?: string | null) {
@@ -256,48 +278,13 @@ export default function Sidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, sessionUser, isGhostMode, ghostSession, stopGhostSession, logout } = useAuth();
-  const [tenantNameFromDb, setTenantNameFromDb] = useState('');
+  const { branding } = useBranding();
 
   const normalizedRole = normalizeRole(user?.role);
   const isSuperAdmin = isSuperAdminRole(normalizedRole);
   const styles = getSidebarStyles(normalizedRole);
-
-  const tenantId = getTenantId(user);
-  const ghostTenantName = cleanText(ghostSession?.tenant?.name);
-  const userTenantName = getTenantNameFromUser(user);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadTenantName() {
-      if (isSuperAdmin || isGhostMode || userTenantName || !tenantId) {
-        if (isMounted) setTenantNameFromDb('');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('tenants')
-        .select('name')
-        .eq('id', tenantId)
-        .maybeSingle();
-
-      if (!isMounted) return;
-
-      if (error) {
-        console.warn('No se pudo cargar el nombre del tenant para el sidebar:', error);
-        setTenantNameFromDb('');
-        return;
-      }
-
-      setTenantNameFromDb(cleanText(data?.name));
-    }
-
-    loadTenantName();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isSuperAdmin, isGhostMode, tenantId, userTenantName]);
+  const useCustomBranding = !isSuperAdmin && branding.isCustomBranding;
+  const brandTheme = getTenantBrandTheme(branding);
 
   const navItems = isSuperAdmin
     ? superAdminNav
@@ -305,77 +292,113 @@ export default function Sidebar({
       ? adminNav
       : workerNav;
 
-  const roleLabel = isSuperAdmin
-    ? 'Super Admin'
-    : normalizedRole === 'admin'
-      ? 'Admin Empresa'
-      : 'Trabajador';
+  const displayedBrandName = useCustomBranding ? branding.brandName : 'CIGÜEÑA';
+  const displayedBrandLogo = useCustomBranding
+    ? (collapsed
+        ? branding.logoCompactUrl || branding.faviconUrl || branding.logoUrl
+        : branding.logoNegativeUrl || branding.logoUrl)
+    : '/images/ciguena-pumpjack.png';
+  const showPoweredBy = useCustomBranding
+    ? branding.showPoweredByBondiApps
+    : true;
 
-  const tenantName = isGhostMode
-    ? ghostTenantName
-    : userTenantName || tenantNameFromDb;
-
-  const shouldShowTenantName = !isSuperAdmin && Boolean(tenantName);
+  const customBorderStyle = useCustomBranding
+    ? { borderColor: brandTheme.border }
+    : undefined;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div
-        className={`flex items-center gap-3 px-4 py-5 border-b ${styles.sectionBorder} ${
-          collapsed ? 'justify-center' : ''
+        className={`border-b ${styles.sectionBorder} ${
+          collapsed ? 'px-3 py-5' : useCustomBranding ? 'px-4 py-5' : 'flex items-center gap-3 px-4 py-5'
         }`}
+        style={customBorderStyle}
       >
-        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border border-amber-500/30 flex items-center justify-center p-1 shadow-lg shadow-amber-500/10">
-          <img
-            src="/images/ciguena-pumpjack.png"
-            alt="Cigüeña"
-            className="w-full h-full object-contain"
-          />
-        </div>
-
-        {!collapsed && (
-          <div>
-            <div className="text-base font-bold text-amber-400 leading-tight tracking-wide">
-              CIGÜEÑA
+        {useCustomBranding && !collapsed ? (
+          <div className="min-w-0">
+            <div
+              className="relative inline-flex max-w-full items-center rounded-xl border px-3 py-2.5 backdrop-blur-md"
+              style={{
+                background:
+                  'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.60))',
+                borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
+                boxShadow:
+                  '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 18px rgb(var(--brand-accent-rgb) / 0.24), 0 10px 28px rgb(0 0 0 / 0.20), inset 0 0 18px rgb(var(--brand-accent-rgb) / 0.08)',
+              }}
+            >
+              <div
+                className="pointer-events-none absolute inset-x-6 -bottom-3 h-6 rounded-full blur-xl"
+                style={{ backgroundColor: 'rgb(var(--brand-accent-rgb) / 0.16)' }}
+                aria-hidden="true"
+              />
+              <img
+                src={displayedBrandLogo}
+                alt={displayedBrandName}
+                className="relative h-auto max-h-12 w-[190px] max-w-full object-contain object-left"
+                style={{
+                  filter:
+                    'brightness(1.24) saturate(1.10) drop-shadow(0 0 7px rgb(var(--brand-accent-rgb) / 0.14))',
+                }}
+              />
             </div>
 
-            <div className="text-[10px] text-steel-400 leading-tight">
-              by BondiApps
+            <div className="mt-2.5 text-[10px] leading-relaxed text-steel-400">
+              <span className="font-semibold text-steel-300">{displayedBrandName}</span>{' '}
+              Capacitaciones
             </div>
+
+            {showPoweredBy && (
+              <div className="mt-0.5 text-[10px] text-steel-500 leading-tight">
+                Powered by BondiApps
+              </div>
+            )}
           </div>
+        ) : (
+          <>
+            <div
+              className={`flex-shrink-0 w-9 h-9 rounded-lg bg-steel-950/70 border flex items-center justify-center p-1 shadow-lg ${
+                collapsed ? 'mx-auto' : ''
+              }`}
+              style={
+                useCustomBranding
+                  ? {
+                      background:
+                        'linear-gradient(145deg, rgb(var(--brand-primary-rgb) / 0.26), rgb(8 32 43 / 0.72))',
+                      borderColor: 'rgb(var(--brand-accent-rgb) / 0.52)',
+                      boxShadow:
+                        '0 0 0 1px rgb(var(--brand-accent-rgb) / 0.08), 0 0 14px rgb(var(--brand-accent-rgb) / 0.24), 0 8px 24px rgb(0 0 0 / 0.22), inset 0 0 14px rgb(var(--brand-accent-rgb) / 0.08)',
+                    }
+                  : undefined
+              }
+            >
+              <img
+                src={displayedBrandLogo}
+                alt={displayedBrandName}
+                className="w-full h-full object-contain"
+                style={useCustomBranding ? {
+                  filter:
+                    'brightness(1.24) saturate(1.10) drop-shadow(0 0 5px rgb(var(--brand-accent-rgb) / 0.14))',
+                } : undefined}
+              />
+            </div>
+
+            {!collapsed && (
+              <div className="min-w-0">
+                <div className="text-base font-bold leading-tight tracking-wide truncate text-amber-400">
+                  {displayedBrandName}
+                </div>
+
+                {showPoweredBy && (
+                  <div className="text-[10px] text-steel-400 leading-tight">
+                    Powered by BondiApps
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
-
-      {/* Tenant and role badge */}
-      {!collapsed && (
-        <div className={`px-4 py-3 border-b ${styles.sectionBorder}`}>
-          {shouldShowTenantName && (
-            <div className="mb-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Building2 size={14} className="text-amber-400 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-widest text-steel-500 leading-tight">
-                    Empresa
-                  </div>
-                  <div className="text-sm font-semibold text-steel-100 truncate leading-tight">
-                    {tenantName}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 ${styles.roleBadge}`}
-          >
-            <Shield size={13} className={styles.roleIcon} />
-
-            <span className={`text-xs font-semibold ${styles.roleText}`}>
-              {roleLabel}
-            </span>
-          </div>
-        </div>
-      )}
 
       {isGhostMode && ghostSession && !collapsed && (
         <div className="mx-3 mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
@@ -411,6 +434,15 @@ export default function Sidebar({
           const isActive = activeView === item.id;
 
           return (
+            <React.Fragment key={item.id}>
+              {item.separatorBefore && (
+                <div
+                  className={`my-3 border-t ${styles.sectionBorder} ${collapsed ? 'mx-2' : 'mx-2'}`}
+                  style={customBorderStyle}
+                  aria-hidden="true"
+                />
+              )}
+
             <button
               key={item.id}
               onClick={() => {
@@ -418,8 +450,23 @@ export default function Sidebar({
                 setMobileOpen(false);
               }}
               className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive ? styles.activeItem : styles.inactiveItem
+                useCustomBranding
+                  ? isActive
+                    ? 'border text-steel-50'
+                    : 'text-steel-300 hover:text-steel-100 hover:bg-white/5 border border-transparent'
+                  : isActive
+                    ? styles.activeItem
+                    : styles.inactiveItem
               } ${collapsed ? 'justify-center px-2' : ''}`}
+              style={
+                useCustomBranding && isActive
+                  ? {
+                      backgroundColor: brandTheme.softPrimary,
+                      borderColor: brandTheme.borderStrong,
+                      color: brandTheme.activeText,
+                    }
+                  : undefined
+              }
               title={collapsed ? `${item.label}${item.statusLabel ? ` · ${item.statusLabel}` : ''}` : undefined}
             >
               <span className="flex-shrink-0">{item.icon}</span>
@@ -442,6 +489,7 @@ export default function Sidebar({
                 </span>
               )}
             </button>
+            </React.Fragment>
           );
         })}
       </nav>
@@ -449,6 +497,7 @@ export default function Sidebar({
       {/* User and logout */}
       <div
         className={`px-2 pb-4 border-t ${styles.sectionBorder} pt-4`}
+        style={customBorderStyle}
       >
         {!collapsed && (
           <div className="px-3 py-2 mb-2">
@@ -479,13 +528,23 @@ export default function Sidebar({
   return (
     <>
       {/* Mobile toggle */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className={`lg:hidden fixed top-4 left-4 z-50 p-2 border rounded-lg text-steel-300 ${styles.mobileButton}`}
-        aria-label="Abrir menú"
-      >
-        <Menu size={20} />
-      </button>
+      {!mobileOpen && (
+        <button
+          onClick={() => setMobileOpen(true)}
+          className={`lg:hidden fixed top-4 left-4 z-50 p-2 border rounded-lg text-steel-300 ${styles.mobileButton}`}
+          style={
+            useCustomBranding
+              ? {
+                  backgroundColor: brandTheme.sidebarBackground,
+                  borderColor: brandTheme.borderStrong,
+                }
+              : undefined
+          }
+          aria-label="Abrir menú"
+        >
+          <Menu size={20} />
+        </button>
+      )}
 
       {/* Mobile overlay */}
       {mobileOpen && (
@@ -502,6 +561,14 @@ export default function Sidebar({
         } ${styles.border} ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={
+          useCustomBranding
+            ? {
+                backgroundColor: brandTheme.sidebarBackground,
+                borderColor: brandTheme.border,
+              }
+            : undefined
+        }
       >
         <button
           onClick={() => setMobileOpen(false)}
@@ -521,12 +588,28 @@ export default function Sidebar({
         } ${styles.border} ${
           collapsed ? 'w-16' : 'w-60'
         } flex-shrink-0 relative`}
+        style={
+          useCustomBranding
+            ? {
+                backgroundColor: brandTheme.sidebarBackground,
+                borderColor: brandTheme.border,
+              }
+            : undefined
+        }
       >
         <SidebarContent />
 
         <button
           onClick={() => setCollapsed((current) => !current)}
           className={`absolute -right-3 top-20 border rounded-full p-1 text-steel-300 hover:text-steel-100 transition-colors ${styles.collapseButton}`}
+          style={
+            useCustomBranding
+              ? {
+                  backgroundColor: brandTheme.elevatedBackground,
+                  borderColor: brandTheme.borderStrong,
+                }
+              : undefined
+          }
           aria-label={collapsed ? 'Expandir menú' : 'Contraer menú'}
         >
           {collapsed ? (

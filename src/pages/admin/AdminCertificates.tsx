@@ -11,6 +11,12 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
+import { useBranding } from '../../contexts/BrandingContext';
+import {
+  getBrandDocumentLogoUrl,
+  getBrandDocumentSubtitle,
+  getBrandSlug,
+} from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
@@ -220,6 +226,9 @@ function uniqueById<T extends { id: string }>(items: T[]) {
 
 export default function AdminCertificates() {
   const { user } = useAuth();
+  const { branding } = useBranding();
+  const brandLogoUrl = getBrandDocumentLogoUrl(branding);
+  const brandSlug = getBrandSlug(branding);
   const tenantId = user?.tenant_id;
 
   const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -308,30 +317,53 @@ export default function AdminCertificates() {
         if (training.training_id) trainingsByAnyId.set(training.training_id, training);
       });
 
+      let workerSignatureConsentsData: Array<{ user_id: string; signature_image_url: string | null }> = [];
       let ethicsAcceptancesData: EthicsAcceptance[] = [];
 
       if (userIdsToMatch.length > 0) {
-        const ethicsAcceptancesResult = await supabase
-          .from('ethics_acceptances')
-          .select('*')
-          .in('user_id', userIdsToMatch)
-          .order('accepted_at', { ascending: false });
+        const [signatureConsentsResult, ethicsAcceptancesResult] = await Promise.all([
+          supabase
+            .from('worker_signature_consents')
+            .select('user_id, signature_image_url, accepted_at')
+            .in('user_id', userIdsToMatch)
+            .order('accepted_at', { ascending: false }),
+          supabase
+            .from('ethics_acceptances')
+            .select('*')
+            .in('user_id', userIdsToMatch)
+            .order('accepted_at', { ascending: false }),
+        ]);
+
+        if (signatureConsentsResult.error) {
+          console.error('Error cargando firmas independientes:', signatureConsentsResult.error);
+        } else {
+          workerSignatureConsentsData = (signatureConsentsResult.data ?? []) as Array<{
+            user_id: string;
+            signature_image_url: string | null;
+          }>;
+        }
 
         if (ethicsAcceptancesResult.error) {
-          console.error('Error cargando firmas de ética:', ethicsAcceptancesResult.error);
+          console.error('Error cargando firmas históricas de ética:', ethicsAcceptancesResult.error);
         } else {
           ethicsAcceptancesData = (ethicsAcceptancesResult.data ?? []) as EthicsAcceptance[];
         }
       }
 
-      const ethicsSignatureByUserId = new Map<string, string>();
+      const workerSignatureByUserId = new Map<string, string>();
 
+      workerSignatureConsentsData.forEach((consent) => {
+        if (!consent.user_id || !consent.signature_image_url) return;
+        if (!workerSignatureByUserId.has(consent.user_id)) {
+          workerSignatureByUserId.set(consent.user_id, consent.signature_image_url);
+        }
+      });
+
+      // Compatibilidad histórica para firmas anteriores a la tabla independiente.
       ethicsAcceptancesData.forEach((acceptance) => {
         if (!acceptance.user_id || !acceptance.signature_image_url) return;
-
-        // Como viene ordenado desc por accepted_at, guardamos la firma más reciente.
-        if (!ethicsSignatureByUserId.has(acceptance.user_id)) {
-          ethicsSignatureByUserId.set(acceptance.user_id, acceptance.signature_image_url);
+        if (!workerSignatureByUserId.has(acceptance.user_id)) {
+          workerSignatureByUserId.set(acceptance.user_id, acceptance.signature_image_url);
         }
       });
 
@@ -354,7 +386,7 @@ export default function AdminCertificates() {
 
         const ethicsSignatureUrl =
           possibleSignatureUserIds
-            .map((id) => ethicsSignatureByUserId.get(id))
+            .map((id) => workerSignatureByUserId.get(id))
             .find(Boolean) ?? null;
 
         return {
@@ -453,7 +485,7 @@ export default function AdminCertificates() {
 
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'certificados_ciguena.csv';
+    link.download = `certificados_${brandSlug}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -510,9 +542,11 @@ export default function AdminCertificates() {
           <title>${certificateCode}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
-            .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
-            .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
-            .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
+            .certificate { border: 3px solid ${branding.accentColor}; padding: 42px; min-height: 700px; }
+            .brand-row { display:flex; flex-direction:column; align-items:flex-start; gap:0; }
+            .brand-logo { max-height:64px; max-width:250px; object-fit:contain; }
+            .subtitle { color: #64748b; font-size: 13px; line-height: 1.45; margin-top: 8px; }
+            .subtitle strong { color: inherit; font-weight: 700; }
             h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
             .lead { text-align: center; color: #475569; font-size: 16px; }
             .name { text-align: center; font-size: 30px; font-weight: 800; margin: 24px 0; }
@@ -530,8 +564,10 @@ export default function AdminCertificates() {
         </head>
         <body>
           <main class="certificate">
-            <div class="brand">CIGÜEÑA</div>
-            <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
+            <div class="brand-row">
+              <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+              <div class="subtitle"><strong>${branding.brandName}</strong> ${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
+            </div>
 
             <h1>Certificado de capacitación</h1>
 
@@ -854,12 +890,20 @@ export default function AdminCertificates() {
             </div>
 
             <div className="p-5">
-              <div className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4 border-amber-500">
-                <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                  CIGÜEÑA
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  by BondiApps · Plataforma de capacitaciones y certificaciones
+              <div
+                className="mx-auto min-h-[900px] max-w-[800px] rounded-xl bg-white p-10 text-slate-900 shadow-xl border-4"
+                style={{ borderColor: branding.accentColor }}
+              >
+                <div className="flex flex-col items-start">
+                  <img
+                    src={brandLogoUrl}
+                    alt={branding.brandName}
+                    className="max-h-16 max-w-[250px] object-contain"
+                  />
+                  <div className="mt-2 text-xs leading-relaxed text-slate-500">
+                    <span className="font-semibold">{branding.brandName}</span>{' '}
+                    {getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}
+                  </div>
                 </div>
 
                 <h1 className="mt-12 text-center text-4xl font-bold text-slate-900">

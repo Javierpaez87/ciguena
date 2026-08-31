@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { BrandingProvider, useBranding } from './contexts/BrandingContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -9,11 +10,14 @@ import AppLayout from './components/layout/AppLayout';
 // Super Admin
 import SaDashboard from './pages/superadmin/SaDashboard';
 import SaTenants from './pages/superadmin/SaTenants';
+import SaWhiteLabel from './pages/superadmin/SaWhiteLabel';
+import SaCompliance from './pages/superadmin/SaCompliance';
 import SaTrainings from './pages/superadmin/SaTrainings';
 import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
 import SaFeedback from './pages/superadmin/SaFeedback';
 import SaGhost from './pages/superadmin/SaGhost';
+import SaEmailQa from './pages/superadmin/SaEmailQa';
 
 // Admin
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -27,6 +31,8 @@ import AdminReports from './pages/admin/AdminReports';
 import AdminFeedback from './pages/admin/AdminFeedback';
 import AdminSignatures from './pages/admin/AdminSignatures';
 import AdminSignatureConsent from './pages/admin/AdminSignatureConsent';
+import AdminCompliance from './pages/admin/AdminCompliance';
+import AdminCommunications from './pages/admin/AdminCommunications';
 
 // Worker
 import WorkerDashboard from './pages/worker/WorkerDashboard';
@@ -37,10 +43,9 @@ import WorkerPlayer from './pages/worker/WorkerPlayer';
 import WorkerTest from './pages/worker/WorkerTest';
 import WorkerCertificates from './pages/worker/WorkerCertificates';
 import WorkerFeedback from './pages/worker/WorkerFeedback';
-import EthicsSignaturePage from './pages/worker/EthicsSignaturePage';
-import { getEthicsRequirement } from './lib/ethics';
+import WorkerOnboardingPage from './pages/worker/WorkerOnboardingPage';
+import { getWorkerOnboardingRequirement, type WorkerOnboardingRequirement } from './lib/workerOnboarding';
 import { getAdminSignatureRequirement } from './lib/adminSignatures';
-import type { EthicsAcceptance, EthicsCode } from './types';
 import GhostReadOnlyBoundary from './components/layout/GhostReadOnlyBoundary';
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
@@ -51,6 +56,14 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-tenants': {
     title: 'Empresas / Tenants',
     subtitle: 'Gestión de empresas cliente y habilitación de trainings',
+  },
+  'sa-white-label': {
+    title: 'White Label',
+    subtitle: 'Identidad visual y configuración de marca por cliente',
+  },
+  'sa-compliance': {
+    title: 'Onboarding & Compliance',
+    subtitle: 'Modalidad de onboarding, firma y Código de Ética por cliente',
   },
   'sa-trainings': {
     title: 'Catálogo de Trainings',
@@ -68,9 +81,17 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     title: 'Feedback Global',
     subtitle: 'Opiniones de usuarios de todos los tenants',
   },
+  'sa-communications': {
+    title: 'Comunicaciones',
+    subtitle: 'Mailing masivo por tenant con segmentación, prueba e historial',
+  },
   'sa-ghost': {
     title: 'Ghost View',
     subtitle: 'Observá la plataforma como cualquier admin o trabajador, sin realizar cambios',
+  },
+  'sa-email-qa': {
+    title: 'QA Email Audit',
+    subtitle: 'Dispará los templates de email a un único destinatario controlado',
   },
 
   'admin-dashboard': {
@@ -80,6 +101,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-users': {
     title: 'Usuarios / Trabajadores',
     subtitle: 'Gestión del personal de tu empresa',
+  },
+  'admin-compliance': {
+    title: 'Onboarding & Compliance',
+    subtitle: 'Configuración de validación de datos, firma y Código de Ética',
   },
   'admin-trainings': {
     title: 'Trainings Habilitados',
@@ -105,6 +130,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     title: 'Reportes',
     subtitle: 'Exportaciones y análisis por usuario, training o área',
   },
+  'admin-communications': {
+    title: 'Comunicaciones',
+    subtitle: 'Envíos masivos segmentados a trabajadores de tu empresa',
+  },
   'admin-feedback': {
     title: 'Feedback',
     subtitle: 'Opiniones de los trabajadores de tu empresa',
@@ -128,7 +157,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   },
   'worker-live-room': {
     title: 'Sala de capacitación',
-    subtitle: 'Ingreso interno desde Cigüeña para registrar asistencia',
+    subtitle: 'Ingreso interno a la plataforma para registrar asistencia',
   },
   'worker-player': {
     title: 'Player de Training',
@@ -172,31 +201,40 @@ function getDeepLinkedView() {
 
 type AuthScreen = 'login' | 'register' | 'forgot-password';
 
-function AppContent() {
-  const { user, isGhostMode } = useAuth();
+function getInitialAuthScreen(): AuthScreen {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('auth') === 'register' ? 'register' : 'login';
+}
 
-  const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
+function clearRegistrationQueryParams() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('auth');
+  url.searchParams.delete('email');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function AppContent() {
+  const { user, isGhostMode, logout } = useAuth();
+  const {
+    branding,
+    isLoading: isBrandingLoading,
+    domainTenantId,
+    domainTenantName,
+    domainHostname,
+    isDomainBound,
+  } = useBranding();
+
+  const [authScreen, setAuthScreen] = useState<AuthScreen>(getInitialAuthScreen);
   const [activeView, setActiveView] = useState(
     () => DEFAULT_VIEW[user?.role ?? 'worker'] ?? 'worker-dashboard'
   );
   const [viewData, setViewData] = useState<unknown>(null);
 
-  const [isCheckingEthics, setIsCheckingEthics] = useState(false);
+  const [isCheckingWorkerOnboarding, setIsCheckingWorkerOnboarding] = useState(false);
+  const [workerOnboardingRefresh, setWorkerOnboardingRefresh] = useState(0);
   const [isCheckingAdminSignature, setIsCheckingAdminSignature] = useState(false);
 
-  const [ethicsGate, setEthicsGate] = useState<{
-    mustSign: boolean;
-    tenant: { id: string; name: string; logo_url: string | null } | null;
-    ethicsCode: EthicsCode | null;
-    acceptance: EthicsAcceptance | null;
-    error: string | null;
-  }>({
-    mustSign: false,
-    tenant: null,
-    ethicsCode: null,
-    acceptance: null,
-    error: null,
-  });
+  const [workerOnboardingGate, setWorkerOnboardingGate] = useState<WorkerOnboardingRequirement | null>(null);
 
   const [adminSignatureGate, setAdminSignatureGate] = useState<{
     mustSign: boolean;
@@ -210,13 +248,7 @@ function AppContent() {
 
   useEffect(() => {
     if (!user) {
-      setEthicsGate({
-        mustSign: false,
-        tenant: null,
-        ethicsCode: null,
-        acceptance: null,
-        error: null,
-      });
+      setWorkerOnboardingGate(null);
 
       setAdminSignatureGate({
         mustSign: false,
@@ -278,34 +310,29 @@ function AppContent() {
   useEffect(() => {
     let ignore = false;
 
-    async function checkEthicsGate() {
+    async function checkWorkerOnboardingGate() {
       if (!user || user.role !== 'worker' || isGhostMode) {
-        setEthicsGate({
-          mustSign: false,
-          tenant: null,
-          ethicsCode: null,
-          acceptance: null,
-          error: null,
-        });
+        setWorkerOnboardingGate(null);
+        setIsCheckingWorkerOnboarding(false);
         return;
       }
 
-      setIsCheckingEthics(true);
+      setIsCheckingWorkerOnboarding(true);
 
-      const result = await getEthicsRequirement(user);
+      const result = await getWorkerOnboardingRequirement(user);
 
       if (!ignore) {
-        setEthicsGate(result);
-        setIsCheckingEthics(false);
+        setWorkerOnboardingGate(result);
+        setIsCheckingWorkerOnboarding(false);
       }
     }
 
-    checkEthicsGate();
+    checkWorkerOnboardingGate();
 
     return () => {
       ignore = true;
     };
-  }, [user?.id, user?.role, user?.tenant_id, isGhostMode]);
+  }, [user?.id, user?.role, user?.tenant_id, isGhostMode, workerOnboardingRefresh]);
 
   const navigate = (view: string, data?: unknown) => {
     setActiveView(view);
@@ -316,6 +343,19 @@ function AppContent() {
       setViewData(null);
     }
   };
+
+  // Do not render the default Cigüeña login while a custom hostname is still
+  // being resolved. This prevents a brand flash before SPI (or another tenant) loads.
+  if (isBrandingLoading) {
+    return (
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center p-6">
+        <div className="flex items-center gap-3 text-steel-300">
+          <div className="h-5 w-5 rounded-full border-2 border-steel-600 border-t-current animate-spin" />
+          <span className="text-sm">Preparando acceso...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (window.location.pathname === '/reset-password') {
     return (
@@ -329,7 +369,14 @@ function AppContent() {
 
   if (!user) {
     if (authScreen === 'register') {
-      return <RegisterPage onBackToLogin={() => setAuthScreen('login')} />;
+      return (
+        <RegisterPage
+          onBackToLogin={() => {
+            clearRegistrationQueryParams();
+            setAuthScreen('login');
+          }}
+        />
+      );
     }
 
     if (authScreen === 'forgot-password') {
@@ -341,6 +388,43 @@ function AppContent() {
         onRegister={() => setAuthScreen('register')}
         onForgotPassword={() => setAuthScreen('forgot-password')}
       />
+    );
+  }
+
+  // A branded hostname belongs to one tenant. Prevent a worker/admin from
+  // opening another tenant through that hostname even if their credentials are valid.
+  if (
+    user &&
+    isDomainBound &&
+    domainTenantId &&
+    user.role !== 'super_admin' &&
+    user.tenant_id !== domainTenantId
+  ) {
+    return (
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center p-6">
+        <div className="card-dark max-w-lg w-full text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-2xl border brand-border brand-bg-soft flex items-center justify-center">
+            <img
+              src={branding.logoCompactUrl || branding.logoUrl}
+              alt={branding.brandName}
+              className="h-10 w-10 object-contain"
+            />
+          </div>
+          <h1 className="text-xl font-bold text-steel-50">Acceso de otra organización</h1>
+          <p className="mt-2 text-sm leading-relaxed text-steel-400">
+            Este acceso corresponde a <span className="font-semibold text-steel-200">{domainTenantName || branding.brandName}</span>.
+            Tu cuenta pertenece a otra organización.
+          </p>
+          <p className="mt-2 text-xs text-steel-500">{domainHostname}</p>
+          <button
+            type="button"
+            className="btn-primary mt-6 mx-auto justify-center"
+            onClick={() => void logout()}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -371,39 +455,60 @@ function AppContent() {
     );
   }
 
-  if (user?.role === 'worker' && isCheckingEthics) {
+  if (user?.role === 'worker' && isCheckingWorkerOnboarding) {
     return (
       <div className="min-h-screen bg-steel-950 flex items-center justify-center text-steel-300">
-        Verificando usuario...
+        Verificando onboarding...
       </div>
     );
   }
 
   if (
     user?.role === 'worker' &&
-    ethicsGate.mustSign &&
-    ethicsGate.tenant &&
-    ethicsGate.ethicsCode
+    workerOnboardingGate?.error
   ) {
     return (
-      <EthicsSignaturePage
+      <div className="min-h-screen bg-steel-950 flex items-center justify-center p-6">
+        <div className="card max-w-lg w-full text-center">
+          <div className="text-lg font-semibold text-steel-100 mb-2">No pudimos verificar tu onboarding</div>
+          <div className="text-sm text-steel-400 mb-5">{workerOnboardingGate.error}</div>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setWorkerOnboardingRefresh((value) => value + 1)}
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    user?.role === 'worker' &&
+    workerOnboardingGate?.mustComplete &&
+    workerOnboardingGate.tenant
+  ) {
+    return (
+      <WorkerOnboardingPage
         user={user}
-        tenant={ethicsGate.tenant}
-        ethicsCode={ethicsGate.ethicsCode}
-        onSigned={() =>
-          setEthicsGate(current => ({
-            ...current,
-            mustSign: false,
-          }))
-        }
+        requirement={workerOnboardingGate}
+        onCompleted={() => window.location.reload()}
       />
     );
   }
 
-  const meta = VIEW_META[activeView] ?? {
-    title: 'CIGÜEÑA',
+  const baseMeta = VIEW_META[activeView] ?? {
+    title: branding.brandName,
     subtitle: '',
   };
+
+  const meta = activeView === 'worker-live-room'
+    ? {
+        ...baseMeta,
+        subtitle: `Ingreso interno desde ${branding.brandName} para registrar asistencia`,
+      }
+    : baseMeta;
 
   const renderView = () => {
     switch (activeView) {
@@ -412,6 +517,10 @@ function AppContent() {
         return <SaDashboard />;
       case 'sa-tenants':
         return <SaTenants />;
+      case 'sa-white-label':
+        return <SaWhiteLabel />;
+      case 'sa-compliance':
+        return <SaCompliance />;
       case 'sa-trainings':
         return <SaTrainings />;
       case 'sa-builder':
@@ -420,14 +529,20 @@ function AppContent() {
         return <SaTests />;
       case 'sa-feedback':
         return <SaFeedback />;
+      case 'sa-communications':
+        return <AdminCommunications superAdmin />;
       case 'sa-ghost':
         return <SaGhost />;
+      case 'sa-email-qa':
+        return <SaEmailQa />;
 
       // Admin
       case 'admin-dashboard':
         return <AdminDashboard />;
       case 'admin-users':
         return <AdminUsers />;
+      case 'admin-compliance':
+        return <AdminCompliance />;
       case 'admin-trainings':
         return <AdminTrainings />;
       case 'admin-training-catalog':
@@ -440,6 +555,8 @@ function AppContent() {
         return <AdminCertificates />;
       case 'admin-reports':
         return <AdminReports />;
+      case 'admin-communications':
+        return <AdminCommunications />;
       case 'admin-feedback':
         return <AdminFeedback />;
       case 'admin-signatures':
@@ -502,7 +619,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <BrandingProvider>
+        <AppContent />
+      </BrandingProvider>
     </AuthProvider>
   );
 }

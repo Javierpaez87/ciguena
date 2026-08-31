@@ -14,6 +14,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getTrainingTestByTrainingId } from '../../data/trainingTests';
 import { baseTrainings } from '../../data/baseTrainings';
+import { calculateCertificateExpirationISO } from '../../lib/trainingConfiguration';
 
 interface WorkerTestProps {
   assignment?: {
@@ -72,15 +73,27 @@ const generateCertificateCode = (trainingId: string) => {
   return `CIG-${cleanTrainingId}-${Date.now()}`;
 };
 
-const getExpirationDate = (trainingId: string) => {
-  const training = baseTrainings.find(item => item.id === trainingId);
-  const validityMonths = training?.validity_months ?? 12;
+const getExpirationDate = async (trainingId: string, tenantId: string) => {
+  const training = baseTrainings.find(item => item.id === trainingId) ?? null;
 
-  if (!validityMonths) return null;
+  const { data: tenantTrainingConfiguration, error } = await supabase
+    .from('tenant_trainings')
+    .select('certificate_validity_mode, certificate_validity_months')
+    .eq('tenant_id', tenantId)
+    .eq('training_id', trainingId)
+    .maybeSingle();
 
-  const expirationDate = new Date();
-  expirationDate.setMonth(expirationDate.getMonth() + validityMonths);
-  return expirationDate.toISOString();
+  if (error) {
+    console.warn(
+      'No pudimos leer la vigencia específica del tenant. Se usará la vigencia del catálogo.',
+      error
+    );
+  }
+
+  return calculateCertificateExpirationISO({
+    configuration: error ? null : tenantTrainingConfiguration,
+    training,
+  });
 };
 
 const shuffleArray = <T,>(items: T[]) => {
@@ -184,18 +197,34 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     let workerSignatureUrl: string | null = null;
 
     if (signatureUserIds.length > 0) {
-      const { data: ethicsAcceptances, error: ethicsError } = await supabase
-        .from('ethics_acceptances')
+      const { data: signatureConsents, error: signatureConsentError } = await supabase
+        .from('worker_signature_consents')
         .select('signature_image_url')
         .in('user_id', signatureUserIds)
         .order('accepted_at', { ascending: false })
         .limit(1);
 
-      if (ethicsError) {
-        console.error('Error obteniendo firma del worker para certificado:', ethicsError);
+      if (signatureConsentError) {
+        console.error('Error obteniendo firma independiente del worker:', signatureConsentError);
       }
 
-      workerSignatureUrl = ethicsAcceptances?.[0]?.signature_image_url ?? null;
+      workerSignatureUrl = signatureConsents?.[0]?.signature_image_url ?? null;
+
+      // Compatibilidad histórica: certificados de workers que firmaron antes de 3A.1.
+      if (!workerSignatureUrl) {
+        const { data: ethicsAcceptances, error: ethicsError } = await supabase
+          .from('ethics_acceptances')
+          .select('signature_image_url')
+          .in('user_id', signatureUserIds)
+          .order('accepted_at', { ascending: false })
+          .limit(1);
+
+        if (ethicsError) {
+          console.error('Error obteniendo firma histórica del worker:', ethicsError);
+        }
+
+        workerSignatureUrl = ethicsAcceptances?.[0]?.signature_image_url ?? null;
+      }
     }
 
     let companySignature: CertificateContext['companySignature'] = null;
@@ -283,6 +312,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       );
     }
 
+    const certificateExpiresAt = await getExpirationDate(assignment.training_id, tenantId);
+
     const certificatePayload = {
       assignment_id: assignment.id,
       user_id: assignment.user_id,
@@ -295,7 +326,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       company_signer_name: companySignature?.signer_name ?? null,
       company_signer_role: companySignature?.signer_role ?? null,
       issued_at: new Date().toISOString(),
-      expires_at: getExpirationDate(assignment.training_id),
+      expires_at: certificateExpiresAt,
       status: 'valid',
       test_score: score,
       test_attempts_count: attemptNumber,
@@ -514,8 +545,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
       {state === 'intro' && (
         <div className="card text-center py-8">
-          <div className="w-16 h-16 bg-amber-500/20 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <ClipboardList size={28} className="text-amber-400" />
+          <div className="w-16 h-16 brand-bg-soft border brand-border-soft rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <ClipboardList size={28} className="brand-text" />
           </div>
 
           <h2 className="text-xl font-bold text-steel-100 mb-2">{test.title}</h2>
@@ -533,7 +564,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             </div>
 
             <div className="bg-steel-900 rounded-xl p-3">
-              <div className="text-2xl font-bold text-amber-400">{test.passingScore}%</div>
+              <div className="text-2xl font-bold brand-text">{test.passingScore}%</div>
               <div className="text-xs text-steel-400">Para aprobar</div>
             </div>
 
@@ -574,7 +605,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                   <div
                     key={i}
                     className={`w-2 h-2 rounded-full transition-colors ${
-                      i < currentQ ? 'bg-emerald-500' : i === currentQ ? 'bg-amber-500' : 'bg-steel-600'
+                      i < currentQ ? 'bg-emerald-500' : i === currentQ ? 'brand-bg' : 'bg-steel-600'
                     }`}
                   />
                 ))}
@@ -606,13 +637,13 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                     onClick={() => selectAnswer(q.id, optionKey)}
                     className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
                       selected
-                        ? 'bg-amber-500/15 border-amber-500/60 text-amber-200'
+                        ? 'brand-bg-soft brand-border brand-text'
                         : 'bg-steel-900 border-steel-700 text-steel-300 hover:border-steel-500 hover:bg-steel-800'
                     }`}
                   >
                     <div
                       className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-colors ${
-                        selected ? 'bg-amber-500 border-amber-500' : 'border-steel-600'
+                        selected ? 'brand-bg brand-border' : 'border-steel-600'
                       }`}
                     >
                       {selected && <div className="w-2 h-2 bg-petroleum-950 rounded-full" />}

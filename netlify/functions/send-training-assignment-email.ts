@@ -1,4 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  getCtaTextColor,
+  getEmailSender,
+  getTenantAppUrl,
+  renderEmailBrandHeader,
+  renderEmailFooter,
+  resolveTenantEmailBranding,
+  type TenantEmailBranding,
+} from './_tenant-email-branding';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -10,9 +19,6 @@ const appUrl =
   process.env.DEPLOY_PRIME_URL ||
   'https://ciguena.netlify.app';
 
-const fromEmail =
-  process.env.CIGUENA_FROM_EMAIL ||
-  'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -60,10 +66,12 @@ async function sendResendEmail({
   to,
   subject,
   html,
+  from,
 }: {
   to: string;
   subject: string;
   html: string;
+  from: string;
 }) {
   if (!resendApiKey) {
     console.warn('RESEND_API_KEY no configurada. No se envió email.');
@@ -77,7 +85,7 @@ async function sendResendEmail({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: fromEmail,
+      from,
       to,
       subject,
       html,
@@ -103,36 +111,34 @@ function buildAssignmentEmailHtml({
   tenantName,
   trainingTitle,
   loginUrl,
+  branding,
 }: {
   fullName: string;
   tenantName: string;
   trainingTitle: string;
   loginUrl: string;
+  branding: TenantEmailBranding;
 }) {
   const safeName = escapeHtml(fullName || 'Hola');
   const safeTenant = escapeHtml(tenantName || 'Tu empresa');
   const safeTrainingTitle = escapeHtml(trainingTitle);
   const safeLoginUrl = escapeHtml(loginUrl);
+  const safeBrand = escapeHtml(branding.brandName);
+  const ctaColor = branding.accentColor;
+  const ctaTextColor = getCtaTextColor(ctaColor);
 
   return `
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
       <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
         <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-          <div style="margin-bottom:24px;">
-            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">
-              CIGÜEÑA
-            </div>
-            <div style="font-size:13px;color:#94a3b8;">
-              Platform by BondiApps
-            </div>
-          </div>
+          ${renderEmailBrandHeader(branding)}
 
           <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
             Tenés un nuevo curso asignado
           </h1>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Hola ${safeName}, ${safeTenant} te asignó un nuevo curso en la plataforma Cigüeña.
+            Hola ${safeName}, ${safeTenant} te asignó un nuevo curso en ${safeBrand}.
           </p>
 
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
@@ -148,8 +154,8 @@ function buildAssignmentEmailHtml({
 
           <p style="margin:24px 0;">
             <a href="${safeLoginUrl}"
-              style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px;">
-              Ingresar a Cigüeña
+              style="display:inline-block;background:${ctaColor};color:${ctaTextColor};text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px;">
+              Ingresar a ${safeBrand}
             </a>
           </p>
 
@@ -157,11 +163,7 @@ function buildAssignmentEmailHtml({
             Si ya completaste este curso recientemente, podés ignorar este mensaje o consultar con el administrador de tu empresa.
           </p>
 
-          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-          </p>
+          ${renderEmailFooter(branding)}
         </div>
       </div>
     </div>
@@ -267,7 +269,13 @@ export const handler = async (event: any) => {
   const trainingId = assignment.training_id || '';
   const trainingTitle = getTrainingTitle(trainingId);
   const tenantName = tenant?.name || 'Tu empresa';
-  const loginUrl = appUrl.replace(/\/$/, '') + '/';
+  const branding = await resolveTenantEmailBranding(
+    supabaseAdmin,
+    assignment.tenant_id,
+    tenantName
+  );
+  const emailFrom = getEmailSender(branding);
+  const loginUrl = getTenantAppUrl(branding, appUrl) + '/';
   const subject = `Nuevo curso asignado: ${trainingTitle}`;
 
   const notificationBase = {
@@ -298,12 +306,14 @@ export const handler = async (event: any) => {
 
   const emailResult = await sendResendEmail({
     to: profile.email,
+    from: emailFrom,
     subject,
     html: buildAssignmentEmailHtml({
       fullName: profile.full_name || '',
       tenantName,
       trainingTitle,
       loginUrl,
+      branding,
     }),
   });
 

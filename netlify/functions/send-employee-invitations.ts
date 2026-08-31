@@ -1,10 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import {
+  getCtaTextColor,
+  getEmailSender,
+  getTenantAppUrl,
+  renderEmailBrandHeader,
+  renderEmailFooter,
+  resolveTenantEmailBranding,
+  type TenantEmailBranding,
+} from './_tenant-email-branding';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const resendApiKey = process.env.RESEND_API_KEY;
-const fromEmail = 'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 const appUrl =
   process.env.CIGUENA_PLATFORM_URL ||
   process.env.APP_URL ||
@@ -45,6 +53,13 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
+function buildDirectRegistrationUrl(baseUrl: string, email: string) {
+  const url = new URL(baseUrl);
+  url.searchParams.set('auth', 'register');
+  url.searchParams.set('email', normalizeEmail(email));
+  return url.toString();
+}
+
 type DirectoryRow = {
   id: string;
   tenant_id: string;
@@ -78,61 +93,90 @@ type ResendBatchResponse = {
   error?: { message?: string };
 };
 
-function getFullName(row: DirectoryRow) {
+function toGreetingName(value: string) {
+  const firstToken = clean(value).split(/\s+/).filter(Boolean)[0] || '';
+  if (!firstToken) return '';
+
+  return firstToken
+    .toLocaleLowerCase('es-AR')
+    .replace(/(^|[-'’])([a-záéíóúüñ])/g, (_match, separator, letter) =>
+      `${separator}${letter.toLocaleUpperCase('es-AR')}`
+    );
+}
+
+function getGreetingName(row: DirectoryRow) {
   return (
-    row.full_name ||
-    [row.first_name, row.last_name].filter(Boolean).join(' ') ||
-    row.email.split('@')[0]
+    toGreetingName(clean(row.first_name)) ||
+    toGreetingName(clean(row.full_name)) ||
+    toGreetingName(row.email.split('@')[0]) ||
+    'Hola'
   );
 }
 
-function buildInvitationHtml({
-  fullName,
+export function buildInvitationHtml({
+  greetingName,
   tenantName,
   registerUrl,
+  branding,
 }: {
-  fullName: string;
+  greetingName: string;
   tenantName: string;
   registerUrl: string;
+  branding: TenantEmailBranding;
 }) {
-  const safeName = escapeHtml(fullName);
+  const safeName = escapeHtml(greetingName);
   const safeTenant = escapeHtml(tenantName);
   const safeUrl = escapeHtml(registerUrl);
+  const safeBrand = escapeHtml(branding.brandName);
+  const ctaColor = branding.accentColor;
+  const ctaTextColor = getCtaTextColor(ctaColor);
+  const isFullWhiteLabel =
+    branding.isCustomBranding && !branding.showPoweredByBondiApps;
+
+  const title = isFullWhiteLabel
+    ? `Te damos la bienvenida a ${safeBrand} Capacitaciones`
+    : `Tu empresa te invitó a ${safeBrand}`;
+
+  const intro = isFullWhiteLabel
+    ? `Hola ${safeName}, ya podés crear tu cuenta para acceder a la plataforma de capacitaciones y certificaciones de ${safeTenant}.`
+    : `Hola ${safeName}, ${safeTenant} te invitó a usar ${safeBrand}, su plataforma de capacitaciones y certificaciones.`;
+
+  const onboardingCopy = isFullWhiteLabel
+    ? 'Registrate utilizando este mismo email. En tu primer ingreso vas a poder revisar tus datos y completar los requisitos de onboarding correspondientes.'
+    : 'Registrate con este mismo email para activar tu acceso. En tu primer ingreso vas a revisar tus datos de nómina y completar los requisitos de onboarding de tu organización, incluida tu firma electrónica.';
+
+  const ctaLabel = isFullWhiteLabel
+    ? 'Crear mi cuenta'
+    : `Registrarme en ${safeBrand}`;
 
   return `
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
       <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
         <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-          <div style="margin-bottom:24px;">
-            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">CIGÜEÑA</div>
-            <div style="font-size:13px;color:#94a3b8;">Platform by BondiApps</div>
-          </div>
+          ${renderEmailBrandHeader(branding)}
 
-          <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">Tu empresa te invitó a Cigüeña</h1>
+          <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">${title}</h1>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Hola ${safeName}, ${safeTenant} te preaprobó para ingresar a Cigüeña, la plataforma de capacitaciones y certificaciones.
+            ${intro}
           </p>
 
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
             <p style="font-size:14px;line-height:1.6;color:#cbd5e1;margin:0;">
-              Registrate con este mismo email para activar tu acceso. Una vez que ingreses, vas a poder firmar el Código de Ética y ver tus capacitaciones asignadas.
+              ${onboardingCopy}
             </p>
           </div>
 
-          <a href="${safeUrl}" style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-weight:700;border-radius:10px;padding:12px 18px;margin:4px 0 18px;">
-            Registrarme en Cigüeña
+          <a href="${safeUrl}" style="display:inline-block;background:${ctaColor};color:${ctaTextColor};text-decoration:none;font-weight:700;border-radius:10px;padding:12px 18px;margin:4px 0 18px;">
+            ${ctaLabel}
           </a>
 
           <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Si el botón no funciona, copiá y pegá este enlace en tu navegador:<br/>${safeUrl}
+            Si el botón no funciona, copiá y pegá este enlace en tu navegador:<br/>
+            <a href="${safeUrl}" style="color:${branding.accentColor};word-break:break-all;">${safeUrl}</a>
           </p>
 
-          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-          </p>
+          ${renderEmailFooter(branding)}
         </div>
       </div>
     </div>
@@ -147,9 +191,11 @@ function sanitizeRequestId(value: unknown) {
 async function sendResendBatch({
   emails,
   idempotencyKey,
+  from,
 }: {
   emails: Array<{ to: string; subject: string; html: string }>;
   idempotencyKey: string;
+  from: string;
 }) {
   if (!resendApiKey) {
     return { ok: false as const, error: 'RESEND_API_KEY no configurada.' };
@@ -165,7 +211,7 @@ async function sendResendBatch({
     },
     body: JSON.stringify(
       emails.map((email) => ({
-        from: fromEmail,
+        from,
         to: [email.to],
         subject: email.subject,
         html: email.html,
@@ -340,6 +386,13 @@ export const handler = async (event: any) => {
     return json(400, { error: 'No pudimos verificar la empresa.' });
   }
 
+  const branding = await resolveTenantEmailBranding(
+    supabaseAdmin,
+    tenantId,
+    tenantData.name
+  );
+  const emailFrom = getEmailSender(branding);
+
   const { data: rows, error: rowsError } = await supabaseAdmin
     .from('employee_directory')
     .select('id, tenant_id, email, first_name, last_name, full_name, status, profile_id')
@@ -381,19 +434,28 @@ export const handler = async (event: any) => {
     });
   }
 
-  const registerUrl = appUrl.replace(/\/$/, '');
+  const baseRegisterUrl = getTenantAppUrl(branding, appUrl);
   const idempotencyKey = `ciguena-invite/${tenantId}/${requestId}/${batchIndex}`.slice(0, 256);
   const batchResult = await sendResendBatch({
     idempotencyKey,
-    emails: eligibleRows.map((row) => ({
-      to: row.email,
-      subject: `Invitación a Cigüeña - ${tenantData.name}`,
-      html: buildInvitationHtml({
-        fullName: getFullName(row),
-        tenantName: tenantData.name,
-        registerUrl,
-      }),
-    })),
+    from: emailFrom,
+    emails: eligibleRows.map((row) => {
+      const isFullWhiteLabel =
+        branding.isCustomBranding && !branding.showPoweredByBondiApps;
+
+      return {
+        to: row.email,
+        subject: isFullWhiteLabel
+          ? `Creá tu cuenta en ${branding.brandName} Capacitaciones`
+          : `Invitación a ${branding.brandName} - ${tenantData.name}`,
+        html: buildInvitationHtml({
+          greetingName: getGreetingName(row),
+          tenantName: tenantData.name,
+          registerUrl: buildDirectRegistrationUrl(baseRegisterUrl, row.email),
+          branding,
+        }),
+      };
+    }),
   });
 
   if (!batchResult.ok) {

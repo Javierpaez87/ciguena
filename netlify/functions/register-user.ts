@@ -1,11 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  getCtaTextColor,
+  getEmailSender,
+  getTenantAppUrl,
+  renderEmailBrandHeader,
+  renderEmailFooter,
+  resolveTenantEmailBranding,
+  type TenantEmailBranding,
+} from './_tenant-email-branding';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const resendApiKey = process.env.RESEND_API_KEY;
 const notifyEmail = process.env.REGISTRATION_NOTIFY_EMAIL || 'javierpaez@bondiapps.com';
-
-const fromEmail = 'Cigüeña | Platform by BondiApps <ciguena-no-reply@bondiapps.com>';
 
 const platformUrl =
   process.env.CIGUENA_PLATFORM_URL ||
@@ -79,7 +86,7 @@ function getFriendlyAuthError(message = '') {
     return 'La contraseña no cumple con los requisitos mínimos.';
   }
 
-  return 'No pudimos crear la cuenta. Intentá nuevamente o contactá a BondiApps.';
+  return 'No pudimos crear la cuenta. Intentá nuevamente o contactá a la administración de la plataforma.';
 }
 
 async function sendResendEmail({
@@ -87,11 +94,13 @@ async function sendResendEmail({
   subject,
   html,
   bcc,
+  from,
 }: {
   to: string | string[];
   subject: string;
   html: string;
   bcc?: string | string[];
+  from: string;
 }) {
   if (!resendApiKey) {
     console.warn('RESEND_API_KEY no configurada. No se envió email.');
@@ -105,7 +114,7 @@ async function sendResendEmail({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: fromEmail,
+      from,
       to,
       bcc,
       subject,
@@ -126,22 +135,27 @@ async function sendResendEmail({
   return { ok: true, data: responseBody };
 }
 
-function buildUserEmailHtml({
+export function buildUserEmailHtml({
   fullName,
   requestedAdmin,
   tenantName,
   autoApproved,
   platformUrl,
+  branding,
 }: {
   fullName: string;
   requestedAdmin: boolean;
   tenantName: string;
   autoApproved: boolean;
   platformUrl: string;
+  branding: TenantEmailBranding;
 }) {
   const safeName = escapeHtml(fullName);
   const safeTenant = escapeHtml(tenantName);
+  const safeBrand = escapeHtml(branding.brandName);
   const safePlatformUrl = escapeHtml(platformUrl.replace(/\/$/, ''));
+  const ctaColor = branding.accentColor;
+  const ctaTextColor = getCtaTextColor(ctaColor);
 
   const title = autoApproved
     ? 'Tu cuenta ya está habilitada'
@@ -152,32 +166,25 @@ function buildUserEmailHtml({
   const approvalText = autoApproved
     ? 'Tu email fue encontrado en la nómina precargada por tu empresa, por eso tu acceso quedó habilitado automáticamente.'
     : requestedAdmin
-      ? 'Tu solicitud de acceso como administrador quedó pendiente de validación por parte de BondiApps.'
+      ? 'Tu solicitud de acceso como administrador quedó pendiente de validación por parte de la administración de la plataforma.'
       : 'Tu cuenta quedó pendiente de validación por parte del administrador de tu empresa.';
 
   const nextStepText = autoApproved
-    ? 'Ya podés ingresar a la plataforma con el email y la contraseña que cargaste. En tu primer ingreso vas a validar tus datos laborales y firmar el código de ética.'
-    : 'Cuando tu acceso sea aprobado, vas a poder ingresar a la plataforma con el email y la contraseña que cargaste al registrarte.';
+    ? 'Ya podés ingresar con el email y la contraseña que cargaste. En tu primer ingreso vas a revisar tus datos laborales y completar los requisitos de onboarding de tu organización, incluida tu firma electrónica.'
+    : 'Cuando tu acceso sea aprobado, vas a poder ingresar con el email y la contraseña que cargaste al registrarte.';
 
   return `
     <div style="margin:0;padding:0;background:#0f172a;font-family:Arial,Helvetica,sans-serif;color:#e5e7eb;">
       <div style="max-width:600px;margin:0 auto;padding:32px 20px;">
         <div style="background:#111827;border:1px solid #334155;border-radius:16px;padding:28px;">
-          <div style="margin-bottom:24px;">
-            <div style="font-size:22px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">
-              CIGÜEÑA
-            </div>
-            <div style="font-size:13px;color:#94a3b8;">
-              Platform by BondiApps
-            </div>
-          </div>
+          ${renderEmailBrandHeader(branding)}
 
           <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#f8fafc;">
             ${title}
           </h1>
 
           <p style="font-size:15px;line-height:1.6;color:#cbd5e1;margin:0 0 18px;">
-            Hola ${safeName}, gracias por registrarte en Cigüeña.
+            Hola ${safeName}, gracias por registrarte en ${safeBrand}.
           </p>
 
           <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin:20px 0;">
@@ -200,9 +207,9 @@ function buildUserEmailHtml({
               href="${safePlatformUrl}"
               target="_blank"
               rel="noopener noreferrer"
-              style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-size:15px;font-weight:700;line-height:1;padding:15px 24px;border-radius:10px;"
+              style="display:inline-block;background:${ctaColor};color:${ctaTextColor};text-decoration:none;font-size:15px;font-weight:700;line-height:1;padding:15px 24px;border-radius:10px;"
             >
-              Ingresar a Cigüeña
+              Ingresar a ${safeBrand}
             </a>
           </div>
 
@@ -215,30 +222,27 @@ function buildUserEmailHtml({
               href="${safePlatformUrl}"
               target="_blank"
               rel="noopener noreferrer"
-              style="font-size:12px;line-height:1.5;color:#f59e0b;text-decoration:underline;word-break:break-all;"
+              style="font-size:12px;line-height:1.5;color:${branding.accentColor};text-decoration:underline;word-break:break-all;"
             >
               ${safePlatformUrl}
             </a>
           </div>
 
-          <hr style="border:none;border-top:1px solid #334155;margin:28px 0;" />
-
-          <p style="font-size:12px;line-height:1.5;color:#64748b;margin:0;">
-            Este es un mensaje automático de Cigüeña | Platform by BondiApps.
-          </p>
+          ${renderEmailFooter(branding)}
         </div>
       </div>
     </div>
   `;
 }
 
-function buildInternalEmailHtml({
+export function buildInternalEmailHtml({
   fullName,
   email,
   phone,
   requestedAdmin,
   tenantName,
   autoApproved,
+  brandName,
 }: {
   fullName: string;
   email: string;
@@ -246,10 +250,11 @@ function buildInternalEmailHtml({
   requestedAdmin: boolean;
   tenantName: string;
   autoApproved: boolean;
+  brandName: string;
 }) {
   return `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;">
-      <h2>Nuevo registro en Cigüeña</h2>
+      <h2>Nuevo registro en ${escapeHtml(brandName)}</h2>
 
       <p>Se registró una nueva persona en la plataforma.</p>
 
@@ -339,6 +344,13 @@ export const handler = async (event: any) => {
 
   const tenantName = tenantData.name || 'Empresa seleccionada';
 
+  const branding = await resolveTenantEmailBranding(
+    supabaseAdmin,
+    companyId,
+    tenantName
+  );
+  const emailFrom = getEmailSender(branding);
+
   // Un trabajador precargado puede tener un profile sin auth_user_id para permitir
   // asignaciones antes de su primer login. Ese profile se reutiliza al registrarse.
   const { data: existingProfiles, error: existingProfileError } = await supabaseAdmin
@@ -365,7 +377,7 @@ export const handler = async (event: any) => {
 
   if (matchingProfiles.length > 0 && !placeholderProfile) {
     return json(409, {
-      error: 'Ese email ya está asociado a otra empresa. Contactá a BondiApps para revisar el acceso.',
+      error: 'Ese email ya está asociado a otra empresa. Contactá a la administración de la plataforma para revisar el acceso.',
     });
   }
 
@@ -520,15 +532,17 @@ export const handler = async (event: any) => {
   const userEmailResult = await sendResendEmail({
     to: email,
     bcc: notifyEmail,
+    from: emailFrom,
     subject: isPreapprovedWorker
-      ? 'Tu cuenta de Cigüeña ya está habilitada'
-      : 'Recibimos tu solicitud de acceso a Cigüeña',
+      ? `Tu cuenta de ${branding.brandName} ya está habilitada`
+      : `Recibimos tu solicitud de acceso a ${branding.brandName}`,
     html: buildUserEmailHtml({
       fullName: finalFullName,
       requestedAdmin,
       tenantName,
       autoApproved: isPreapprovedWorker,
-      platformUrl,
+      platformUrl: getTenantAppUrl(branding, platformUrl),
+      branding,
     }),
   });
 
@@ -537,7 +551,8 @@ export const handler = async (event: any) => {
   const internalEmailResult = shouldNotifyAdmins
     ? await sendResendEmail({
         to: internalRecipients.length ? internalRecipients : notifyEmail,
-        subject: `Nuevo registro pendiente en Cigüeña: ${finalFullName}`,
+        from: emailFrom,
+        subject: `Nuevo registro pendiente en ${branding.brandName}: ${finalFullName}`,
         html: buildInternalEmailHtml({
           fullName: finalFullName,
           email,
@@ -545,6 +560,7 @@ export const handler = async (event: any) => {
           requestedAdmin,
           tenantName,
           autoApproved: isPreapprovedWorker,
+          brandName: branding.brandName,
         }),
       })
     : { ok: true };
@@ -562,7 +578,7 @@ export const handler = async (event: any) => {
     internal_email_sent: internalEmailResult.ok,
     email_warning: emailWarning,
     message: requestedAdmin
-      ? 'Tu cuenta fue creada correctamente. Tu solicitud de acceso como administrador quedó pendiente de validación por BondiApps.'
+      ? 'Tu cuenta fue creada correctamente. Tu solicitud de acceso como administrador quedó pendiente de validación por la administración de la plataforma.'
       : isPreapprovedWorker
         ? 'Tu cuenta fue creada correctamente y ya quedó habilitada porque tu email estaba en la nómina de tu empresa.'
         : 'Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de tu empresa.',

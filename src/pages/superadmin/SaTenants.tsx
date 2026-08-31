@@ -18,6 +18,16 @@ import {
 } from 'lucide-react';
 
 import { supabase } from '../../lib/supabase';
+import {
+  DEFAULT_CIGUENA_BRANDING,
+  resolveBranding,
+  type BrandingConfig,
+  type TenantBrandingRow,
+} from '../../lib/branding';
+import {
+  getBrandDocumentLogoUrl,
+  getBrandDocumentSubtitle,
+} from '../../lib/brandIdentity';
 import { baseTrainings } from '../../data/baseTrainings';
 import type { Tenant } from '../../types';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -163,11 +173,15 @@ function getCompanySignerLabel(certificate: HydratedCertificate) {
   return `${name} · ${role}`;
 }
 
-function printCertificate(certificate: HydratedCertificate) {
+function printCertificate(
+  certificate: HydratedCertificate,
+  branding: BrandingConfig = DEFAULT_CIGUENA_BRANDING,
+) {
   const status = getCertificateStatus(certificate);
   const workerName = certificate.worker_name || 'Trabajador';
   const issuerName = certificate.tenant_name || 'Empresa / Tenant';
   const trainingTitle = certificate.training_title || certificate.training_id || 'Training';
+  const brandLogoUrl = getBrandDocumentLogoUrl(branding);
 
   const workerSignatureBlock = certificate.worker_signature_url
     ? `<img src="${certificate.worker_signature_url}" alt="Firma trabajador" style="height:70px;max-width:220px;object-fit:contain;filter:invert(1) contrast(1.4);" />`
@@ -185,8 +199,10 @@ function printCertificate(certificate: HydratedCertificate) {
         <title>${certificate.certificate_code || 'Certificado'}</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #0f172a; }
-          .certificate { border: 3px solid #f59e0b; padding: 42px; min-height: 700px; }
-          .brand { color: #f59e0b; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+          .certificate { border: 3px solid ${branding.accentColor}; padding: 42px; min-height: 700px; }
+          .brand-row { display:flex; align-items:center; gap:12px; }
+          .brand-logo { max-height:48px; max-width:170px; object-fit:contain; }
+          .brand { color: ${branding.accentColor}; font-size: 26px; font-weight: 800; letter-spacing: 1px; }
           .subtitle { color: #64748b; font-size: 13px; margin-top: 4px; }
           h1 { margin: 48px 0 12px; font-size: 34px; text-align: center; }
           .lead { text-align: center; color: #475569; font-size: 16px; }
@@ -205,8 +221,13 @@ function printCertificate(certificate: HydratedCertificate) {
       </head>
       <body>
         <main class="certificate">
-          <div class="brand">CIGÜEÑA</div>
-          <div class="subtitle">by BondiApps · Plataforma de capacitaciones y certificaciones</div>
+          <div class="brand-row">
+            <img class="brand-logo" src="${brandLogoUrl}" alt="${branding.brandName}" />
+            <div>
+              <div class="brand">${branding.brandName}</div>
+              <div class="subtitle">${getBrandDocumentSubtitle(branding, 'Plataforma de capacitaciones y certificaciones')}</div>
+            </div>
+          </div>
 
           <h1>Certificado de capacitación</h1>
 
@@ -267,6 +288,7 @@ export default function SaTenants() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTrainingRow[]>([]);
   const [certificates, setCertificates] = useState<CertificateRow[]>([]);
+  const [brandingByTenant, setBrandingByTenant] = useState<Record<string, BrandingConfig>>({});
 
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -296,7 +318,7 @@ export default function SaTenants() {
     setSuccessMessage(null);
 
     try {
-      const [tenantsResult, profilesResult, tenantTrainingsResult, certificatesResult] =
+      const [tenantsResult, profilesResult, tenantTrainingsResult, certificatesResult, brandingResult] =
         await Promise.all([
           supabase.from('tenants').select('*').order('created_at', { ascending: false }),
           supabase
@@ -306,17 +328,38 @@ export default function SaTenants() {
             ),
           supabase.from('tenant_trainings').select('*').order('created_at', { ascending: false }),
           supabase.from('certificates').select('*').order('issued_at', { ascending: false }),
+          supabase.from('tenant_branding').select('*'),
         ]);
 
       if (tenantsResult.error) throw tenantsResult.error;
       if (profilesResult.error) throw profilesResult.error;
       if (tenantTrainingsResult.error) throw tenantTrainingsResult.error;
       if (certificatesResult.error) throw certificatesResult.error;
+      if (brandingResult.error) throw brandingResult.error;
 
       setTenants((tenantsResult.data ?? []) as Tenant[]);
       setProfiles((profilesResult.data ?? []) as ProfileRow[]);
       setTenantTrainings((tenantTrainingsResult.data ?? []) as TenantTrainingRow[]);
       setCertificates((certificatesResult.data ?? []) as CertificateRow[]);
+
+      const tenantRows = (tenantsResult.data ?? []) as Tenant[];
+      const tenantNameById = new Map(tenantRows.map((tenant) => [tenant.id, tenant.name]));
+      const brandingMap: Record<string, BrandingConfig> = {};
+
+      ((brandingResult.data ?? []) as TenantBrandingRow[]).forEach((row) => {
+        const resolved = resolveBranding(row);
+        const tenantName = tenantNameById.get(row.tenant_id);
+        if (
+          resolved.isCustomBranding &&
+          resolved.brandName.trim().toLocaleLowerCase('es') === 'cigüeña' &&
+          tenantName
+        ) {
+          resolved.brandName = tenantName;
+        }
+        brandingMap[row.tenant_id] = resolved;
+      });
+
+      setBrandingByTenant(brandingMap);
     } catch (error) {
       console.error('Error loading tenants:', error);
       setErrorMessage(
@@ -1191,7 +1234,7 @@ export default function SaTenants() {
                             </button>
 
                             <button
-                              onClick={() => printCertificate(certificate)}
+                              onClick={() => printCertificate(certificate, brandingByTenant[certificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING)}
                               className="btn-secondary text-xs justify-center"
                             >
                               <Download size={13} />
@@ -1251,13 +1294,32 @@ export default function SaTenants() {
                       </button>
                     </div>
 
-                    <div className="mx-auto max-w-[800px] rounded-xl bg-white p-8 text-slate-900 shadow-xl border-4 border-amber-500">
-                      <div className="text-2xl font-extrabold tracking-wide text-amber-500">
-                        CIGÜEÑA
-                      </div>
-
-                      <div className="mt-1 text-xs text-slate-500">
-                        by BondiApps · Plataforma de capacitaciones y certificaciones
+                    <div
+                      className="mx-auto max-w-[800px] rounded-xl bg-white p-8 text-slate-900 shadow-xl border-4"
+                      style={{
+                        borderColor: (brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING).accentColor,
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={getBrandDocumentLogoUrl(brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING)}
+                          alt={(brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING).brandName}
+                          className="max-h-12 max-w-[170px] object-contain"
+                        />
+                        <div>
+                          <div
+                            className="text-2xl font-extrabold tracking-wide"
+                            style={{ color: (brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING).accentColor }}
+                          >
+                            {(brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING).brandName}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {getBrandDocumentSubtitle(
+                              brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING,
+                              'Plataforma de capacitaciones y certificaciones',
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       <h1 className="mt-10 text-center text-3xl font-bold text-slate-900">
@@ -1390,7 +1452,7 @@ export default function SaTenants() {
                     <div className="mt-4 flex justify-end">
                       <button
                         type="button"
-                        onClick={() => printCertificate(selectedCertificate)}
+                        onClick={() => printCertificate(selectedCertificate, brandingByTenant[selectedCertificate.tenant_id || ''] || DEFAULT_CIGUENA_BRANDING)}
                         className="btn-primary text-xs py-2"
                       >
                         <Download size={13} />
