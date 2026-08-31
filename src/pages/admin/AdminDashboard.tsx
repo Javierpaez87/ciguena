@@ -11,6 +11,7 @@ import {
   Activity,
   XCircle,
   Download,
+  ChevronRight,
 } from 'lucide-react';
 
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -19,6 +20,7 @@ import { useBranding } from '../../contexts/BrandingContext';
 import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
+import MetricDetailModal, { MetricDetailColumn } from '../../components/ui/MetricDetailModal';
 import {
   EmployeeDirectoryRecord,
   getOperationalRole,
@@ -47,7 +49,21 @@ interface MiniMetricCardProps {
   chartType: 'donut' | 'bar' | 'spark';
   chartValue: number;
   chartLabel?: string;
+  onClick?: () => void;
 }
+
+type DashboardDetailKey =
+  | 'users'
+  | 'assignments'
+  | 'liveScheduled'
+  | 'liveAttendance'
+  | 'liveCertificates'
+  | 'validCertificates'
+  | 'avgProgress'
+  | 'notStarted'
+  | 'inProgress'
+  | 'completed'
+  | 'expiredCertificates';
 
 interface Profile {
   id: string;
@@ -231,6 +247,34 @@ function normalizeStatus(status?: string | null) {
   return (status || '').toLowerCase();
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('es-AR');
+}
+
+function getProfileName(profile?: Profile | null) {
+  return profile?.full_name || profile?.email || 'Usuario sin nombre';
+}
+
+function getCertificateComputedStatus(certificate: Certificate) {
+  const status = normalizeStatus(certificate.status);
+  if (status === 'expired' || status === 'vencido') return 'expired';
+
+  if (certificate.expires_at) {
+    const expiresAt = new Date(certificate.expires_at).getTime();
+    if (!Number.isNaN(expiresAt)) {
+      const now = Date.now();
+      const thirtyDays = 1000 * 60 * 60 * 24 * 30;
+      if (expiresAt < now) return 'expired';
+      if (expiresAt <= now + thirtyDays) return 'expiring_soon';
+    }
+  }
+
+  return 'valid';
+}
+
 function getAssignmentProgress(assignment: Assignment) {
   const directProgress =
     assignment.progress_percentage ??
@@ -275,6 +319,16 @@ function hasLiveAttendanceEvidence(participant: LiveTrainingParticipant) {
 function isLiveParticipantPending(participant: LiveTrainingParticipant) {
   const status = normalizeStatus(participant.live_attendance_status);
   return status === 'invited' && !participant.join_clicked_at;
+}
+
+function getLiveAttendanceLabel(participant: LiveTrainingParticipant) {
+  const status = normalizeStatus(participant.live_attendance_status);
+  if (status === 'on_time') return 'Asistió a horario';
+  if (status === 'late') return 'Asistió tarde';
+  if (status === 'absent' || status === 'invalid_after_event') return 'Ausente';
+  if (status === 'invited' && !participant.join_clicked_at) return 'Invitado / pendiente';
+  if (participant.join_clicked_at) return 'Click Meet registrado';
+  return participant.live_attendance_status || 'Sin registro';
 }
 
 function DonutChart({
@@ -472,11 +526,12 @@ function MiniMetricCard({
   chartType,
   chartValue,
   chartLabel,
+  onClick,
 }: MiniMetricCardProps) {
   const styles = accentStyles[accent];
 
-  return (
-    <div className="card p-4 min-h-[170px] flex flex-col justify-between">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div
           className={`h-11 w-11 rounded-xl border flex items-center justify-center flex-shrink-0 ${styles.icon}`}
@@ -498,9 +553,30 @@ function MiniMetricCard({
             {chartLabel}
           </div>
         )}
+
+        {onClick && (
+          <div className="mt-3 flex items-center gap-1 text-xs font-medium brand-text">
+            Ver detalle
+            <ChevronRight size={14} />
+          </div>
+        )}
       </div>
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="card p-4 min-h-[170px] w-full flex flex-col justify-between text-left transition-colors hover:border-steel-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-steel-950 focus:ring-[var(--brand-accent)]"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="card p-4 min-h-[170px] flex flex-col justify-between">{content}</div>;
 }
 
 export default function AdminDashboard() {
@@ -522,6 +598,7 @@ export default function AdminDashboard() {
   const [filterCriterion, setFilterCriterion] = useState<WorkerFilterKey>('work_role');
   const [filterValue, setFilterValue] = useState('all');
   const [showExportModal, setShowExportModal] = useState(false);
+  const [detailKey, setDetailKey] = useState<DashboardDetailKey | null>(null);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -754,63 +831,118 @@ export default function AdminDashboard() {
     ? `${activeFilterDefinition.label}: ${filterValue}`
     : 'Empresa completa';
 
-  const metrics = useMemo(() => {
-    const activeUsers = filteredWorkerUsers.filter((u) => {
-      const status = normalizeStatus(u.status);
+  const usersById = useMemo(
+    () => new Map(users.map((profile) => [profile.id, profile])),
+    [users]
+  );
+
+  const trainingsByAnyId = useMemo(() => {
+    const map = new Map<string, TenantTraining>();
+    tenantTrainings.forEach((training) => {
+      if (training.id) map.set(training.id, training);
+      if (training.training_id) map.set(training.training_id, training);
+    });
+    return map;
+  }, [tenantTrainings]);
+
+  const liveTrainingsById = useMemo(
+    () => new Map(liveTrainings.map((training) => [training.id, training])),
+    [liveTrainings]
+  );
+
+  const metricDetailSets = useMemo(() => {
+    const activeUsers = filteredWorkerUsers.filter((profile) => {
+      const status = normalizeStatus(profile.status);
       return !status || status === 'active' || status === 'activo';
-    }).length;
+    });
 
-    const notStarted = filteredAssignments.filter((a) => {
-      const status = normalizeStatus(a.status);
+    const notStartedAssignments = filteredAssignments.filter((assignment) => {
+      const status = normalizeStatus(assignment.status);
       return status === 'not_started' || status === 'pending' || status === 'assigned';
-    }).length;
+    });
 
-    const inProgress = filteredAssignments.filter((a) => {
-      const status = normalizeStatus(a.status);
+    const inProgressAssignments = filteredAssignments.filter((assignment) => {
+      const status = normalizeStatus(assignment.status);
       return status === 'in_progress' || status === 'started';
-    }).length;
+    });
 
-    const completed = filteredAssignments.filter((a) => {
-      const status = normalizeStatus(a.status);
+    const completedAssignments = filteredAssignments.filter((assignment) => {
+      const status = normalizeStatus(assignment.status);
       return ['completed', 'passed', 'certificate_issued', 'approved'].includes(status);
-    }).length;
+    });
 
-    const passedAttempts = filteredAttempts.filter((attempt) => attempt.passed === true).length;
-
-    const validCerts = filteredCertificates.filter((certificate) => {
+    const passedAttempts = filteredAttempts.filter((attempt) => attempt.passed === true);
+    // Keep the exact same predicates the dashboard used before drill-down was added.
+    // The cards now take their count from these arrays, so modal rows and card values cannot diverge.
+    const validCertificates = filteredCertificates.filter((certificate) => {
       const status = normalizeStatus(certificate.status);
-
       if (status === 'valid' || status === 'vigente') return true;
       if (status === 'expired' || status === 'vencido') return false;
-
       if (certificate.expires_at) {
         return new Date(certificate.expires_at).getTime() >= Date.now();
       }
-
       return true;
-    }).length;
-
-    const expiredCerts = filteredCertificates.filter((certificate) => {
+    });
+    const expiredCertificates = filteredCertificates.filter((certificate) => {
       const status = normalizeStatus(certificate.status);
-
       if (status === 'expired' || status === 'vencido') return true;
-
       if (certificate.expires_at) {
         return new Date(certificate.expires_at).getTime() < Date.now();
       }
-
       return false;
-    }).length;
-
-    const expiringSoon = filteredCertificates.filter((certificate) => {
+    });
+    const expiringSoonCertificates = filteredCertificates.filter((certificate) => {
       if (!certificate.expires_at) return false;
-
       const expiresAt = new Date(certificate.expires_at).getTime();
       const now = Date.now();
       const thirtyDays = 1000 * 60 * 60 * 24 * 30;
-
       return expiresAt >= now && expiresAt <= now + thirtyDays;
-    }).length;
+    });
+    const scheduledLiveTrainings = filteredLiveTrainings.filter((training) =>
+      ['draft', 'scheduled'].includes(normalizeStatus(training.status))
+    );
+    const completedLiveTrainings = filteredLiveTrainings.filter((training) =>
+      ['completed', 'closed'].includes(normalizeStatus(training.status))
+    );
+    const attendedLiveParticipants = filteredLiveParticipants.filter(hasLiveAttendanceEvidence);
+    const absentLiveParticipants = filteredLiveParticipants.filter((participant) =>
+      ['absent', 'invalid_after_event'].includes(normalizeStatus(participant.live_attendance_status))
+    );
+    const invitedLiveParticipants = filteredLiveParticipants.filter(isLiveParticipantPending);
+
+    return {
+      activeUsers,
+      notStartedAssignments,
+      inProgressAssignments,
+      completedAssignments,
+      passedAttempts,
+      validCertificates,
+      expiredCertificates,
+      expiringSoonCertificates,
+      scheduledLiveTrainings,
+      completedLiveTrainings,
+      attendedLiveParticipants,
+      absentLiveParticipants,
+      invitedLiveParticipants,
+    };
+  }, [
+    filteredWorkerUsers,
+    filteredAssignments,
+    filteredCertificates,
+    filteredAttempts,
+    filteredLiveTrainings,
+    filteredLiveParticipants,
+  ]);
+
+  const metrics = useMemo(() => {
+    const activeUsers = metricDetailSets.activeUsers.length;
+    const notStarted = metricDetailSets.notStartedAssignments.length;
+    const inProgress = metricDetailSets.inProgressAssignments.length;
+    const completed = metricDetailSets.completedAssignments.length;
+    const passedAttempts = metricDetailSets.passedAttempts.length;
+    const validCerts = metricDetailSets.validCertificates.length;
+    const expiredCerts = metricDetailSets.expiredCertificates.length;
+    const expiringSoon = metricDetailSets.expiringSoonCertificates.length;
 
     const avgProgress = filteredAssignments.length
       ? Math.round(
@@ -827,17 +959,11 @@ export default function AdminDashboard() {
     const expiredCertRate = percent(expiredCerts, Math.max(filteredCertificates.length, 1));
     const expiringSoonRate = percent(expiringSoon, Math.max(filteredCertificates.length, 1));
 
-    const liveScheduled = filteredLiveTrainings.filter((training) =>
-      ['draft', 'scheduled'].includes(normalizeStatus(training.status))
-    ).length;
-    const liveCompleted = filteredLiveTrainings.filter((training) =>
-      ['completed', 'closed'].includes(normalizeStatus(training.status))
-    ).length;
-    const liveAttended = filteredLiveParticipants.filter(hasLiveAttendanceEvidence).length;
-    const liveAbsent = filteredLiveParticipants.filter((participant) =>
-      ['absent', 'invalid_after_event'].includes(normalizeStatus(participant.live_attendance_status))
-    ).length;
-    const liveInvited = filteredLiveParticipants.filter(isLiveParticipantPending).length;
+    const liveScheduled = metricDetailSets.scheduledLiveTrainings.length;
+    const liveCompleted = metricDetailSets.completedLiveTrainings.length;
+    const liveAttended = metricDetailSets.attendedLiveParticipants.length;
+    const liveAbsent = metricDetailSets.absentLiveParticipants.length;
+    const liveInvited = metricDetailSets.invitedLiveParticipants.length;
     const liveAttendanceRate = percent(liveAttended, filteredLiveParticipants.length);
 
     return {
@@ -865,7 +991,274 @@ export default function AdminDashboard() {
       liveAttendanceRate,
       liveCertificates: filteredLiveCertificates.length,
     };
-  }, [filteredWorkerUsers, filteredAssignments, filteredCertificates, filteredAttempts, filteredLiveTrainings, filteredLiveParticipants, filteredLiveCertificates]);
+  }, [filteredWorkerUsers, filteredAssignments, filteredCertificates, filteredLiveParticipants, filteredLiveCertificates, metricDetailSets]);
+
+  const detailModalConfig = useMemo(() => {
+    if (!detailKey) return null;
+
+    const assignmentColumns: MetricDetailColumn<Assignment>[] = [
+      {
+        key: 'worker',
+        label: 'Trabajador',
+        render: (assignment) => (
+          <div>
+            <div className="font-medium text-steel-100">{getProfileName(assignment.user)}</div>
+            <div className="text-xs text-steel-500">{assignment.user?.email || '—'}</div>
+          </div>
+        ),
+      },
+      {
+        key: 'training',
+        label: 'Training',
+        render: (assignment) => getTrainingTitle(assignment.training, assignment),
+      },
+      {
+        key: 'status',
+        label: 'Estado',
+        render: (assignment) => <StatusBadge status={assignment.status || 'assigned'} />,
+      },
+      {
+        key: 'progress',
+        label: 'Avance',
+        render: (assignment) => `${getAssignmentProgress(assignment)}%`,
+      },
+      {
+        key: 'due',
+        label: 'Deadline',
+        render: (assignment) => formatDate(assignment.due_date || assignment.deadline || null),
+      },
+    ];
+
+    const certificateColumns: MetricDetailColumn<Certificate>[] = [
+      {
+        key: 'worker',
+        label: 'Trabajador',
+        render: (certificate) => {
+          const profile = certificate.user_id ? usersById.get(certificate.user_id) : null;
+          return (
+            <div>
+              <div className="font-medium text-steel-100">{getProfileName(profile)}</div>
+              <div className="text-xs text-steel-500">{profile?.email || '—'}</div>
+            </div>
+          );
+        },
+      },
+      {
+        key: 'training',
+        label: 'Training / certificado',
+        render: (certificate) => {
+          const trainingKey =
+            certificate.tenant_training_id ||
+            certificate.training_id ||
+            certificate.training_key ||
+            certificate.training_slug;
+          const training = trainingKey ? trainingsByAnyId.get(trainingKey) : null;
+          return training ? getTrainingTitle(training, null) : certificate.training_id || 'Training sin título';
+        },
+      },
+      {
+        key: 'status',
+        label: 'Estado',
+        render: (certificate) => <StatusBadge status={getCertificateComputedStatus(certificate)} />,
+      },
+      {
+        key: 'issued',
+        label: 'Emitido',
+        render: (certificate) => formatDate(certificate.issued_at || certificate.created_at),
+      },
+      {
+        key: 'expires',
+        label: 'Vencimiento',
+        render: (certificate) => formatDate(certificate.expires_at),
+      },
+    ];
+
+    switch (detailKey) {
+      case 'users':
+        return {
+          title: 'Usuarios en la vista',
+          description: `${filteredWorkerUsers.length} trabajador(es) componen la métrica de Usuarios totales.`,
+          rows: filteredWorkerUsers,
+          columns: [
+            {
+              key: 'worker',
+              label: 'Trabajador',
+              render: (profile: Profile) => (
+                <div>
+                  <div className="font-medium text-steel-100">{getProfileName(profile)}</div>
+                  <div className="text-xs text-steel-500">{profile.email || '—'}</div>
+                </div>
+              ),
+            },
+            {
+              key: 'role',
+              label: 'Rol operativo',
+              render: (profile: Profile) => getOperationalRole(profile as any) || 'Sin rol',
+            },
+            { key: 'area', label: 'Área', render: (profile: Profile) => profile.area || 'Sin área' },
+            {
+              key: 'employee',
+              label: 'Legajo',
+              render: (profile: Profile) => profile.employee_code || '—',
+            },
+            {
+              key: 'status',
+              label: 'Estado',
+              render: (profile: Profile) => <StatusBadge status={profile.status || 'active'} />,
+            },
+          ] as MetricDetailColumn<Profile>[],
+          rowKey: (profile: Profile) => profile.id,
+        };
+
+      case 'assignments':
+        return {
+          title: 'Trainings asignados',
+          description: `${filteredAssignments.length} asignación(es) componen la card actual.`,
+          rows: filteredAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'liveScheduled':
+        return {
+          title: 'Vivos programados',
+          description: `${metricDetailSets.scheduledLiveTrainings.length} capacitación(es) en vivo están programadas dentro del filtro actual.`,
+          rows: metricDetailSets.scheduledLiveTrainings,
+          columns: [
+            { key: 'title', label: 'Capacitación', render: (training: LiveTraining) => training.title || 'Capacitación en vivo' },
+            { key: 'status', label: 'Estado', render: (training: LiveTraining) => training.status || 'scheduled' },
+            { key: 'start', label: 'Inicio', render: (training: LiveTraining) => formatDate(training.starts_at) },
+            { key: 'end', label: 'Fin', render: (training: LiveTraining) => formatDate(training.ends_at) },
+          ] as MetricDetailColumn<LiveTraining>[],
+          rowKey: (training: LiveTraining) => training.id,
+        };
+
+      case 'liveAttendance':
+        return {
+          title: 'Detalle de asistencia en vivo',
+          description: `${metrics.liveAttended} de ${filteredLiveParticipants.length} invitado(s) tienen evidencia de asistencia.`,
+          rows: filteredLiveParticipants,
+          columns: [
+            {
+              key: 'worker',
+              label: 'Trabajador',
+              render: (participant: LiveTrainingParticipant) => getProfileName(
+                participant.user_id ? usersById.get(participant.user_id) : null
+              ),
+            },
+            {
+              key: 'training',
+              label: 'Capacitación en vivo',
+              render: (participant: LiveTrainingParticipant) =>
+                (participant.live_training_id && liveTrainingsById.get(participant.live_training_id)?.title) ||
+                'Capacitación en vivo',
+            },
+            {
+              key: 'attendance',
+              label: 'Asistencia',
+              render: (participant: LiveTrainingParticipant) => getLiveAttendanceLabel(participant),
+            },
+            {
+              key: 'click',
+              label: 'Click Meet',
+              render: (participant: LiveTrainingParticipant) => formatDate(participant.join_clicked_at),
+            },
+          ] as MetricDetailColumn<LiveTrainingParticipant>[],
+          rowKey: (participant: LiveTrainingParticipant) => participant.id,
+        };
+
+      case 'liveCertificates':
+        return {
+          title: 'Certificados de capacitaciones en vivo',
+          description: `${filteredLiveCertificates.length} certificado(s) emitidos en vivos dentro de la vista actual.`,
+          rows: filteredLiveCertificates,
+          columns: [
+            {
+              key: 'worker',
+              label: 'Trabajador',
+              render: (certificate: LiveTrainingCertificate) => getProfileName(
+                certificate.user_id ? usersById.get(certificate.user_id) : null
+              ),
+            },
+            {
+              key: 'training',
+              label: 'Capacitación en vivo',
+              render: (certificate: LiveTrainingCertificate) =>
+                (certificate.live_training_id && liveTrainingsById.get(certificate.live_training_id)?.title) ||
+                'Capacitación en vivo',
+            },
+            { key: 'status', label: 'Estado', render: (certificate: LiveTrainingCertificate) => certificate.status || 'emitido' },
+            { key: 'issued', label: 'Emitido', render: (certificate: LiveTrainingCertificate) => formatDate(certificate.issued_at || certificate.created_at) },
+          ] as MetricDetailColumn<LiveTrainingCertificate>[],
+          rowKey: (certificate: LiveTrainingCertificate) => certificate.id,
+        };
+
+      case 'validCertificates':
+        return {
+          title: 'Certificados vigentes',
+          description: `${metricDetailSets.validCertificates.length} certificado(s) no vencidos. Los próximos a vencer se identifican en su estado.`,
+          rows: metricDetailSets.validCertificates,
+          columns: certificateColumns,
+          rowKey: (certificate: Certificate) => certificate.id,
+        };
+
+      case 'avgProgress':
+        return {
+          title: 'Detalle de avance promedio',
+          description: `El ${metrics.avgProgress}% se calcula promediando el avance de estas ${filteredAssignments.length} asignación(es).`,
+          rows: filteredAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'notStarted':
+        return {
+          title: 'Trainings no iniciados',
+          description: `${metricDetailSets.notStartedAssignments.length} asignación(es) todavía no fueron iniciadas.`,
+          rows: metricDetailSets.notStartedAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'inProgress':
+        return {
+          title: 'Trainings en curso',
+          description: `${metricDetailSets.inProgressAssignments.length} asignación(es) están actualmente en curso.`,
+          rows: metricDetailSets.inProgressAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'completed':
+        return {
+          title: 'Trainings completados',
+          description: `${metricDetailSets.completedAssignments.length} asignación(es) están completadas/aprobadas.`,
+          rows: metricDetailSets.completedAssignments,
+          columns: assignmentColumns,
+          rowKey: (assignment: Assignment) => assignment.id,
+        };
+
+      case 'expiredCertificates':
+        return {
+          title: 'Certificados vencidos',
+          description: `${metricDetailSets.expiredCertificates.length} certificado(s) están vencidos. Además hay ${metricDetailSets.expiringSoonCertificates.length} próximo(s) a vencer.`,
+          rows: metricDetailSets.expiredCertificates,
+          columns: certificateColumns,
+          rowKey: (certificate: Certificate) => certificate.id,
+        };
+    }
+  }, [
+    detailKey,
+    filteredWorkerUsers,
+    filteredAssignments,
+    filteredLiveParticipants,
+    filteredLiveCertificates,
+    metricDetailSets,
+    metrics.liveAttended,
+    usersById,
+    trainingsByAnyId,
+    liveTrainingsById,
+  ]);
 
   const trainingStatusItems: ChartItem[] = [
     { label: 'Completados', value: metrics.completed, className: 'text-emerald-400' },
@@ -1137,6 +1530,7 @@ export default function AdminDashboard() {
             chartType="donut"
             chartValue={metrics.activeUserRate}
             chartLabel="usuarios activos"
+            onClick={() => setDetailKey('users')}
           />
 
           <MiniMetricCard
@@ -1148,6 +1542,7 @@ export default function AdminDashboard() {
             chartType="bar"
             chartValue={metrics.completionRate}
             chartLabel="cumplimiento"
+            onClick={() => setDetailKey('assignments')}
           />
 
           <MiniMetricCard
@@ -1159,6 +1554,7 @@ export default function AdminDashboard() {
             chartType="bar"
             chartValue={percent(metrics.liveScheduled, Math.max(filteredLiveTrainings.length, 1))}
             chartLabel="en agenda"
+            onClick={() => setDetailKey('liveScheduled')}
           />
 
           <MiniMetricCard
@@ -1170,6 +1566,7 @@ export default function AdminDashboard() {
             chartType="donut"
             chartValue={metrics.liveAttendanceRate}
             chartLabel="asistencia"
+            onClick={() => setDetailKey('liveAttendance')}
           />
 
           <MiniMetricCard
@@ -1181,6 +1578,7 @@ export default function AdminDashboard() {
             chartType="bar"
             chartValue={percent(metrics.liveCertificates, Math.max(filteredLiveParticipants.length, 1))}
             chartLabel="certificación live"
+            onClick={() => setDetailKey('liveCertificates')}
           />
 
           <MiniMetricCard
@@ -1192,6 +1590,7 @@ export default function AdminDashboard() {
             chartType="donut"
             chartValue={metrics.validCertRate}
             chartLabel="vigencia"
+            onClick={() => setDetailKey('validCertificates')}
           />
 
           <MiniMetricCard
@@ -1203,6 +1602,7 @@ export default function AdminDashboard() {
             chartType="bar"
             chartValue={metrics.avgProgress}
             chartLabel="avance general"
+            onClick={() => setDetailKey('avgProgress')}
           />
 
           <MiniMetricCard
@@ -1214,6 +1614,7 @@ export default function AdminDashboard() {
             chartType="bar"
             chartValue={metrics.notStartedRate}
             chartLabel="pendientes"
+            onClick={() => setDetailKey('notStarted')}
           />
 
           <MiniMetricCard
@@ -1225,6 +1626,7 @@ export default function AdminDashboard() {
             chartType="bar"
             chartValue={metrics.inProgressRate}
             chartLabel="actividad"
+            onClick={() => setDetailKey('inProgress')}
           />
 
           <MiniMetricCard
@@ -1236,6 +1638,7 @@ export default function AdminDashboard() {
             chartType="donut"
             chartValue={metrics.completionRate}
             chartLabel="finalizados"
+            onClick={() => setDetailKey('completed')}
           />
 
           <MiniMetricCard
@@ -1249,6 +1652,7 @@ export default function AdminDashboard() {
               metrics.expiredCerts > 0 ? metrics.expiredCertRate : metrics.expiringSoonRate
             }
             chartLabel={metrics.expiredCerts > 0 ? 'riesgo vencido' : 'riesgo próximo'}
+            onClick={() => setDetailKey('expiredCertificates')}
           />
         </div>
       </section>
@@ -1477,6 +1881,19 @@ export default function AdminDashboard() {
         columns={dashboardExportColumns}
         description={`Se exportarán ${dashboardExportRows.length} trabajador(es) respetando el filtro actual: ${activeFilterSummary}.`}
       />
+
+      {detailModalConfig && (
+        <MetricDetailModal
+          open={Boolean(detailKey)}
+          onClose={() => setDetailKey(null)}
+          title={detailModalConfig.title}
+          description={detailModalConfig.description}
+          context={activeFilterSummary}
+          rows={detailModalConfig.rows as any[]}
+          columns={detailModalConfig.columns as MetricDetailColumn<any>[]}
+          rowKey={detailModalConfig.rowKey as (row: any, index: number) => React.Key}
+        />
+      )}
 
       <div className="text-xs text-steel-600">
         Datos reales desde Supabase · {filteredWorkerUsers.length} usuarios en la vista · {tenantTrainings.length}{' '}
