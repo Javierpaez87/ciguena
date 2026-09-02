@@ -79,7 +79,7 @@ function getFriendlyAuthError(message = '') {
     lower.includes('already been registered') ||
     lower.includes('user already registered')
   ) {
-    return 'Ya existe una cuenta registrada con ese email.';
+    return 'Ya existe una cuenta de acceso con ese email. Probá iniciar sesión o restablecer tu contraseña.';
   }
 
   if (lower.includes('password')) {
@@ -87,6 +87,46 @@ function getFriendlyAuthError(message = '') {
   }
 
   return 'No pudimos crear la cuenta. Intentá nuevamente o contactá a la administración de la plataforma.';
+}
+
+type ExistingProfile = {
+  id: string;
+  tenant_id: string;
+  email?: string | null;
+  auth_user_id?: string | null;
+  role?: string | null;
+  status?: string | null;
+};
+
+function isMissingAuthUserError(error: unknown) {
+  const status = Number((error as { status?: number } | null)?.status || 0);
+  const message = String((error as { message?: string } | null)?.message || '').toLowerCase();
+
+  return status === 404 || message.includes('user not found') || message.includes('not found');
+}
+
+async function getValidAuthUserForProfile(
+  supabaseAdmin: any,
+  profile: ExistingProfile
+): Promise<{ exists: boolean; email: string | null }> {
+  if (!profile.auth_user_id) {
+    return { exists: false, email: null };
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(profile.auth_user_id);
+
+  if (!error && data?.user) {
+    return {
+      exists: true,
+      email: normalizeEmail(data.user.email) || null,
+    };
+  }
+
+  if (isMissingAuthUserError(error)) {
+    return { exists: false, email: null };
+  }
+
+  throw error || new Error('No pudimos validar la cuenta de autenticación existente.');
 }
 
 async function sendResendEmail({
@@ -351,45 +391,15 @@ export const handler = async (event: any) => {
   );
   const emailFrom = getEmailSender(branding);
 
-  // Un trabajador precargado puede tener un profile sin auth_user_id para permitir
-  // asignaciones antes de su primer login. Ese profile se reutiliza al registrarse.
-  const { data: existingProfiles, error: existingProfileError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, tenant_id, auth_user_id, role, status')
-    .eq('email', email);
-
-  if (existingProfileError) {
-    return json(500, {
-      error: 'No pudimos verificar si el usuario ya existía. Intentá nuevamente.',
-    });
-  }
-
-  const matchingProfiles = existingProfiles ?? [];
-  const registeredProfile = matchingProfiles.find((profile: any) => Boolean(profile.auth_user_id));
-
-  if (registeredProfile) {
-    return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
-  }
-
-  const placeholderProfile = matchingProfiles.find(
-    (profile: any) => profile.tenant_id === companyId && !profile.auth_user_id
-  );
-
-  if (matchingProfiles.length > 0 && !placeholderProfile) {
-    return json(409, {
-      error: 'Ese email ya está asociado a otra empresa. Contactá a la administración de la plataforma para revisar el acceso.',
-    });
-  }
-
-  // Busca si el usuario estaba precargado por nómina/CSV/API.
-  // Si existe para este tenant, queda validado automáticamente como worker.
+  // La nómina indica si la persona está habilitada para registrarse.
+  // Un profile o profile_id por sí solos NO significan que exista una cuenta Auth válida.
   const { data: employeeDirectoryEntry, error: employeeDirectoryError } = await supabaseAdmin
     .from('employee_directory')
     .select(
       'id, tenant_id, email, first_name, last_name, dni, phone, employee_code, work_role, area, position, status, profile_id'
     )
     .eq('tenant_id', companyId)
-    .eq('email', email)
+    .ilike('email', email)
     .maybeSingle();
 
   if (employeeDirectoryError) {
@@ -398,8 +408,120 @@ export const handler = async (event: any) => {
     });
   }
 
+  // Buscamos profiles legacy por email. También inspeccionamos explícitamente el profile_id
+  // guardado en employee_directory, porque puede haber quedado desactualizado respecto del email.
+  const { data: profilesByEmail, error: existingProfileError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, tenant_id, email, auth_user_id, role, status')
+    .ilike('email', email);
+
+  if (existingProfileError) {
+    return json(500, {
+      error: 'No pudimos verificar si el usuario ya existía. Intentá nuevamente.',
+    });
+  }
+
+  const profilesToInspect = new Map<string, ExistingProfile>();
+
+  for (const profile of (profilesByEmail ?? []) as ExistingProfile[]) {
+    profilesToInspect.set(profile.id, profile);
+  }
+
+  if (employeeDirectoryEntry?.profile_id && !profilesToInspect.has(employeeDirectoryEntry.profile_id)) {
+    const { data: linkedProfile, error: linkedProfileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, tenant_id, email, auth_user_id, role, status')
+      .eq('id', employeeDirectoryEntry.profile_id)
+      .maybeSingle();
+
+    if (linkedProfileError) {
+      return json(500, {
+        error: 'No pudimos verificar el perfil precargado del trabajador. Intentá nuevamente.',
+      });
+    }
+
+    if (linkedProfile) {
+      profilesToInspect.set(linkedProfile.id, linkedProfile as ExistingProfile);
+    }
+  }
+
+  const inspectedProfiles = Array.from(profilesToInspect.values());
+  const staleAuthProfileIds = new Set<string>();
+
+  // auth_user_id solo prueba que existe una cuenta si ese UUID sigue existiendo en Supabase Auth.
+  // Esto evita bloquear estados legacy como Rodrigo: profile presente, auth_user_id nulo o huérfano.
+  for (const profile of inspectedProfiles) {
+    if (!profile.auth_user_id) continue;
+
+    let authState: { exists: boolean; email: string | null };
+
+    try {
+      authState = await getValidAuthUserForProfile(supabaseAdmin, profile);
+    } catch (error) {
+      console.error('Error validando auth_user_id del profile:', profile.id, error);
+      return json(500, {
+        error: 'No pudimos validar el estado de tu cuenta. Intentá nuevamente en unos minutos.',
+      });
+    }
+
+    if (!authState.exists) {
+      staleAuthProfileIds.add(profile.id);
+      console.warn('Profile con auth_user_id huérfano; se permitirá recuperar el registro:', {
+        profileId: profile.id,
+        tenantId: profile.tenant_id,
+        email,
+      });
+      continue;
+    }
+
+    if (authState.email && authState.email !== email) {
+      return json(409, {
+        error: 'Encontramos una inconsistencia entre tu perfil y tu cuenta de acceso. Contactá a la administración para corregirla.',
+      });
+    }
+
+    return json(409, {
+      error: 'Ya existe una cuenta de acceso con ese email. Probá iniciar sesión o restablecer tu contraseña.',
+    });
+  }
+
+  const reusableProfiles = inspectedProfiles.filter(
+    (profile) =>
+      profile.tenant_id === companyId &&
+      (!profile.auth_user_id || staleAuthProfileIds.has(profile.id))
+  );
+
+  const directoryLinkedProfile = employeeDirectoryEntry?.profile_id
+    ? reusableProfiles.find((profile) => profile.id === employeeDirectoryEntry.profile_id)
+    : undefined;
+
   if (employeeDirectoryEntry?.profile_id) {
-    return json(409, { error: 'Ya existe una cuenta registrada con ese email.' });
+    const linkedProfile = inspectedProfiles.find(
+      (profile) => profile.id === employeeDirectoryEntry.profile_id
+    );
+
+    if (linkedProfile && linkedProfile.tenant_id !== companyId) {
+      return json(409, {
+        error: 'La nómina está vinculada a un perfil de otra empresa. Contactá a la administración para corregirlo.',
+      });
+    }
+  }
+
+  if (!directoryLinkedProfile && reusableProfiles.length > 1) {
+    return json(409, {
+      error: 'Encontramos más de un perfil precargado para este email. Contactá a la administración para unificarlo antes de registrarte.',
+    });
+  }
+
+  const placeholderProfile = directoryLinkedProfile || reusableProfiles[0];
+  const profilesInOtherTenants = inspectedProfiles.filter(
+    (profile) => profile.tenant_id !== companyId && normalizeEmail(profile.email) === email
+  );
+
+  if (profilesInOtherTenants.length > 0 && !placeholderProfile) {
+    return json(409, {
+      error: 'Ese email ya está asociado a otra empresa. Contactá a la administración de la plataforma para revisar el acceso.',
+    });
   }
 
   const directoryStatus = clean(employeeDirectoryEntry?.status).toLowerCase();
