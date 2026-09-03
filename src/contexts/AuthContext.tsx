@@ -23,6 +23,15 @@ export interface GhostSession {
   profile: Profile;
 }
 
+interface RegisterResult {
+  error: string | null;
+  preapproved?: boolean;
+  status?: string | null;
+  emailSent?: boolean;
+  emailWarning?: string | null;
+  message?: string | null;
+}
+
 interface AuthContextValue {
   /** Usuario efectivo. En Ghost View representa al admin/worker observado. */
   user: AuthUser | null;
@@ -34,7 +43,7 @@ interface AuthContextValue {
   startGhostSession: (tenant: GhostSession['tenant'], profile: Profile) => void;
   stopGhostSession: () => void;
   login: (email: string, password: string) => Promise<{ error: string | null }>;
-  register: (payload: RegisterPayload) => Promise<{ error: string | null }>;
+  register: (payload: RegisterPayload) => Promise<RegisterResult>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
   isLoading: boolean;
@@ -189,7 +198,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const result = await response.json().catch(() => ({}));
       setIsLoading(false);
-      return response.ok ? { error: null } : { error: normalizeRegisterError(result.error) };
+
+      if (!response.ok) {
+        return { error: normalizeRegisterError(result.error) };
+      }
+
+      return {
+        error: null,
+        preapproved: Boolean(result.preapproved),
+        status: typeof result.status === 'string' ? result.status : null,
+        emailSent: result.email_sent !== false,
+        emailWarning: typeof result.email_warning === 'string' ? result.email_warning : null,
+        message: typeof result.message === 'string' ? result.message : null,
+      };
     } catch {
       setIsLoading(false);
       return { error: 'No pudimos conectar con el servidor de registro. Intentá nuevamente en unos minutos.' };
