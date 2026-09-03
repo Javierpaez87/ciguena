@@ -474,6 +474,7 @@ export const handler = async (event: any) => {
     return json(400, { error: 'Solicitud inválida.' });
   }
 
+  const debugAuth = payload.debug === true;
   const tenantId = clean(payload.tenantId);
   const mode = clean(payload.mode) || 'roster';
   const deactivateMissing = mode === 'roster' && payload.deactivateMissing === true;
@@ -504,7 +505,70 @@ export const handler = async (event: any) => {
 
   const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
   const authUser = authData?.user;
-  if (authError || !authUser) return json(401, { error: 'La sesión no es válida o venció.' });
+
+  if (authError || !authUser) {
+    let tokenPayload: Record<string, unknown> | null = null;
+    try {
+      const [, encodedPayload] = accessToken.split('.');
+      if (encodedPayload) {
+        const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+        tokenPayload = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+      }
+    } catch {
+      tokenPayload = null;
+    }
+
+    const safeDiagnostic = {
+      marker: 'sync-worker-roster-auth-diag-20260831-1',
+      authError: {
+        name: (authError as any)?.name || null,
+        message: (authError as any)?.message || null,
+        status: (authError as any)?.status || null,
+        code: (authError as any)?.code || null,
+      },
+      supabaseHost: (() => {
+        try {
+          return new URL(supabaseUrl).hostname;
+        } catch {
+          return null;
+        }
+      })(),
+      supabaseUrlSource: process.env.SUPABASE_URL ? 'SUPABASE_URL' : 'VITE_SUPABASE_URL',
+      serviceRolePresent: Boolean(serviceRoleKey),
+      serviceRoleFormat: serviceRoleKey?.startsWith('sb_secret_')
+        ? 'sb_secret'
+        : serviceRoleKey?.split('.').length === 3
+          ? 'jwt'
+          : 'other',
+      netlify: {
+        context: process.env.CONTEXT || null,
+        branch: process.env.BRANCH || null,
+        commitRef: process.env.COMMIT_REF || null,
+        deployId: process.env.DEPLOY_ID || null,
+        siteName: process.env.SITE_NAME || null,
+      },
+      token: tokenPayload
+        ? {
+            iss: tokenPayload.iss || null,
+            aud: tokenPayload.aud || null,
+            sub: tokenPayload.sub || null,
+            exp: tokenPayload.exp || null,
+          }
+        : null,
+    };
+
+    console.error('[sync-worker-roster] auth validation failed', safeDiagnostic);
+
+    if (debugAuth) {
+      return json(401, {
+        error: 'La sesión no es válida o venció.',
+        diagnostic: safeDiagnostic,
+      });
+    }
+
+    return json(401, { error: 'La sesión no es válida o venció.' });
+  }
 
   const { data: requesterProfile, error: requesterError } = await supabaseAdmin
     .from('profiles')
