@@ -223,6 +223,48 @@ type InvitationRunResult = {
   trackingWarning?: string | null;
 };
 
+type OnboardingStage = 'not_invited' | 'invited' | 'registered' | 'completed';
+type OnboardingFilter = 'all' | OnboardingStage;
+
+type OnboardingStageMeta = {
+  label: string;
+  shortLabel: string;
+  description: string;
+  chipClassName: string;
+  cardClassName: string;
+};
+
+const ONBOARDING_STAGE_META: Record<OnboardingStage, OnboardingStageMeta> = {
+  not_invited: {
+    label: 'Agregado a nómina · sin invitar',
+    shortLabel: 'Sin invitar',
+    description: 'La persona está en la nómina, pero todavía no registra una invitación enviada.',
+    chipClassName: 'border-steel-600 bg-steel-800 text-steel-300',
+    cardClassName: 'border-steel-700 bg-steel-800/70 text-steel-300',
+  },
+  invited: {
+    label: 'Invitación enviada',
+    shortLabel: 'Invitados',
+    description: 'La invitación fue enviada y todavía no hay una cuenta Auth registrada para esta persona.',
+    chipClassName: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    cardClassName: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  },
+  registered: {
+    label: 'Registrado · onboarding pendiente',
+    shortLabel: 'Registrados',
+    description: 'La cuenta ya fue creada. Falta completar el onboarding y la firma/consentimiento.',
+    chipClassName: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+    cardClassName: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+  },
+  completed: {
+    label: 'Onboarding completo',
+    shortLabel: 'Onboarding completo',
+    description: 'La persona ya registró la firma/consentimiento requerida para completar el onboarding.',
+    chipClassName: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+    cardClassName: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  },
+};
+
 const emptyForm: FormState = {
   first_name: '',
   last_name: '',
@@ -339,14 +381,51 @@ function directoryRowToProfile(row: EmployeeDirectory): Profile {
     dni: row.dni,
     phone: row.phone,
     status: row.status || 'preapproved',
+    directory_status: row.status,
     preapproved: true,
     source: row.source || 'csv',
     invited_at: row.invited_at,
     registered_at: row.registered_at,
+    directory_created_at: row.created_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
     is_directory_only: true,
   };
+}
+
+function getOnboardingStage(
+  profile: Profile,
+  signatureConsentByUserId: Record<string, string | null>
+): OnboardingStage {
+  if (!isDirectoryOnly(profile) && signatureConsentByUserId[profile.id]) {
+    return 'completed';
+  }
+
+  if (!isDirectoryOnly(profile) && Boolean(profile.auth_user_id)) {
+    return 'registered';
+  }
+
+  const directoryStatus = normalize(profile.directory_status || profile.status);
+  if (profile.invited_at || directoryStatus === 'invited') {
+    return 'invited';
+  }
+
+  return 'not_invited';
+}
+
+function formatLifecycleDate(value?: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function getTrainingTitle(training?: TenantTraining | null, assignment?: Assignment | null) {
@@ -842,9 +921,11 @@ export default function AdminUsers() {
   const [tenantName, setTenantName] = useState('');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTraining[]>([]);
+  const [signatureConsentByUserId, setSignatureConsentByUserId] = useState<Record<string, string | null>>({});
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [onboardingFilter, setOnboardingFilter] = useState<OnboardingFilter>('all');
   const [filterCriterion, setFilterCriterion] = useState<WorkerFilterKey>('work_role');
   const [filterValue, setFilterValue] = useState('all');
 
@@ -880,18 +961,51 @@ export default function AdminUsers() {
     setSuccessMessage(null);
 
     try {
-      const [usersResult, directoryResult, assignmentsResult, tenantTrainingsResult, tenantResult] = await Promise.all([
+      const [
+        usersResult,
+        directoryResult,
+        assignmentsResult,
+        tenantTrainingsResult,
+        tenantResult,
+        signatureConsentsResult,
+      ] = await Promise.all([
         supabase.from('profiles').select('*').eq('tenant_id', tenantId),
         supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
         supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
         supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
         supabase.from('tenants').select('id, name').eq('id', tenantId).maybeSingle(),
+        supabase
+          .from('worker_signature_consents')
+          .select('user_id, accepted_at, created_at')
+          .eq('tenant_id', tenantId),
       ]);
 
       if (usersResult.error) throw usersResult.error;
       if (directoryResult.error) throw directoryResult.error;
       if (assignmentsResult.error) throw assignmentsResult.error;
       if (tenantTrainingsResult.error) throw tenantTrainingsResult.error;
+      if (signatureConsentsResult.error) {
+        console.warn('No pudimos cargar el tracking de firma para onboarding:', signatureConsentsResult.error);
+      }
+
+      const signatureConsentMap = (
+        (signatureConsentsResult.data ?? []) as Array<{
+          user_id?: string | null;
+          accepted_at?: string | null;
+          created_at?: string | null;
+        }>
+      ).reduce<Record<string, string | null>>((acc, consent) => {
+        if (!consent.user_id) return acc;
+
+        const timestamp = consent.accepted_at || consent.created_at || null;
+        const current = acc[consent.user_id];
+
+        if (!current || (timestamp && new Date(timestamp).getTime() > new Date(current).getTime())) {
+          acc[consent.user_id] = timestamp;
+        }
+
+        return acc;
+      }, {});
 
       const directoryRows = (directoryResult.data ?? []) as EmployeeDirectory[];
 
@@ -944,6 +1058,7 @@ export default function AdminUsers() {
           preapproved: profile.preapproved ?? true,
           source: profile.source || directoryRow.source,
           directory_status: directoryRow.status,
+          directory_created_at: directoryRow.created_at,
           invited_at: profile.invited_at || directoryRow.invited_at,
           registered_at: profile.registered_at || directoryRow.registered_at,
         };
@@ -991,6 +1106,7 @@ export default function AdminUsers() {
       setUsers(loadedUsers);
       setAssignments(sortByCreatedAtDesc(loadedAssignments));
       setTenantTrainings(loadedTenantTrainings);
+      setSignatureConsentByUserId(signatureConsentMap);
     } catch (error) {
       console.error('Error loading users:', error);
       setErrorMessage(
@@ -1035,21 +1151,78 @@ export default function AdminUsers() {
         filterValue === 'all' ? [] : [filterValue]
       );
 
-      return matchesStatus && matchesCriterion && workerMatchesSearch(profile, search);
-    });
-  }, [users, search, statusFilter, filterCriterion, filterValue]);
+      const onboardingStage = getOnboardingStage(profile, signatureConsentByUserId);
+      const matchesOnboarding =
+        onboardingFilter === 'all' || onboardingStage === onboardingFilter;
 
-  const hasActiveFilters = Boolean(search.trim()) || statusFilter !== 'all' || filterValue !== 'all';
+      return (
+        matchesStatus &&
+        matchesCriterion &&
+        matchesOnboarding &&
+        workerMatchesSearch(profile, search)
+      );
+    });
+  }, [
+    users,
+    search,
+    statusFilter,
+    onboardingFilter,
+    filterCriterion,
+    filterValue,
+    signatureConsentByUserId,
+  ]);
+
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    statusFilter !== 'all' ||
+    onboardingFilter !== 'all' ||
+    filterValue !== 'all';
 
   function clearFilters() {
     setSearch('');
     setStatusFilter('all');
+    setOnboardingFilter('all');
     setFilterValue('all');
   }
 
   const activeCount = users.filter(isActive).length;
   const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
   const pendingCount = users.filter((profile) => normalize(profile.status) === 'pending').length;
+
+  const onboardingCounts = useMemo(() => {
+    const counts: Record<OnboardingStage, number> = {
+      not_invited: 0,
+      invited: 0,
+      registered: 0,
+      completed: 0,
+    };
+
+    users.forEach((profile) => {
+      counts[getOnboardingStage(profile, signatureConsentByUserId)] += 1;
+    });
+
+    return counts;
+  }, [users, signatureConsentByUserId]);
+
+  const onboardingCards: Array<{
+    key: OnboardingFilter;
+    label: string;
+    count: number;
+    className: string;
+  }> = [
+    {
+      key: 'all',
+      label: 'En nómina',
+      count: users.length,
+      className: 'border-steel-700 bg-steel-800/70 text-steel-200',
+    },
+    ...(['not_invited', 'invited', 'registered', 'completed'] as OnboardingStage[]).map((stage) => ({
+      key: stage,
+      label: ONBOARDING_STAGE_META[stage].shortLabel,
+      count: onboardingCounts[stage],
+      className: ONBOARDING_STAGE_META[stage].cardClassName,
+    })),
+  ];
 
   const bulkInvitationRows = useMemo(
     () =>
@@ -1906,6 +2079,40 @@ export default function AdminUsers() {
   }
 
   const detailAssignments = showDetail ? assignmentsByUser[showDetail.id] ?? [] : [];
+  const detailOnboardingStage = showDetail
+    ? getOnboardingStage(showDetail, signatureConsentByUserId)
+    : null;
+  const detailOnboardingMeta = detailOnboardingStage
+    ? ONBOARDING_STAGE_META[detailOnboardingStage]
+    : null;
+  const detailOnboardingSteps = showDetail
+    ? [
+        {
+          key: 'roster',
+          label: 'Agregado a nómina',
+          complete: true,
+          date: formatLifecycleDate(showDetail.directory_created_at || showDetail.created_at),
+        },
+        {
+          key: 'invited',
+          label: 'Invitación enviada',
+          complete: ['invited', 'registered', 'completed'].includes(detailOnboardingStage || ''),
+          date: formatLifecycleDate(showDetail.invited_at),
+        },
+        {
+          key: 'registered',
+          label: 'Registrado',
+          complete: ['registered', 'completed'].includes(detailOnboardingStage || ''),
+          date: formatLifecycleDate(showDetail.registered_at),
+        },
+        {
+          key: 'completed',
+          label: 'Onboarding completo',
+          complete: detailOnboardingStage === 'completed',
+          date: formatLifecycleDate(signatureConsentByUserId[showDetail.id]),
+        },
+      ]
+    : [];
   const newCsvRows = csvRows.filter((row) => row.action === 'new' && row.errors.length === 0);
   const updatedCsvRows = csvRows.filter((row) => row.action === 'update' && row.errors.length === 0);
   const unchangedCsvRows = csvRows.filter((row) => row.action === 'unchanged' && row.errors.length === 0);
@@ -2121,34 +2328,76 @@ export default function AdminUsers() {
         </div>
       </div>
 
-      <div className="flex gap-3 flex-wrap">
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
-          <Users size={13} className="text-steel-400" />
-          <span className="text-xs text-steel-300">{users.length} total</span>
+      <div className="space-y-3">
+        <div className="flex gap-3 flex-wrap">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
+            <Users size={13} className="text-steel-400" />
+            <span className="text-xs text-steel-300">{users.length} total</span>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+            <span className="text-xs text-emerald-400">{activeCount} activos</span>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
+            <span className="text-xs text-amber-400">{pendingCount} pendientes</span>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
+            <span className="text-xs text-steel-400">{inactiveCount} inactivos</span>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
+            <span className="text-xs text-steel-400">
+              {detectedRoleCount} roles detectados
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
+            <span className="text-xs text-steel-400">
+              {tenantTrainings.length} trainings habilitados
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-          <span className="text-xs text-emerald-400">{activeCount} activos</span>
-        </div>
+        <div className="rounded-xl border border-steel-700/80 bg-steel-900/40 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-steel-200">Estado de onboarding</div>
+              <div className="text-[11px] text-steel-500">Sólo lectura · las cards funcionan como filtros de la tabla.</div>
+            </div>
+            {onboardingFilter !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setOnboardingFilter('all')}
+                className="inline-flex items-center gap-1 text-[11px] text-steel-400 hover:text-white"
+              >
+                <X size={12} />
+                Ver todos
+              </button>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
-          <span className="text-xs text-amber-400">{pendingCount} pendientes</span>
-        </div>
+          <div className="flex flex-wrap gap-2">
+            {onboardingCards.map((card) => {
+              const selected = onboardingFilter === card.key;
 
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
-          <span className="text-xs text-steel-400">{inactiveCount} inactivos</span>
-        </div>
-
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
-          <span className="text-xs text-steel-400">
-            {detectedRoleCount} roles detectados
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
-          <span className="text-xs text-steel-400">
-            {tenantTrainings.length} trainings habilitados
-          </span>
+              return (
+                <button
+                  key={card.key}
+                  type="button"
+                  onClick={() => setOnboardingFilter(card.key)}
+                  className={`rounded-lg border px-3 py-2 text-left transition-all ${card.className} ${
+                    selected ? 'ring-2 ring-white/20 shadow-sm' : 'hover:border-steel-500'
+                  }`}
+                  title="Filtrar trabajadores por este estado de onboarding"
+                >
+                  <div className="text-base font-semibold leading-none">{card.count}</div>
+                  <div className="mt-1 text-[11px] font-medium">{card.label}</div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -2225,14 +2474,27 @@ export default function AdminUsers() {
                     </td>
 
                     <td className="table-cell">
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <StatusBadge status={getDisplayStatus(profile)} />
-                        {(profile.preapproved || isDirectoryOnly(profile)) && (
-                          <div className="text-[10px] text-emerald-400 flex items-center gap-1">
-                            <CheckCircle size={10} />
-                            preaprobado
-                          </div>
-                        )}
+                        {(() => {
+                          const onboardingStage = getOnboardingStage(
+                            profile,
+                            signatureConsentByUserId
+                          );
+                          const onboardingMeta = ONBOARDING_STAGE_META[onboardingStage];
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setShowDetail(profile)}
+                              className={`inline-flex max-w-[190px] items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium text-left transition-opacity hover:opacity-80 ${onboardingMeta.chipClassName}`}
+                              title="Ver ciclo de onboarding"
+                            >
+                              <CheckCircle size={10} className="flex-shrink-0" />
+                              <span className="truncate">{onboardingMeta.label}</span>
+                            </button>
+                          );
+                        })()}
                       </div>
                     </td>
 
@@ -3125,12 +3387,63 @@ export default function AdminUsers() {
                   {getFullName(showDetail)}
                 </div>
                 <div className="text-sm text-steel-400">{showDetail.email || 'Sin email'}</div>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <StatusBadge status={getDisplayStatus(showDetail)} />
-                  {showDetail.preapproved && (
-                    <span className="text-xs text-emerald-400">Preaprobado</span>
+                  {detailOnboardingMeta && (
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${detailOnboardingMeta.chipClassName}`}
+                    >
+                      {detailOnboardingMeta.label}
+                    </span>
                   )}
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-steel-200">Ciclo de acceso y onboarding</div>
+                  <div className="mt-1 text-xs text-steel-500">
+                    Vista informativa. Estos indicadores no modifican permisos, Auth ni el estado real del trabajador.
+                  </div>
+                </div>
+                {detailOnboardingMeta && (
+                  <div className="max-w-sm text-right text-xs text-steel-400">
+                    {detailOnboardingMeta.description}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {detailOnboardingSteps.map((step) => (
+                  <div
+                    key={step.key}
+                    className={`flex items-start gap-3 rounded-lg border p-3 ${
+                      step.complete
+                        ? 'border-emerald-500/20 bg-emerald-500/5'
+                        : 'border-steel-700 bg-steel-900'
+                    }`}
+                  >
+                    <div
+                      className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
+                        step.complete
+                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                          : 'border-steel-600 text-steel-600'
+                      }`}
+                    >
+                      {step.complete ? <CheckCircle size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className={`text-xs font-medium ${step.complete ? 'text-steel-200' : 'text-steel-500'}`}>
+                        {step.label}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-steel-500">
+                        {step.complete ? step.date || 'Completado · fecha no disponible' : 'Pendiente'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
