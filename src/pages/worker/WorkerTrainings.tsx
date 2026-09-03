@@ -623,11 +623,27 @@ export default function WorkerTrainings({ onNavigate }: WorkerTrainingsProps) {
                 <RotateCcw size={14} /> Volver a rendir
               </button>
             </div>
+          ) : effectiveStatus === 'pending_test' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={() => onNavigate('worker-test', { assignment })}
+                className="btn-primary w-full justify-center py-2.5"
+              >
+                <Play size={14} /> Rendir test
+              </button>
+
+              <button
+                onClick={() => onNavigate('worker-player', { assignment })}
+                className="btn-secondary w-full justify-center py-2.5"
+              >
+                <BookOpen size={14} /> Volver a ver material
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => onNavigate(getPrimaryActionView(assignment), { assignment })}
               className={`w-full justify-center py-2.5 ${
-                effectiveStatus === 'not_started' || effectiveStatus === 'pending_test' ? 'btn-primary' : 'btn-secondary'
+                effectiveStatus === 'not_started' ? 'btn-primary' : 'btn-secondary'
               }`}
             >
               <Play size={14} /> {getPrimaryActionLabel(assignment)}

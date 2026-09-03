@@ -679,19 +679,41 @@ export default function WorkerDashboard({ onNavigate }: WorkerDashboardProps) {
                   </div>
 
                   <div className="w-full sm:w-auto sm:flex-shrink-0">
-                    <button
-                      className={`w-full sm:w-auto text-xs py-2 px-3 ${
-                        status === 'pending_test' || status === 'not_started'
-                          ? 'btn-primary'
-                          : 'btn-secondary'
-                      }`}
-                      onClick={event => {
-                        event.stopPropagation();
-                        onNavigate(getActionView(assignment), { assignment });
-                      }}
-                    >
-                      {getActionLabel(assignment)}
-                    </button>
+                    {status === 'pending_test' ? (
+                      <div className="flex flex-col gap-2">
+                        <button
+                          className="btn-primary w-full sm:w-auto text-xs py-2 px-3 justify-center"
+                          onClick={event => {
+                            event.stopPropagation();
+                            onNavigate('worker-test', { assignment });
+                          }}
+                        >
+                          Rendir examen
+                        </button>
+
+                        <button
+                          className="btn-secondary w-full sm:w-auto text-xs py-2 px-3 justify-center"
+                          onClick={event => {
+                            event.stopPropagation();
+                            onNavigate('worker-player', { assignment });
+                          }}
+                        >
+                          <BookOpen size={13} /> Volver a ver material
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        className={`w-full sm:w-auto text-xs py-2 px-3 ${
+                          status === 'not_started' ? 'btn-primary' : 'btn-secondary'
+                        }`}
+                        onClick={event => {
+                          event.stopPropagation();
+                          onNavigate(getActionView(assignment), { assignment });
+                        }}
+                      >
+                        {getActionLabel(assignment)}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
