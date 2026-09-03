@@ -1436,43 +1436,9 @@ export default function AdminUsers() {
 
       if (error) throw error;
 
-      const { data: placeholderProfile, error: placeholderError } = await supabase
-        .from('profiles')
-        .insert({
-          tenant_id: tenantId,
-          auth_user_id: null,
-          first_name: clean(form.first_name),
-          last_name: clean(form.last_name),
-          full_name: fullName,
-          email: cleanEmail,
-          phone: clean(form.phone),
-          dni: clean(form.dni),
-          work_role: cleanWorkRole,
-          position: cleanPosition,
-          area: clean(form.area),
-          contractor_company: clean(form.contractor_company),
-          employee_code: clean(form.employee_code),
-          role: 'worker',
-          status: form.status === 'inactive' ? 'inactive' : 'active',
-          preapproved: true,
-        })
-        .select('*')
-        .single();
-
-      if (placeholderError || !placeholderProfile) {
-        await supabase.from('employee_directory').delete().eq('id', data.id);
-        throw placeholderError || new Error('No se pudo crear el perfil precargado del trabajador.');
-      }
-
-      const newProfile: Profile = {
-        ...(placeholderProfile as Profile),
-        employee_directory_id: data.id,
-        directory_status: data.status,
-        work_role: (placeholderProfile as Profile).work_role || data.work_role,
-        job_role: (placeholderProfile as Profile).job_role || data.work_role || data.position,
-        position: (placeholderProfile as Profile).position || data.position || data.work_role,
-        source: data.source,
-      };
+      // Un alta manual sólo incorpora a la persona a employee_directory.
+      // El Profile real se crea/reutiliza recién cuando el trabajador completa el registro.
+      const newProfile = directoryRowToProfile(data as EmployeeDirectory);
 
       setEmployeeDirectory((currentRows) => [...currentRows, data as EmployeeDirectory]);
       setUsers((currentUsers) =>
