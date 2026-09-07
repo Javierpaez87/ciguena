@@ -796,6 +796,7 @@ export default function AdminTrainings() {
     if (training.content_type === 'video') return 'Video';
     if (training.content_type === 'youtube') return 'YouTube';
     if (training.content_type === 'document') return 'Documento';
+    if (training.content_type === 'pdf_slides') return 'Presentación';
     if (training.content_type === 'external') return 'Recurso externo';
     return 'No definido';
   };

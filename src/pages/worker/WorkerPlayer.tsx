@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
+import PdfSlidePlayer from '../../components/training/PdfSlidePlayer';
 import type { Training, TrainingAssignment } from '../../types';
 
 interface WorkerPlayerProps {
@@ -24,7 +25,7 @@ type PlayerLesson = {
   id: string;
   title: string;
   description?: string | null;
-  lesson_type: 'video' | 'document' | 'external' | 'empty';
+  lesson_type: 'video' | 'document' | 'external' | 'pdf_slides' | 'empty';
   content_url?: string | null;
   duration_seconds?: number | null;
 };
@@ -40,6 +41,10 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [currentStatus, setCurrentStatus] = useState(assignment?.status ?? 'not_started');
+  const [pdfCurrentSlide, setPdfCurrentSlide] = useState(1);
+  const [pdfReachedEnd, setPdfReachedEnd] = useState(false);
+
+  const isPdfSlides = training?.content_type === 'pdf_slides';
 
   const lesson: PlayerLesson | null = useMemo(() => {
     if (!training) return null;
@@ -55,6 +60,9 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
     const isExternal =
       training.content_type === 'external';
 
+    const isPdfSlides =
+      training.content_type === 'pdf_slides';
+
     return {
       id: `lesson-${training.id}`,
       title: training.title,
@@ -65,9 +73,11 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
           ? 'document'
           : isExternal
             ? 'external'
-            : training.content_url
-              ? 'external'
-              : 'empty',
+            : isPdfSlides
+              ? 'pdf_slides'
+              : training.content_url
+                ? 'external'
+                : 'empty',
       content_url: training.content_url ?? null,
       duration_seconds: training.duration_minutes
         ? training.duration_minutes * 60
@@ -77,15 +87,31 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
 
   const allLessons = lesson ? [lesson] : [];
   const currentLesson = lesson;
-  const progress = allLessons.length
-    ? Math.round((completedLessons.size / allLessons.length) * 100)
-    : assignment?.progress_percentage ?? 0;
+  const slideCount = training?.slide_count ?? 0;
+  const pdfLocalProgress = isPdfSlides && slideCount > 0
+    ? pdfReachedEnd
+      ? 100
+      : Math.round(((pdfCurrentSlide - 1) / slideCount) * 100)
+    : 0;
+  const progress = isPdfSlides
+    ? pdfLocalProgress
+    : allLessons.length
+      ? Math.round((completedLessons.size / allLessons.length) * 100)
+      : assignment?.progress_percentage ?? 0;
 
   const hasExam = Boolean(training && training.passing_score > 0);
   const isCompleted = currentLesson ? completedLessons.has(currentLesson.id) : false;
 
   useEffect(() => {
+    setPdfCurrentSlide(1);
+    setPdfReachedEnd(false);
+  }, [training?.id]);
+
+  useEffect(() => {
     const markAsStarted = async () => {
+      // Etapa 2: los trainings de presentación se validan sólo en memoria.
+      // La persistencia de estado/progreso se conecta en la Etapa 3.
+      if (isPdfSlides) return;
       if (!assignment?.id || isReadOnly) return;
       if (assignment.status !== 'not_started') return;
 
@@ -106,7 +132,7 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
     };
 
     markAsStarted();
-  }, [assignment?.id, assignment?.status, isReadOnly]);
+  }, [assignment?.id, assignment?.status, isPdfSlides, isReadOnly]);
 
   const markCompleted = async () => {
     if (isReadOnly) {
@@ -163,6 +189,31 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
             </p>
           </div>
         </div>
+      );
+    }
+
+    if (training.content_type === 'pdf_slides') {
+      if (!training.slides_path || !training.slide_count) {
+        return (
+          <div className="p-6 min-h-[260px] flex items-center justify-center">
+            <div className="text-center">
+              <FileText size={36} className="text-steel-500 mx-auto mb-3" />
+              <p className="text-steel-300 text-sm">
+                La presentación todavía no tiene sus slides configurados.
+              </p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <PdfSlidePlayer
+          slidesPath={training.slides_path}
+          totalSlides={training.slide_count}
+          title={training.title}
+          onSlideChange={setPdfCurrentSlide}
+          onReachEnd={() => setPdfReachedEnd(true)}
+        />
       );
     }
 
@@ -314,26 +365,50 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
               <ChevronLeft size={14} /> Volver
             </button>
 
-            <button
-              onClick={markCompleted}
-              disabled={isSavingProgress || isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'}
-              className="btn-primary flex-1 justify-center text-sm py-2.5 disabled:opacity-50"
-            >
-              <Check size={16} />
-              {isSavingProgress
-                ? 'Guardando...'
-                : isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'
-                  ? 'Contenido completado ✓'
-                  : 'Marcar contenido como completado'}
-            </button>
-
-            {(isCompleted || currentStatus === 'pending_test') && hasExam && (
-              <button
-                onClick={() => onNavigate('worker-test', { assignment: { ...assignment, training } })}
-                className="btn-primary text-xs bg-emerald-600 hover:bg-emerald-500"
+            {isPdfSlides ? (
+              <div
+                className={`flex-1 rounded-xl border px-4 py-2.5 text-center text-sm ${
+                  pdfReachedEnd
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-steel-700 bg-steel-900 text-steel-400'
+                }`}
               >
-                Ir al test <ChevronRight size={14} />
-              </button>
+                <div className="flex items-center justify-center gap-2 font-medium">
+                  {pdfReachedEnd ? <Check size={16} /> : <FileText size={16} />}
+                  {pdfReachedEnd
+                    ? 'Material recorrido completo'
+                    : `Recorré la presentación · ${pdfCurrentSlide}/${slideCount || '-'}`}
+                </div>
+                {pdfReachedEnd && hasExam && (
+                  <div className="mt-1 text-xs text-steel-400">
+                    El examen se conectará en la siguiente etapa de integración.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={markCompleted}
+                  disabled={isSavingProgress || isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'}
+                  className="btn-primary flex-1 justify-center text-sm py-2.5 disabled:opacity-50"
+                >
+                  <Check size={16} />
+                  {isSavingProgress
+                    ? 'Guardando...'
+                    : isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'
+                      ? 'Contenido completado ✓'
+                      : 'Marcar contenido como completado'}
+                </button>
+
+                {(isCompleted || currentStatus === 'pending_test') && hasExam && (
+                  <button
+                    onClick={() => onNavigate('worker-test', { assignment: { ...assignment, training } })}
+                    className="btn-primary text-xs bg-emerald-600 hover:bg-emerald-500"
+                  >
+                    Ir al test <ChevronRight size={14} />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -346,7 +421,9 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
               Contenido del training
             </div>
             <div className="text-xs text-steel-400">
-              {completedLessons.size}/{allLessons.length} lecciones
+              {isPdfSlides
+                ? `Slide ${pdfCurrentSlide}/${slideCount || '-'}`
+                : `${completedLessons.size}/${allLessons.length} lecciones`}
             </div>
           </div>
 
@@ -356,12 +433,12 @@ export default function WorkerPlayer({ assignment, onNavigate }: WorkerPlayerPro
             >
               <div
                 className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'
+                  isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued' || (isPdfSlides && pdfReachedEnd)
                     ? 'bg-emerald-500'
                     : 'brand-bg'
                 }`}
               >
-                {isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued'
+                {isCompleted || currentStatus === 'pending_test' || currentStatus === 'certificate_issued' || (isPdfSlides && pdfReachedEnd)
                   ? <Check size={10} className="text-white" />
                   : <Play size={8} className="text-petroleum-950" />}
               </div>
