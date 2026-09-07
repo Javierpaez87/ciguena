@@ -137,13 +137,6 @@ export interface Training {
   content_type?: TrainingContentType;
   content_url?: string | null;
   thumbnail_url?: string | null;
-
-  /**
-   * Metadatos opcionales para trainings tipo presentación.
-   * No representan progreso del usuario; sólo describen el material estático.
-   */
-  slides_path?: string | null;
-  slide_count?: number | null;
 }
 
 export interface TenantTraining {

@@ -553,9 +553,7 @@ export default function SaTrainings() {
                           ? 'YouTube'
                           : tr.content_type === 'document'
                             ? 'Documento'
-                            : tr.content_type === 'pdf_slides'
-                              ? 'Presentación'
-                              : 'Contenido'}
+                            : 'Contenido'}
                     </span>
                   )}
                 </div>
