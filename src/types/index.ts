@@ -49,7 +49,7 @@ export type LiveTrainingCertificateStatus = 'valid' | 'revoked';
 
 export type VideoProvider = 'bunny' | 'cloudflare' | 'vimeo' | 'youtube' | 'local' | 'external';
 export type LessonType = 'video' | 'pdf' | 'text' | 'image' | 'link';
-export type TrainingContentType = 'video' | 'youtube' | 'document' | 'external' | 'local_video' | null;
+export type TrainingContentType = 'video' | 'youtube' | 'document' | 'external' | 'local_video' | 'pdf_slides' | null;
 
 export interface Tenant {
   id: string;
