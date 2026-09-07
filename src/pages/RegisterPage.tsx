@@ -7,6 +7,8 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  LogIn,
+  Mail,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,6 +23,13 @@ interface RegisterPageProps {
 interface CompanyOption {
   id: string;
   name: string;
+}
+
+interface RegistrationSuccess {
+  isAutoApproved: boolean;
+  requestedAdmin: boolean;
+  emailSent: boolean;
+  emailWarning: string | null;
 }
 
 export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
@@ -48,7 +57,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const [showAdminWarning, setShowAdminWarning] = useState(false);
 
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null);
 
   useEffect(() => {
     if (isDomainBound && domainTenantId) {
@@ -116,7 +125,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccessMessage('');
+    setRegistrationSuccess(null);
 
     if (companyId === 'not-found') {
       setError('Para registrar una empresa nueva, contactá a la administración de la plataforma para habilitarla previamente.');
@@ -143,7 +152,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       return;
     }
 
-    const { error: registerError } = await register({
+    const registerResult = await register({
       fullName: fullName.trim(),
       email: email.trim(),
       phone: phone.trim(),
@@ -152,20 +161,17 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       requestedAdmin,
     });
 
-    if (registerError) {
-      setError(registerError);
+    if (registerResult.error) {
+      setError(registerResult.error);
       return;
     }
 
-    const companyLabel = isDomainBound
-      ? (domainTenantName || branding.brandName)
-      : 'tu empresa';
-
-    setSuccessMessage(
-      requestedAdmin
-        ? `Tu cuenta fue creada correctamente y tu solicitud de acceso como administrador de ${companyLabel} quedó pendiente de validación.`
-        : `Tu cuenta fue creada correctamente y quedó pendiente de validación por parte del administrador de ${companyLabel}.`
-    );
+    setRegistrationSuccess({
+      isAutoApproved: registerResult.preapproved === true && registerResult.status === 'active',
+      requestedAdmin,
+      emailSent: registerResult.emailSent !== false,
+      emailWarning: registerResult.emailWarning || null,
+    });
 
     clearForm();
   };
@@ -186,9 +192,13 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
           <PublicBrandLockup compact className="mb-7" />
 
           <div className="mb-7">
-            <h1 className="text-2xl font-bold text-steel-50">Crear cuenta</h1>
+            <h1 className="text-2xl font-bold text-steel-50">
+              {registrationSuccess ? 'Registro completado' : 'Crear cuenta'}
+            </h1>
             <p className="mt-1 text-sm text-steel-400">
-              Completá tus datos para solicitar acceso a {branding.brandName}.
+              {registrationSuccess
+                ? `Tu registro en ${branding.brandName} se procesó correctamente.`
+                : `Completá tus datos para solicitar acceso a ${branding.brandName}.`}
             </p>
           </div>
 
@@ -199,13 +209,56 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
             </div>
           )}
 
-          {successMessage && (
-            <div className="mb-5 flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-              <CheckCircle size={16} className="mt-0.5 flex-shrink-0 text-emerald-400" />
-              <span>{successMessage}</span>
-            </div>
-          )}
+          {registrationSuccess ? (
+            <div className="space-y-5">
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="mt-0.5 flex-shrink-0 text-emerald-400" />
+                  <div>
+                    <h2 className="font-semibold text-emerald-100">
+                      {registrationSuccess.isAutoApproved
+                        ? '¡Felicitaciones! Tu cuenta ya quedó habilitada.'
+                        : '¡Listo! Tu cuenta quedó registrada.'}
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-emerald-100/80">
+                      {registrationSuccess.isAutoApproved
+                        ? 'Ya podés ingresar con el email y la contraseña que elegiste.'
+                        : registrationSuccess.requestedAdmin
+                          ? 'Tu solicitud de acceso como administrador quedó pendiente de aprobación. Te avisaremos por email cuando tu cuenta sea aprobada.'
+                          : 'Como tu email no estaba preaprobado en la nómina de tu organización, tu acceso quedó pendiente de aprobación. Esto puede ocurrir, por ejemplo, si llegaste al registro sin una invitación. Te avisaremos por email cuando tu cuenta sea aprobada.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
+              <button
+                type="button"
+                onClick={onBackToLogin}
+                className="btn-primary w-full justify-center"
+              >
+                <LogIn size={16} />
+                {registrationSuccess.isAutoApproved ? 'Ingresar ahora' : 'Volver al inicio de sesión'}
+              </button>
+
+              <div className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-950/60 px-4 py-3">
+                <Mail size={17} className="mt-0.5 flex-shrink-0 text-steel-400" />
+                <div className="text-sm leading-6 text-steel-400">
+                  {registrationSuccess.emailSent ? (
+                    registrationSuccess.isAutoApproved ? (
+                      <>También te enviamos un email con la confirmación del alta de tu cuenta.</>
+                    ) : (
+                      <>También te enviamos un email confirmando que recibimos tu registro. Cuando tu acceso sea aprobado, vas a recibir una nueva notificación.</>
+                    )
+                  ) : (
+                    <>Tu cuenta se creó correctamente, pero no pudimos confirmar el envío del email. Podés continuar igualmente.</>
+                  )}
+                  {registrationSuccess.emailWarning && (
+                    <div className="mt-1 text-xs text-amber-300">{registrationSuccess.emailWarning}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="label" htmlFor="register-name">Nombre y apellido</label>
@@ -352,13 +405,16 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
               ) : 'Crear cuenta'}
             </button>
           </form>
+          )}
 
-          <p className="mt-6 text-center text-sm text-steel-400">
-            ¿Ya tenés una cuenta?{' '}
-            <button type="button" onClick={onBackToLogin} className="font-semibold brand-text hover:brightness-110">
-              Iniciar sesión
-            </button>
-          </p>
+          {!registrationSuccess && (
+            <p className="mt-6 text-center text-sm text-steel-400">
+              ¿Ya tenés una cuenta?{' '}
+              <button type="button" onClick={onBackToLogin} className="font-semibold brand-text hover:brightness-110">
+                Iniciar sesión
+              </button>
+            </p>
+          )}
         </div>
       </div>
 

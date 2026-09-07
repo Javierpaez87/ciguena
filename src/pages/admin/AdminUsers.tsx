@@ -1582,47 +1582,33 @@ export default function AdminUsers() {
       const cleanWorkRole = clean(form.work_role) || clean(form.position);
       const cleanPosition = clean(form.position) || cleanWorkRole;
 
-      const newDirectoryEntry = {
-        tenant_id: tenantId,
-        source: 'manual',
-        external_id: clean(form.employee_code),
-        first_name: clean(form.first_name),
-        last_name: clean(form.last_name),
-        full_name: fullName,
-        email: cleanEmail,
-        dni: clean(form.dni),
-        phone: clean(form.phone),
-        work_role: cleanWorkRole,
-        position: cleanPosition,
-        area: clean(form.area),
-        contractor_company: clean(form.contractor_company),
-        employee_code: clean(form.employee_code),
-        status: form.status === 'inactive' ? 'inactive' : 'preapproved',
-        raw_payload: { source: 'admin_manual_create' },
-      };
+      await callRosterSync({
+        mode: 'manual_create',
+        tenantId,
+        worker: {
+          first_name: form.first_name,
+          last_name: form.last_name,
+          full_name: fullName,
+          email: cleanEmail,
+          dni: form.dni,
+          phone: form.phone,
+          work_role: cleanWorkRole,
+          position: cleanPosition,
+          area: form.area,
+          contractor_company: form.contractor_company,
+          employee_code: form.employee_code,
+          status: form.status,
+          status_provided: true,
+        },
+      });
 
-      const { data, error } = await supabase
-        .from('employee_directory')
-        .insert(newDirectoryEntry)
-        .select('*')
-        .single();
-
-      if (error) throw error;
-
-      // Un alta manual sólo incorpora a la persona a employee_directory.
-      // El Profile real se crea/reutiliza recién cuando el trabajador completa el registro.
-      const newProfile = directoryRowToProfile(data as EmployeeDirectory);
-
-      setEmployeeDirectory((currentRows) => [...currentRows, data as EmployeeDirectory]);
-      setUsers((currentUsers) =>
-        [...currentUsers, newProfile].sort((a, b) =>
-          getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase())
-        )
-      );
+      await loadUsersData({ silent: true });
 
       setForm(emptyForm);
       setShowCreate(false);
-      setSuccessMessage('Trabajador agregado a la nómina y preaprobado correctamente.');
+      setSuccessMessage(
+        'Trabajador agregado a la nómina y preparado para recibir capacitaciones antes de registrarse.'
+      );
     } catch (error) {
       console.error('Error creating user:', error);
       setErrorMessage(
@@ -2567,7 +2553,7 @@ export default function AdminUsers() {
       >
         <div className="space-y-4">
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
-            Esto agrega el trabajador a la nómina preaprobada. Cuando se registre con este email, {branding.brandName} lo validará automáticamente contra employee_directory.
+            Esto agrega al trabajador a la nómina y prepara su perfil interno para que pueda recibir capacitaciones antes de registrarse. Cuando cree su cuenta con este email, {branding.brandName} reutilizará ese mismo perfil.
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

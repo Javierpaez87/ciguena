@@ -266,7 +266,12 @@ function buildDirectoryPayload({
   const currentRaw = (current?.raw_payload || {}) as Record<string, unknown>;
   const nextRaw: Record<string, unknown> = {
     ...currentRaw,
-    source: mode === 'single' ? 'admin_manual_edit' : 'csv_sync',
+    source:
+      mode === 'single'
+        ? 'admin_manual_edit'
+        : mode === 'manual_create'
+          ? 'admin_manual_create'
+          : 'csv_sync',
   };
 
   const extendedKeys = ['supervisor', 'shift', 'hire_date', 'base', 'site', 'region', 'oilfield'] as const;
@@ -303,7 +308,7 @@ function buildDirectoryPayload({
   return {
     id,
     tenant_id: tenantId,
-    source: current?.source || (mode === 'single' ? 'manual' : 'csv'),
+    source: current?.source || (mode === 'single' || mode === 'manual_create' ? 'manual' : 'csv'),
     external_id: mergeField(current?.external_id, incoming.employee_code, mode),
     first_name: mergeField(current?.first_name, incoming.first_name, mode),
     last_name: mergeField(current?.last_name, incoming.last_name, mode),
@@ -488,8 +493,12 @@ export const handler = async (event: any) => {
     return json(400, { error: 'Faltan tenantId o trabajadores para procesar.' });
   }
 
-  if (!['single', 'roster'].includes(mode)) {
+  if (!['single', 'roster', 'manual_create'].includes(mode)) {
     return json(400, { error: 'Modo de actualización inválido.' });
+  }
+
+  if (mode === 'manual_create' && incomingRows.length !== 1) {
+    return json(400, { error: 'El alta manual procesa un trabajador por vez.' });
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
@@ -659,6 +668,17 @@ export const handler = async (event: any) => {
     }
 
     const existing = resolved.worker;
+
+    if (mode === 'manual_create' && existing) {
+      results.push({
+        rowNumber: incoming.rowNumber,
+        email,
+        status: 'conflict',
+        message: 'Ya existe un trabajador con ese email, DNI o legajo en esta empresa.',
+      });
+      continue;
+    }
+
     if (existing) matchedExistingKeys.add(existing.key);
 
     const currentEmail = existing ? getWorkerEmail(existing) : '';
@@ -748,6 +768,15 @@ export const handler = async (event: any) => {
     : 0;
 
   const conflicts = results.filter((item) => item.status === 'conflict');
+
+  if (mode === 'manual_create' && conflicts.length > 0) {
+    return json(409, {
+      ok: false,
+      error: conflicts[0]?.message || 'No pudimos crear el trabajador por un conflicto de datos.',
+      results,
+    });
+  }
+
   if (deactivateMissing && conflicts.length > 0) {
     return json(409, {
       ok: false,
