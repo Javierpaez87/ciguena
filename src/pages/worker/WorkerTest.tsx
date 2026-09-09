@@ -140,7 +140,12 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     }));
   }, [test, attempt]);
 
-  const maxAttempts = test ? Math.ceil(test.questions.length / test.questionsPerAttempt) : 0;
+  const maxAttempts = test
+    ? Math.min(
+        test.maxAttempts,
+        Math.ceil(test.questions.length / test.questionsPerAttempt)
+      )
+    : 0;
 
   const selectAnswer = (questionId: string, optionKey: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionKey }));

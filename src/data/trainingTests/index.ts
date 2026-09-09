@@ -2,6 +2,7 @@ import { workingAtHeightsTest } from './workingAtHeights';
 import { handSafetyTest } from './handSafety';
 import { confinedSpacesTest } from './confinedSpaces';
 import { energyIsolationTest } from './energyIsolation';
+import { lotoSpiTest } from './lotoSpi';
 import { lineOfFireTest } from './lineOfFire';
 import { mechanicalLiftingTest } from './mechanicalLifting';
 import { hotWorkTest } from './hotWork';
@@ -17,6 +18,7 @@ export const trainingTests: TrainingTest[] = [
   handSafetyTest,
   confinedSpacesTest,
   energyIsolationTest,
+  lotoSpiTest,
   lineOfFireTest,
   mechanicalLiftingTest,
   hotWorkTest,
