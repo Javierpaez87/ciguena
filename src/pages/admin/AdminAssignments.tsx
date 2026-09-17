@@ -73,6 +73,25 @@ type AssignTargetMode = 'filtered' | 'role' | 'all_workers';
 type AssignmentAction = 'deadline' | 'unassign' | 'reassign' | null;
 type NotificationType = 'assignment' | 'reminder' | 'unassignment' | 'reassignment';
 
+
+const MAIL_QUEUE_MARKER = 'CIGUENA_MAIL_QUEUE_V2';
+const EMAIL_SEND_DELAY_MS = 350;
+const EMAIL_RATE_LIMIT_MAX_RETRIES = 4;
+const EMAIL_RATE_LIMIT_RETRY_BASE_MS = 1500;
+
+function waitMs(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error || 'Error desconocido al enviar email.');
+}
+
+function isRateLimitError(error: unknown) {
+  return /too many requests|rate limit|10 requests per second/i.test(getErrorMessage(error));
+}
+
 interface Profile {
   id: string;
   tenant_id?: string | null;
@@ -1120,17 +1139,61 @@ export default function AdminAssignments() {
       };
     }
 
-    const results = await Promise.allSettled(
-      validAssignments.map((assignment) =>
-        sendTrainingNotificationEmail({ assignmentId: assignment.id, type })
-      )
-    );
+    console.info(MAIL_QUEUE_MARKER, 'start', {
+      type,
+      total: validAssignments.length,
+      delay_ms: EMAIL_SEND_DELAY_MS,
+    });
 
-    const sent = results.filter((result) => result.status === 'fulfilled').length;
-    const failed = results.length - sent;
-    const firstError = results.find((result) => result.status === 'rejected') as
-      | PromiseRejectedResult
-      | undefined;
+    let sent = 0;
+    const errors: string[] = [];
+
+    for (let index = 0; index < validAssignments.length; index += 1) {
+      const assignment = validAssignments[index];
+      let delivered = false;
+      let lastError: unknown = null;
+
+      for (let attempt = 0; attempt <= EMAIL_RATE_LIMIT_MAX_RETRIES; attempt += 1) {
+        try {
+          await sendTrainingNotificationEmail({ assignmentId: assignment.id, type });
+          sent += 1;
+          delivered = true;
+          break;
+        } catch (error) {
+          lastError = error;
+
+          const canRetry = isRateLimitError(error) && attempt < EMAIL_RATE_LIMIT_MAX_RETRIES;
+          if (!canRetry) break;
+
+          const retryDelay = EMAIL_RATE_LIMIT_RETRY_BASE_MS * (attempt + 1);
+          console.warn(MAIL_QUEUE_MARKER, 'rate-limit-retry', {
+            type,
+            assignment_id: assignment.id,
+            attempt: attempt + 1,
+            retry_in_ms: retryDelay,
+          });
+          await waitMs(retryDelay);
+        }
+      }
+
+      if (!delivered) {
+        errors.push(getErrorMessage(lastError));
+      }
+
+      if (index < validAssignments.length - 1) {
+        await waitMs(EMAIL_SEND_DELAY_MS);
+      }
+    }
+
+    const failed = validAssignments.length - sent;
+    const firstError = errors[0];
+
+    console.info(MAIL_QUEUE_MARKER, 'done', {
+      type,
+      total: validAssignments.length,
+      sent,
+      failed,
+    });
 
     return {
       requested: true,
@@ -1138,7 +1201,9 @@ export default function AdminAssignments() {
       recipient_count: sent,
       admin_email: adminEmail,
       type,
-      error: failed > 0 ? firstError?.reason?.message || `${failed} email(s) fallaron.` : undefined,
+      error: failed > 0
+        ? `${failed} email(s) fallaron.${firstError ? ` Primer error: ${firstError}` : ''}`
+        : undefined,
       message: failed > 0
         ? `Se enviaron ${sent} email(s), pero fallaron ${failed}.`
         : `Email enviado a ${sent} persona(s).`,
