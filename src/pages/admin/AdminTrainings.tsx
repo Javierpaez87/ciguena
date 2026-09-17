@@ -25,8 +25,15 @@ import {
 } from '../../data/trainingTests';
 import type { Profile, Training } from '../../types';
 import Modal from '../../components/ui/Modal';
+import {
+  WORKER_FILTER_DEFINITIONS,
+  getWorkerFilterDefinition,
+  getWorkerFilterOptions,
+  matchesWorkerFilter,
+  type WorkerFilterKey,
+} from '../../lib/workerFilters';
 
-type AssignMode = 'all' | 'role' | 'individual';
+type AssignMode = 'all' | 'criterion' | 'individual';
 
 type AssignmentRow = {
   id: string;
@@ -207,7 +214,8 @@ export default function AdminTrainings() {
   const [expandedAssignmentUserIds, setExpandedAssignmentUserIds] = useState<Set<string>>(new Set());
 
   const [assignMode, setAssignMode] = useState<AssignMode>('individual');
-  const [selectedRole, setSelectedRole] = useState('');
+  const [criterionKey, setCriterionKey] = useState<WorkerFilterKey>('work_role');
+  const [criterionValues, setCriterionValues] = useState<string[]>([]);
 
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignmentMailCompletion, setAssignmentMailCompletion] = useState<AssignmentMailCompletion | null>(null);
@@ -302,40 +310,27 @@ export default function AdminTrainings() {
     return getTrainingTestByTrainingId(showQuestions.id);
   }, [showQuestions]);
 
-  const roleGroups = useMemo(() => {
-    const map = new Map<string, Profile[]>();
+  const criterionDefinition = getWorkerFilterDefinition(criterionKey);
 
-    users.forEach(worker => {
-      const workerRole = getWorkerRole(worker);
+  const criterionOptions = useMemo(
+    () => getWorkerFilterOptions(users as any[], criterionKey),
+    [users, criterionKey]
+  );
 
-      if (!map.has(workerRole)) {
-        map.set(workerRole, []);
-      }
-
-      map.get(workerRole)?.push(worker);
-    });
-
-    return Array.from(map.entries())
-      .map(([role, workers]) => ({
-        role,
-        workers,
-        count: workers.length,
-      }))
-      .sort((a, b) => a.role.localeCompare(b.role));
-  }, [users]);
-
-  const selectedRoleUsers = useMemo(() => {
-    if (!selectedRole) return [];
-    return users.filter(worker => getWorkerRole(worker) === selectedRole);
-  }, [users, selectedRole]);
+  const criterionUsers = useMemo(() => {
+    if (criterionValues.length === 0) return [];
+    return users.filter(worker =>
+      matchesWorkerFilter(worker as any, criterionKey, criterionValues)
+    );
+  }, [users, criterionKey, criterionValues]);
 
   const getTargetUserIds = () => {
     if (assignMode === 'all') {
       return users.map(worker => worker.id);
     }
 
-    if (assignMode === 'role') {
-      return selectedRoleUsers.map(worker => worker.id);
+    if (assignMode === 'criterion') {
+      return criterionUsers.map(worker => worker.id);
     }
 
     return Array.from(selectedUsers);
@@ -376,7 +371,8 @@ export default function AdminTrainings() {
     setEmailNotificationsByAssignmentId({});
     setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
-    setSelectedRole('');
+    setCriterionKey('work_role');
+    setCriterionValues([]);
     setAssignMessage(null);
     setAssignError(null);
   };
@@ -462,7 +458,8 @@ export default function AdminTrainings() {
     setEmailNotificationsByAssignmentId({});
     setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
-    setSelectedRole('');
+    setCriterionKey('work_role');
+    setCriterionValues([]);
     setAssignMessage(null);
     setAssignError(null);
 
@@ -475,7 +472,8 @@ export default function AdminTrainings() {
 
     setSelectedUsers(assignedIds);
     setAssignMode('individual');
-    setSelectedRole('');
+    setCriterionKey('work_role');
+    setCriterionValues([]);
   };
 
   const sendAssignmentEmails = async (assignmentIds: string[]) => {
@@ -590,13 +588,13 @@ export default function AdminTrainings() {
       targets = users.map(worker => worker.id);
     }
 
-    if (assignMode === 'role') {
-      if (!selectedRole) {
-        setAssignError('Seleccioná un rol para asignar el training.');
+    if (assignMode === 'criterion') {
+      if (criterionValues.length === 0) {
+        setAssignError(`Seleccioná al menos un valor de ${criterionDefinition.label.toLowerCase()} para asignar el training.`);
         return;
       }
 
-      targets = selectedRoleUsers.map(worker => worker.id);
+      targets = criterionUsers.map(worker => worker.id);
     }
 
     if (assignMode === 'individual') {
@@ -688,8 +686,8 @@ export default function AdminTrainings() {
     const modeLabel =
       assignMode === 'all'
         ? 'todos los usuarios activos'
-        : assignMode === 'role'
-          ? `el rol "${selectedRole}"`
+        : assignMode === 'criterion'
+          ? `${criterionDefinition.label.toLowerCase()}: ${criterionValues.join(', ')}`
           : 'los usuarios seleccionados';
 
     const emailText =
@@ -1446,7 +1444,7 @@ export default function AdminTrainings() {
                 disabled={
                   isAssigning ||
                   getAssignTargetCount() === 0 ||
-                  (assignMode === 'role' && !selectedRole)
+                  (assignMode === 'criterion' && criterionValues.length === 0)
                 }
                 className="btn-primary"
               >
@@ -1488,7 +1486,7 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('all');
-                  setSelectedRole('');
+                  setCriterionValues([]);
                   setSelectedUsers(new Set(users.map(worker => worker.id)));
                 }}
                 disabled={isAssigning}
@@ -1507,19 +1505,20 @@ export default function AdminTrainings() {
               <button
                 type="button"
                 onClick={() => {
-                  setAssignMode('role');
+                  setAssignMode('criterion');
+                  setCriterionValues([]);
                   setSelectedUsers(new Set(assignedUserIds));
                 }}
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
-                  assignMode === 'role'
+                  assignMode === 'criterion'
                     ? 'bg-amber-500/10 border-amber-500/40'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
-                <div className="text-sm font-semibold text-steel-100">Por rol</div>
+                <div className="text-sm font-semibold text-steel-100">Por criterio</div>
                 <div className="text-xs text-steel-400 mt-1">
-                  {roleGroups.length} roles detectados
+                  Rol, área, yacimiento y más
                 </div>
               </button>
 
@@ -1527,7 +1526,7 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('individual');
-                  setSelectedRole('');
+                  setCriterionValues([]);
                   setSelectedUsers(new Set(assignedUserIds));
                 }}
                 disabled={isAssigning}
@@ -1544,42 +1543,115 @@ export default function AdminTrainings() {
               </button>
             </div>
 
-            {assignMode === 'role' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="label">Rol / puesto</label>
-                  <select
-                    value={selectedRole}
-                    onChange={event => setSelectedRole(event.target.value)}
-                    className="select"
-                    disabled={isAssigning}
-                  >
-                    <option value="">Seleccionar rol...</option>
-                    {roleGroups.map(group => {
-                      const newCount = group.workers.filter(worker => !assignedUserIds.has(worker.id)).length;
-
-                      return (
-                        <option key={group.role} value={group.role}>
-                          {group.role} · {group.count} usuario(s) · {newCount} nuevos
+            {assignMode === 'criterion' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="label">Filtrar por</label>
+                    <select
+                      value={criterionKey}
+                      onChange={event => {
+                        setCriterionKey(event.target.value as WorkerFilterKey);
+                        setCriterionValues([]);
+                      }}
+                      className="select"
+                      disabled={isAssigning}
+                    >
+                      {WORKER_FILTER_DEFINITIONS.map(definition => (
+                        <option key={definition.key} value={definition.key}>
+                          {definition.label}
                         </option>
-                      );
-                    })}
-                  </select>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="rounded-xl border border-steel-700 bg-steel-900/70 p-3">
+                    <div className="text-xs text-steel-500">Selección actual</div>
+                    <div className="mt-1 text-sm font-semibold text-steel-100">
+                      {criterionValues.length} valor(es) · {criterionUsers.length} trabajador(es)
+                    </div>
+                    <div className="mt-1 text-xs text-steel-400">
+                      {criterionUsers.filter(worker => !assignedUserIds.has(worker.id)).length} nueva(s) asignación(es)
+                    </div>
+                  </div>
                 </div>
 
-                {selectedRole && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="label mb-0">{criterionDefinition.label}</label>
+                    {criterionOptions.length > 0 && (
+                      <div className="flex gap-2 text-xs">
+                        <button
+                          type="button"
+                          className="text-amber-300 hover:text-amber-200 disabled:opacity-50"
+                          disabled={isAssigning}
+                          onClick={() => setCriterionValues(criterionOptions.map(option => option.value))}
+                        >
+                          Seleccionar todos
+                        </button>
+                        <button
+                          type="button"
+                          className="text-steel-400 hover:text-steel-200 disabled:opacity-50"
+                          disabled={isAssigning || criterionValues.length === 0}
+                          onClick={() => setCriterionValues([])}
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {criterionOptions.length === 0 ? (
+                    <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
+                      No hay valores disponibles para este criterio.
+                    </div>
+                  ) : (
+                    <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-steel-700 bg-steel-950/40 p-2">
+                      {criterionOptions.map(option => {
+                        const checked = criterionValues.includes(option.value);
+                        return (
+                          <label
+                            key={option.value}
+                            className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                              checked
+                                ? 'border-amber-500/40 bg-amber-500/10'
+                                : 'border-steel-700 bg-steel-900 hover:border-steel-600'
+                            }`}
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={isAssigning}
+                                onChange={event => {
+                                  setCriterionValues(previous =>
+                                    event.target.checked
+                                      ? Array.from(new Set([...previous, option.value]))
+                                      : previous.filter(value => value !== option.value)
+                                  );
+                                }}
+                                className="accent-amber-500"
+                              />
+                              <span className="truncate text-sm text-steel-200">{option.label}</span>
+                            </span>
+                            <span className="text-xs text-steel-500">{option.count}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {criterionValues.length > 0 ? (
                   <div className="space-y-2">
                     <p className="text-xs text-steel-400 font-medium">
-                      Usuarios incluidos en este rol:
+                      Usuarios incluidos por {criterionDefinition.label.toLowerCase()}:
                     </p>
-
-                    {selectedRoleUsers.map(worker => renderWorkerAssignmentRow(worker))}
+                    {criterionUsers.map(worker => renderWorkerAssignmentRow(worker))}
                   </div>
-                )}
-
-                {!selectedRole && (
+                ) : (
                   <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
-                    Seleccioná un rol para ver qué usuarios serán asignados.
+                    Seleccioná al menos un valor para ver qué usuarios serán asignados.
                   </div>
                 )}
               </div>
