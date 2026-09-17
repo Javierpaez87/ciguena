@@ -7,7 +7,7 @@ import {
   Loader2,
   ShieldAlert,
   Trash2,
-  TriangleAlert,
+  AlertTriangle,
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 import {
@@ -184,7 +184,7 @@ export default function SupportRequestModal({
                 className={`rounded-xl border p-4 text-left transition-all ${requestType === 'problem' ? 'brand-border brand-bg-soft' : 'border-steel-700 bg-steel-900/60 hover:border-steel-600'}`}
               >
                 <div className="flex items-center gap-2 font-semibold text-steel-100">
-                  <TriangleAlert size={17} className={requestType === 'problem' ? 'brand-text' : 'text-steel-400'} />
+                  <AlertTriangle size={17} className={requestType === 'problem' ? 'brand-text' : 'text-steel-400'} />
                   Problema
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-steel-400">Algo no funciona o te impide avanzar.</p>
