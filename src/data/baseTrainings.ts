@@ -90,7 +90,7 @@ export const baseTrainings: Training[] = [
     module_count: 1,
     tenant_count: 0,
     content_type: 'youtube',
-    content_url: 'https://www.youtube.com/embed/_vItBc36D4c',
+    content_url: 'https://www.youtube.com/embed/sqqvMI0GHys',
     thumbnail_url: null,
   },
   {
