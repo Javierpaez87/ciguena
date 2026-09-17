@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { AlertCircle, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { AlertCircle, CircleHelp, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBranding } from '../contexts/BrandingContext';
 import PublicBrandLockup from '../components/branding/PublicBrandLockup';
+import SupportRequestModal from '../components/support/SupportRequestModal';
 
 interface LoginPageProps {
   onRegister: () => void;
@@ -11,11 +12,12 @@ interface LoginPageProps {
 
 export default function LoginPage({ onRegister, onForgotPassword }: LoginPageProps) {
   const { login, isLoading } = useAuth();
-  const { branding, isDomainBound } = useBranding();
+  const { branding, isDomainBound, domainTenantId } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,6 +200,17 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
             </button>
           </form>
 
+          <div className="mt-5 text-center">
+            <button
+              type="button"
+              onClick={() => setIsSupportOpen(true)}
+              className="inline-flex items-center gap-2 text-sm text-steel-400 transition-colors hover:text-steel-200"
+            >
+              <CircleHelp size={15} />
+              ¿Problemas para ingresar a la plataforma?
+            </button>
+          </div>
+
           {isWhiteLabel ? (
             <div className="mt-7 pt-6 border-t border-steel-700">
               <p className="text-center text-xs font-medium uppercase tracking-[0.16em] text-steel-500">
@@ -235,6 +248,14 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
           )}
         </div>
       </div>
+
+      <SupportRequestModal
+        open={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+        source="login"
+        tenantId={domainTenantId || branding.tenantId}
+        defaultEmail={email}
+      />
     </div>
   );
 }

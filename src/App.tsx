@@ -172,8 +172,8 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Tus certificados emitidos y su vigencia',
   },
   'worker-feedback': {
-    title: 'Dar Feedback',
-    subtitle: 'Compartí tu experiencia con los trainings o la plataforma',
+    title: 'Soporte',
+    subtitle: 'Reportá un problema o compartí una sugerencia',
   },
 };
 

@@ -200,7 +200,7 @@ const workerNav: NavItem[] = [
   },
   {
     id: 'worker-feedback',
-    label: 'Dar Feedback',
+    label: 'Reportar problema',
     icon: <MessageSquare size={18} />,
   },
 ];

@@ -9,12 +9,14 @@ import {
   Loader2,
   LogIn,
   Mail,
+  CircleHelp,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBranding } from '../contexts/BrandingContext';
 import { supabase } from '../lib/supabase';
 import PublicBrandLockup from '../components/branding/PublicBrandLockup';
+import SupportRequestModal from '../components/support/SupportRequestModal';
 
 interface RegisterPageProps {
   onBackToLogin: () => void;
@@ -58,6 +60,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
 
   const [error, setError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
 
   useEffect(() => {
     if (isDomainBound && domainTenantId) {
@@ -408,15 +411,37 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
           )}
 
           {!registrationSuccess && (
-            <p className="mt-6 text-center text-sm text-steel-400">
-              ¿Ya tenés una cuenta?{' '}
-              <button type="button" onClick={onBackToLogin} className="font-semibold brand-text hover:brightness-110">
-                Iniciar sesión
-              </button>
-            </p>
+            <>
+              <p className="mt-6 text-center text-sm text-steel-400">
+                ¿Ya tenés una cuenta?{' '}
+                <button type="button" onClick={onBackToLogin} className="font-semibold brand-text hover:brightness-110">
+                  Iniciar sesión
+                </button>
+              </p>
+              <div className="mt-4 text-center">
+                <button
+                  type="button"
+                  onClick={() => setIsSupportOpen(true)}
+                  className="inline-flex items-center gap-2 text-sm text-steel-400 transition-colors hover:text-steel-200"
+                >
+                  <CircleHelp size={15} />
+                  ¿Problemas para ingresar o registrarte?
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
+
+      <SupportRequestModal
+        open={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+        source="register"
+        tenantId={companyId && companyId !== 'not-found' ? companyId : (domainTenantId || branding.tenantId)}
+        defaultName={fullName}
+        defaultEmail={email}
+        defaultPhone={phone}
+      />
 
       {showAdminWarning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
