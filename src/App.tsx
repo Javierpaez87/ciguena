@@ -16,6 +16,7 @@ import SaTrainings from './pages/superadmin/SaTrainings';
 import SaBuilder from './pages/superadmin/SaBuilder';
 import SaTests from './pages/superadmin/SaTests';
 import SaFeedback from './pages/superadmin/SaFeedback';
+import SaSupport from './pages/superadmin/SaSupport';
 import SaGhost from './pages/superadmin/SaGhost';
 import SaEmailQa from './pages/superadmin/SaEmailQa';
 
@@ -80,6 +81,10 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'sa-feedback': {
     title: 'Feedback Global',
     subtitle: 'Opiniones de usuarios de todos los tenants',
+  },
+  'sa-support': {
+    title: 'Soporte / Issues',
+    subtitle: 'Problemas y sugerencias reportados desde toda la plataforma',
   },
   'sa-communications': {
     title: 'Comunicaciones',
@@ -172,8 +177,8 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Tus certificados emitidos y su vigencia',
   },
   'worker-feedback': {
-    title: 'Dar Feedback',
-    subtitle: 'Compartí tu experiencia con los trainings o la plataforma',
+    title: 'Soporte',
+    subtitle: 'Reportá un problema o compartí una sugerencia',
   },
 };
 
@@ -529,6 +534,8 @@ function AppContent() {
         return <SaTests />;
       case 'sa-feedback':
         return <SaFeedback />;
+      case 'sa-support':
+        return <SaSupport />;
       case 'sa-communications':
         return <AdminCommunications superAdmin />;
       case 'sa-ghost':

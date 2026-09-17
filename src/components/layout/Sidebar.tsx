@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Mail,
   MailCheck,
+  LifeBuoy,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
@@ -90,6 +91,11 @@ const superAdminNav: NavItem[] = [
     id: 'sa-feedback',
     label: 'Feedback Global',
     icon: <MessageSquare size={18} />,
+  },
+  {
+    id: 'sa-support',
+    label: 'Soporte / Issues',
+    icon: <LifeBuoy size={18} />,
   },
   {
     id: 'sa-communications',
@@ -200,7 +206,7 @@ const workerNav: NavItem[] = [
   },
   {
     id: 'worker-feedback',
-    label: 'Dar Feedback',
+    label: 'Reportar problema',
     icon: <MessageSquare size={18} />,
   },
 ];
