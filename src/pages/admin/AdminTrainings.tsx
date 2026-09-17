@@ -13,23 +13,10 @@ import {
   Eye,
   Check,
   Layers,
-  Settings2,
-  Save,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useBranding } from '../../contexts/BrandingContext';
 import { supabase } from '../../lib/supabase';
-import {
-  calculateDefaultDueDateISODate,
-  getCertificateValiditySummary,
-  getDeadlineDays,
-  getDeadlineSummary,
-  normalizeCertificateValidityMode,
-  normalizeDeadlineMode,
-  type CertificateValidityMode,
-  type DeadlineMode,
-  type TenantTrainingConfiguration,
-} from '../../lib/trainingConfiguration';
 import { baseTrainings } from '../../data/baseTrainings';
 import {
   getTrainingTestByTrainingId,
@@ -39,34 +26,14 @@ import {
 import type { Profile, Training } from '../../types';
 import Modal from '../../components/ui/Modal';
 import {
-  EmployeeDirectoryRecord,
-  getOperationalRole,
-  isDirectoryOnlyWorker,
-  isWorkerActive,
-  isWorkerRecord,
-  mergeProfilesWithDirectory,
-} from '../../lib/workerRoster';
-import {
   WORKER_FILTER_DEFINITIONS,
-  filterWorkersByCriterion,
   getWorkerFilterDefinition,
   getWorkerFilterOptions,
+  matchesWorkerFilter,
   type WorkerFilterKey,
 } from '../../lib/workerFilters';
 
 type AssignMode = 'all' | 'criterion' | 'individual';
-
-type TenantTrainingConfigRow = TenantTrainingConfiguration & {
-  training_id: string;
-  enabled?: boolean | null;
-};
-
-type TrainingConfigurationForm = {
-  deadline_mode: DeadlineMode;
-  deadline_days: number;
-  certificate_validity_mode: CertificateValidityMode;
-  certificate_validity_months: number;
-};
 
 type AssignmentRow = {
   id: string;
@@ -88,8 +55,20 @@ type EmailNotificationRow = {
   created_at: string | null;
 };
 
+type AssignmentMailCompletion = {
+  total: number;
+  sent: number;
+  failed: number;
+};
+
 function getWorkerRole(profile: Profile) {
-  return getOperationalRole(profile as any);
+  const workerJobRole = (profile as any).job_role as string | null | undefined;
+
+  return (
+    workerJobRole?.trim() ||
+    profile.position?.trim() ||
+    'Sin rol definido'
+  );
 }
 
 function formatDate(value?: string | null) {
@@ -211,9 +190,14 @@ function getStatusLabel(status?: string | null) {
   return status || 'Sin estado';
 }
 
+function getDefaultDueDateISODate() {
+  const date = new Date();
+  date.setMonth(date.getMonth() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 export default function AdminTrainings() {
   const { user } = useAuth();
-  const { branding } = useBranding();
   const tenantId = user?.tenant_id ?? '';
 
   const [trainings, setTrainings] = useState<Training[]>([]);
@@ -222,17 +206,6 @@ export default function AdminTrainings() {
   const [showDetail, setShowDetail] = useState<Training | null>(null);
   const [showAssign, setShowAssign] = useState<Training | null>(null);
   const [showQuestions, setShowQuestions] = useState<Training | null>(null);
-  const [showConfiguration, setShowConfiguration] = useState<Training | null>(null);
-  const [configurationByTrainingId, setConfigurationByTrainingId] = useState<Record<string, TenantTrainingConfigRow>>({});
-  const [configurationForm, setConfigurationForm] = useState<TrainingConfigurationForm>({
-    deadline_mode: 'days_after_assignment',
-    deadline_days: 30,
-    certificate_validity_mode: 'inherit',
-    certificate_validity_months: 12,
-  });
-  const [isSavingConfiguration, setIsSavingConfiguration] = useState(false);
-  const [configurationError, setConfigurationError] = useState<string | null>(null);
-  const [configurationMessage, setConfigurationMessage] = useState<string | null>(null);
 
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [assignedUserIds, setAssignedUserIds] = useState<Set<string>>(new Set());
@@ -241,15 +214,15 @@ export default function AdminTrainings() {
   const [expandedAssignmentUserIds, setExpandedAssignmentUserIds] = useState<Set<string>>(new Set());
 
   const [assignMode, setAssignMode] = useState<AssignMode>('individual');
-  const [selectedFilterCriterion, setSelectedFilterCriterion] = useState<WorkerFilterKey>('work_role');
-  const [selectedFilterValues, setSelectedFilterValues] = useState<string[]>([]);
+  const [criterionKey, setCriterionKey] = useState<WorkerFilterKey>('work_role');
+  const [criterionValues, setCriterionValues] = useState<string[]>([]);
 
   const [isAssigning, setIsAssigning] = useState(false);
+  const [assignmentMailCompletion, setAssignmentMailCompletion] = useState<AssignmentMailCompletion | null>(null);
   const [assignMessage, setAssignMessage] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [unpreparedWorkerCount, setUnpreparedWorkerCount] = useState(0);
 
   useEffect(() => {
     const loadAdminTrainings = async () => {
@@ -266,7 +239,7 @@ export default function AdminTrainings() {
 
       const { data: tenantTrainings, error: tenantTrainingsError } = await supabase
         .from('tenant_trainings')
-        .select('training_id, enabled, deadline_mode, deadline_days, certificate_validity_mode, certificate_validity_months')
+        .select('training_id, enabled')
         .eq('tenant_id', tenantId)
         .eq('enabled', true);
 
@@ -282,62 +255,29 @@ export default function AdminTrainings() {
         (tenantTrainings ?? []).map(row => row.training_id as string)
       );
 
-      const configurationMap = ((tenantTrainings ?? []) as TenantTrainingConfigRow[]).reduce<Record<string, TenantTrainingConfigRow>>(
-        (acc, row) => {
-          if (row.training_id) acc[row.training_id] = row;
-          return acc;
-        },
-        {}
-      );
-
-      setConfigurationByTrainingId(configurationMap);
-
       const enabledTrainings = baseTrainings.filter(training =>
         training.status === 'active' && enabledTrainingIds.has(training.id)
       );
 
       setTrainings(enabledTrainings);
 
-      const [profilesResult, directoryResult] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .order('full_name', { ascending: true }),
-        supabase
-          .from('employee_directory')
-          .select('*')
-          .eq('tenant_id', tenantId),
-      ]);
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('role', 'worker')
+        .eq('status', 'active')
+        .order('full_name', { ascending: true });
 
-      if (profilesResult.error) {
-        console.error('profilesError:', profilesResult.error);
+      if (profilesError) {
+        console.error('profilesError:', profilesError);
         setUsers([]);
         setLoadError('Cargamos los trainings, pero no pudimos cargar los usuarios de tu empresa.');
         setIsLoading(false);
         return;
       }
 
-      if (directoryResult.error) {
-        console.error('employeeDirectoryError:', directoryResult.error);
-        setUsers([]);
-        setLoadError('Cargamos los trainings, pero no pudimos leer la nómina de tu empresa.');
-        setIsLoading(false);
-        return;
-      }
-
-      const mergedWorkers = mergeProfilesWithDirectory(
-        (profilesResult.data ?? []) as any[],
-        (directoryResult.data ?? []) as EmployeeDirectoryRecord[]
-      );
-
-      const activeWorkers = mergedWorkers.filter(
-        (worker) => isWorkerRecord(worker) && isWorkerActive(worker)
-      );
-      const assignableWorkers = activeWorkers.filter((worker) => !isDirectoryOnlyWorker(worker));
-
-      setUnpreparedWorkerCount(activeWorkers.length - assignableWorkers.length);
-      setUsers(assignableWorkers as Profile[]);
+      setUsers((profiles ?? []) as Profile[]);
       setIsLoading(false);
     };
 
@@ -347,6 +287,18 @@ export default function AdminTrainings() {
   const filtered = trainings.filter(t =>
     t.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  useEffect(() => {
+    if (!isAssigning) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isAssigning]);
 
   const detailTest = useMemo(() => {
     if (!showDetail) return null;
@@ -358,25 +310,19 @@ export default function AdminTrainings() {
     return getTrainingTestByTrainingId(showQuestions.id);
   }, [showQuestions]);
 
-  const selectedFilterDefinition = useMemo(
-    () => getWorkerFilterDefinition(selectedFilterCriterion),
-    [selectedFilterCriterion]
-  );
+  const criterionDefinition = getWorkerFilterDefinition(criterionKey);
 
-  const criterionFilterOptions = useMemo(
-    () => getWorkerFilterOptions(users as any[], selectedFilterCriterion),
-    [users, selectedFilterCriterion]
+  const criterionOptions = useMemo(
+    () => getWorkerFilterOptions(users as any[], criterionKey),
+    [users, criterionKey]
   );
 
   const criterionUsers = useMemo(() => {
-    if (selectedFilterValues.length === 0) return [];
-
-    return filterWorkersByCriterion(
-      users as any[],
-      selectedFilterCriterion,
-      selectedFilterValues
-    ) as Profile[];
-  }, [users, selectedFilterCriterion, selectedFilterValues]);
+    if (criterionValues.length === 0) return [];
+    return users.filter(worker =>
+      matchesWorkerFilter(worker as any, criterionKey, criterionValues)
+    );
+  }, [users, criterionKey, criterionValues]);
 
   const getTargetUserIds = () => {
     if (assignMode === 'all') {
@@ -390,18 +336,10 @@ export default function AdminTrainings() {
     return Array.from(selectedUsers);
   };
 
-  const getAssignSelectionSummary = () => {
+  const getAssignTargetCount = () => {
     const targets = getTargetUserIds();
-    const newTargets = targets.filter(userId => !assignedUserIds.has(userId));
-
-    return {
-      total: targets.length,
-      newCount: newTargets.length,
-      alreadyAssignedCount: targets.length - newTargets.length,
-    };
+    return targets.filter(userId => !assignedUserIds.has(userId)).length;
   };
-
-  const getAssignTargetCount = () => getAssignSelectionSummary().newCount;
 
   const getQuestionsByAttempt = (test: TrainingTest) => {
     const attempts: Array<{
@@ -425,85 +363,6 @@ export default function AdminTrainings() {
     return attempts;
   };
 
-  const getTrainingConfiguration = (trainingId: string) =>
-    configurationByTrainingId[trainingId] ?? null;
-
-  const openConfigurationModal = (training: Training) => {
-    const current = getTrainingConfiguration(training.id);
-    const certificateMode = normalizeCertificateValidityMode(current?.certificate_validity_mode);
-
-    setShowConfiguration(training);
-    setConfigurationForm({
-      deadline_mode: normalizeDeadlineMode(current?.deadline_mode),
-      deadline_days: getDeadlineDays(current),
-      certificate_validity_mode: certificateMode,
-      certificate_validity_months:
-        Number(current?.certificate_validity_months ?? training.validity_months ?? 12) || 12,
-    });
-    setConfigurationError(null);
-    setConfigurationMessage(null);
-  };
-
-  const closeConfigurationModal = () => {
-    if (isSavingConfiguration) return;
-    setShowConfiguration(null);
-    setConfigurationError(null);
-    setConfigurationMessage(null);
-  };
-
-  const saveTrainingConfiguration = async () => {
-    if (!showConfiguration || !tenantId) return;
-
-    if (configurationForm.deadline_mode === 'days_after_assignment' && configurationForm.deadline_days < 1) {
-      setConfigurationError('El deadline debe ser de al menos 1 día.');
-      return;
-    }
-
-    if (
-      configurationForm.certificate_validity_mode === 'fixed_months' &&
-      configurationForm.certificate_validity_months < 1
-    ) {
-      setConfigurationError('La vigencia personalizada debe ser de al menos 1 mes.');
-      return;
-    }
-
-    setIsSavingConfiguration(true);
-    setConfigurationError(null);
-    setConfigurationMessage(null);
-
-    const payload = {
-      deadline_mode: configurationForm.deadline_mode,
-      deadline_days: Math.max(1, Math.round(configurationForm.deadline_days || 30)),
-      certificate_validity_mode: configurationForm.certificate_validity_mode,
-      certificate_validity_months:
-        configurationForm.certificate_validity_mode === 'fixed_months'
-          ? Math.max(1, Math.round(configurationForm.certificate_validity_months || 1))
-          : null,
-    };
-
-    const { error } = await supabase
-      .from('tenant_trainings')
-      .update(payload)
-      .eq('tenant_id', tenantId)
-      .eq('training_id', showConfiguration.id);
-
-    if (error) {
-      setConfigurationError(`No pudimos guardar la configuración: ${error.message}`);
-      setIsSavingConfiguration(false);
-      return;
-    }
-
-    setConfigurationByTrainingId(previous => ({
-      ...previous,
-      [showConfiguration.id]: {
-        ...(previous[showConfiguration.id] ?? { training_id: showConfiguration.id, enabled: true }),
-        ...payload,
-      },
-    }));
-    setConfigurationMessage('Configuración guardada correctamente. Se aplicará a las nuevas asignaciones y certificados futuros.');
-    setIsSavingConfiguration(false);
-  };
-
   const resetAssignModal = () => {
     setShowAssign(null);
     setSelectedUsers(new Set());
@@ -512,8 +371,8 @@ export default function AdminTrainings() {
     setEmailNotificationsByAssignmentId({});
     setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
-    setSelectedFilterCriterion('work_role');
-    setSelectedFilterValues([]);
+    setCriterionKey('work_role');
+    setCriterionValues([]);
     setAssignMessage(null);
     setAssignError(null);
   };
@@ -599,8 +458,8 @@ export default function AdminTrainings() {
     setEmailNotificationsByAssignmentId({});
     setExpandedAssignmentUserIds(new Set());
     setAssignMode('individual');
-    setSelectedFilterCriterion('work_role');
-    setSelectedFilterValues([]);
+    setCriterionKey('work_role');
+    setCriterionValues([]);
     setAssignMessage(null);
     setAssignError(null);
 
@@ -613,8 +472,8 @@ export default function AdminTrainings() {
 
     setSelectedUsers(assignedIds);
     setAssignMode('individual');
-    setSelectedFilterCriterion('work_role');
-    setSelectedFilterValues([]);
+    setCriterionKey('work_role');
+    setCriterionValues([]);
   };
 
   const sendAssignmentEmails = async (assignmentIds: string[]) => {
@@ -626,11 +485,24 @@ export default function AdminTrainings() {
       };
     }
 
-    console.log('Enviando emails para assignmentIds:', assignmentIds);
+    // Resend permite 10 requests por segundo. Enviamos como máximo 5 por lote
+    // y dejamos margen entre lotes para evitar volver a disparar el rate limit.
+    const EMAIL_BATCH_SIZE = 5;
+    const EMAIL_BATCH_DELAY_MS = 1100;
+    const MAX_RATE_LIMIT_RETRIES = 3;
 
-    const results = await Promise.allSettled(
-      assignmentIds.map(async assignmentId => {
-        console.log('Enviando mail de asignación para assignmentId:', assignmentId);
+    const sleep = (ms: number) =>
+      new Promise<void>(resolve => {
+        window.setTimeout(resolve, ms);
+      });
+
+    const sendOneAssignmentEmail = async (assignmentId: string) => {
+      for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
+        console.log(
+          'Enviando mail de asignación para assignmentId:',
+          assignmentId,
+          attempt > 0 ? `(reintento ${attempt})` : ''
+        );
 
         const response = await fetch('/.netlify/functions/send-training-notification-email', {
           method: 'POST',
@@ -642,26 +514,61 @@ export default function AdminTrainings() {
 
         const responseBody = await response.json().catch(() => null);
 
-        if (!response.ok) {
-          console.error('Falló send-training-assignment-email:', response.status, responseBody);
-          throw new Error(responseBody?.error || 'No se pudo enviar el email.');
+        if (response.ok) {
+          return responseBody;
         }
 
-        return responseBody;
-      })
-    );
+        const errorMessage = String(
+          responseBody?.error || responseBody?.message || 'No se pudo enviar el email.'
+        );
+        const normalizedError = errorMessage.toLowerCase();
+        const isRateLimited =
+          response.status === 429 ||
+          normalizedError.includes('too many requests') ||
+          normalizedError.includes('requests per second') ||
+          normalizedError.includes('rate limit');
+
+        console.error(
+          'Falló send-training-assignment-email:',
+          response.status,
+          responseBody
+        );
+
+        if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
+          // Backoff adicional por si coinciden otros envíos de Cigüeña en el mismo momento.
+          await sleep(1500 * (attempt + 1));
+          continue;
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      throw new Error('No se pudo enviar el email.');
+    };
+
+    console.log('Enviando emails de asignación en lotes controlados:', assignmentIds.length);
 
     let sent = 0;
     let failed = 0;
 
-    results.forEach(result => {
-      if (result.status === 'fulfilled') {
-        sent += 1;
-      } else {
-        failed += 1;
-        console.warn('Falló el envío de una notificación:', result.reason);
+    for (let index = 0; index < assignmentIds.length; index += EMAIL_BATCH_SIZE) {
+      const batch = assignmentIds.slice(index, index + EMAIL_BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map(sendOneAssignmentEmail));
+
+      results.forEach(result => {
+        if (result.status === 'fulfilled') {
+          sent += 1;
+        } else {
+          failed += 1;
+          console.warn('Falló el envío de una notificación:', result.reason);
+        }
+      });
+
+      const hasMoreBatches = index + EMAIL_BATCH_SIZE < assignmentIds.length;
+      if (hasMoreBatches) {
+        await sleep(EMAIL_BATCH_DELAY_MS);
       }
-    });
+    }
 
     return {
       sent,
@@ -682,8 +589,8 @@ export default function AdminTrainings() {
     }
 
     if (assignMode === 'criterion') {
-      if (selectedFilterValues.length === 0) {
-        setAssignError(`Seleccioná al menos un valor de ${selectedFilterDefinition.label.toLowerCase()} para asignar el training.`);
+      if (criterionValues.length === 0) {
+        setAssignError(`Seleccioná al menos un valor de ${criterionDefinition.label.toLowerCase()} para asignar el training.`);
         return;
       }
 
@@ -708,6 +615,7 @@ export default function AdminTrainings() {
       return;
     }
 
+    setAssignmentMailCompletion(null);
     setIsAssigning(true);
     setAssignError(null);
     setAssignMessage(null);
@@ -720,7 +628,7 @@ export default function AdminTrainings() {
       status: 'not_started',
       progress_percentage: 0,
       assigned_at: new Date().toISOString(),
-      due_date: calculateDefaultDueDateISODate(getTrainingConfiguration(showAssign.id)) || null,
+      due_date: getDefaultDueDateISODate(),
       started_at: null,
       completed_at: null,
       expires_at: null,
@@ -766,6 +674,11 @@ export default function AdminTrainings() {
     await loadAssignmentsForTraining(showAssign.id);
 
     setIsAssigning(false);
+    setAssignmentMailCompletion({
+      total: assignmentIds.length,
+      sent: emailResult.sent,
+      failed: emailResult.failed,
+    });
 
     const refreshedAssignedIds = new Set([...Array.from(assignedUserIds), ...newTargets]);
     setSelectedUsers(refreshedAssignedIds);
@@ -774,7 +687,7 @@ export default function AdminTrainings() {
       assignMode === 'all'
         ? 'todos los usuarios activos'
         : assignMode === 'criterion'
-          ? `${selectedFilterDefinition.label.toLowerCase()}: ${selectedFilterValues.join(', ')}`
+          ? `${criterionDefinition.label.toLowerCase()}: ${criterionValues.join(', ')}`
           : 'los usuarios seleccionados';
 
     const emailText =
@@ -783,12 +696,9 @@ export default function AdminTrainings() {
         : ` Se enviaron ${emailResult.sent} email(s) de notificación.`;
 
     setAssignMessage(
-      `Training "${showAssign.title}" asignado a ${newTargets.length} usuario(s) de ${modeLabel}. Deadline aplicado: ${formatDate(calculateDefaultDueDateISODate(getTrainingConfiguration(showAssign.id)) || null)}.${emailText}`
+      `Training "${showAssign.title}" asignado a ${newTargets.length} usuario(s) de ${modeLabel}. Deadline sugerido: ${formatDate(getDefaultDueDateISODate())}.${emailText}`
     );
 
-    setTimeout(() => {
-      resetAssignModal();
-    }, 1400);
   };
 
   const getContentLabel = (training: Training) => {
@@ -1123,7 +1033,7 @@ export default function AdminTrainings() {
             className="rounded-xl border border-steel-700 bg-steel-950 p-4"
           >
             <div className="flex items-center gap-2 mb-4">
-              <Layers size={15} className="brand-text" />
+              <Layers size={15} className="text-amber-400" />
               <div className="text-sm font-semibold text-steel-100">
                 Intento {attempt.attemptNumber}
               </div>
@@ -1143,7 +1053,7 @@ export default function AdminTrainings() {
                     className="rounded-xl border border-steel-700 bg-steel-900 p-4"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 brand-bg-soft border brand-border-soft rounded-lg flex items-center justify-center text-xs font-bold brand-text flex-shrink-0">
+                      <div className="w-7 h-7 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 flex-shrink-0">
                         {globalIndex + 1}
                       </div>
 
@@ -1205,6 +1115,56 @@ export default function AdminTrainings() {
 
   return (
     <div className="space-y-4">
+      {isAssigning && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-steel-950/85 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-steel-900 p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-300">
+              <Mail size={24} className="animate-pulse" />
+            </div>
+            <h3 className="text-lg font-semibold text-steel-100">Enviando notificaciones</h3>
+            <p className="mt-3 text-sm leading-6 text-steel-300">
+              Estamos asignando el training y enviando un mail a cada usuario. Dejá esta pestaña abierta y no refresques hasta que termine el proceso.
+            </p>
+            <p className="mt-3 text-xs text-steel-500">
+              El envío se realiza en lotes controlados para evitar límites del proveedor de email.
+            </p>
+            <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-steel-800">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-amber-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(assignmentMailCompletion)}
+        onClose={() => setAssignmentMailCompletion(null)}
+        title="Notificaciones enviadas"
+        size="sm"
+        footer={
+          <button onClick={() => setAssignmentMailCompletion(null)} className="btn-primary">
+            Cerrar
+          </button>
+        }
+      >
+        {assignmentMailCompletion && (
+          <div className="space-y-3 text-sm text-steel-300">
+            {assignmentMailCompletion.failed === 0 ? (
+              <p>
+                Ya enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> mails para notificar a los usuarios de sus nuevas asignaciones.
+              </p>
+            ) : (
+              <>
+                <p>
+                  Enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> de {assignmentMailCompletion.total} mails para notificar a los usuarios de sus nuevas asignaciones.
+                </p>
+                <p className="text-amber-300">
+                  {assignmentMailCompletion.failed} mail(s) no pudieron enviarse. Revisá la evidencia antes de continuar.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
       <div className="relative max-w-sm">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
         <input
@@ -1234,9 +1194,7 @@ export default function AdminTrainings() {
               Trainings habilitados para tu empresa
             </div>
             <div className="text-xs text-steel-500">
-              {branding.showPoweredByBondiApps
-                ? 'Estos son los cursos que BondiApps habilitó para este tenant desde SuperAdmin.'
-                : 'Estos son los cursos habilitados para tu empresa por la administración de la plataforma.'}
+              Estos son los cursos que BondiApps habilitó para este tenant desde SuperAdmin.
             </div>
           </div>
 
@@ -1274,16 +1232,11 @@ export default function AdminTrainings() {
                       </span>
                     )}
 
-                    <span className="badge badge-neutral">
-                      Deadline: {getDeadlineSummary(getTrainingConfiguration(tr.id))}
-                    </span>
-
-                    <span className="badge badge-neutral">
-                      Certificado: {getCertificateValiditySummary({
-                        configuration: getTrainingConfiguration(tr.id),
-                        training: tr,
-                      })}
-                    </span>
+                    {tr.validity_months && (
+                      <span className="badge badge-neutral">
+                        {tr.validity_months}m vigencia
+                      </span>
+                    )}
 
                     {tr.content_type && (
                       <span className="badge badge-neutral">
@@ -1318,24 +1271,17 @@ export default function AdminTrainings() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="flex gap-2">
                     <button
                       onClick={() => setShowDetail(tr)}
-                      className="btn-ghost text-xs justify-center"
+                      className="btn-ghost text-xs flex-1 justify-center"
                     >
                       <ChevronRight size={13} /> Detalle
                     </button>
 
                     <button
-                      onClick={() => openConfigurationModal(tr)}
-                      className="btn-secondary text-xs justify-center"
-                    >
-                      <Settings2 size={13} /> Configurar
-                    </button>
-
-                    <button
                       onClick={() => openAssignModal(tr)}
-                      className="btn-primary text-xs justify-center"
+                      className="btn-primary text-xs flex-1 justify-center"
                     >
                       <Plus size={13} /> Asignar
                     </button>
@@ -1370,7 +1316,7 @@ export default function AdminTrainings() {
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <PlayCircle size={16} className="brand-text" />
+                <PlayCircle size={16} className="text-amber-400" />
                 <h3 className="text-sm font-semibold text-steel-100">
                   Contenido del training
                 </h3>
@@ -1382,7 +1328,7 @@ export default function AdminTrainings() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <ClipboardCheck size={16} className="brand-text" />
+                  <ClipboardCheck size={16} className="text-amber-400" />
                   <h3 className="text-sm font-semibold text-steel-100">
                     Evaluación
                   </h3>
@@ -1430,7 +1376,7 @@ export default function AdminTrainings() {
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Award size={16} className="brand-text" />
+                <Award size={16} className="text-amber-400" />
                 <h3 className="text-sm font-semibold text-steel-100">
                   Certificación
                 </h3>
@@ -1441,15 +1387,10 @@ export default function AdminTrainings() {
                   { label: 'Categoría', value: showDetail.category },
                   { label: 'Duración', value: `${showDetail.duration_minutes} minutos` },
                   {
-                    label: 'Deadline por defecto',
-                    value: getDeadlineSummary(getTrainingConfiguration(showDetail.id)),
-                  },
-                  {
-                    label: 'Vigencia del certificado',
-                    value: getCertificateValiditySummary({
-                      configuration: getTrainingConfiguration(showDetail.id),
-                      training: showDetail,
-                    }),
+                    label: 'Vigencia',
+                    value: showDetail.validity_months
+                      ? `${showDetail.validity_months} meses`
+                      : 'Sin vigencia',
                   },
                   { label: 'Emite certificado', value: showDetail.certificate_enabled ? 'Sí' : 'No' },
                   { label: 'Tipo de contenido', value: getContentLabel(showDetail) },
@@ -1459,220 +1400,6 @@ export default function AdminTrainings() {
                     <div className="text-sm font-medium text-steel-200">{item.value}</div>
                   </div>
                 ))}
-              </div>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {showConfiguration && (
-        <Modal
-          open={!!showConfiguration}
-          onClose={closeConfigurationModal}
-          title={`Configuración — ${showConfiguration.title}`}
-          size="lg"
-          footer={
-            <>
-              <button
-                type="button"
-                onClick={closeConfigurationModal}
-                className="btn-ghost"
-                disabled={isSavingConfiguration}
-              >
-                Cerrar
-              </button>
-              <button
-                type="button"
-                onClick={saveTrainingConfiguration}
-                className="btn-primary"
-                disabled={isSavingConfiguration}
-              >
-                <Save size={15} />
-                {isSavingConfiguration ? 'Guardando...' : 'Guardar configuración'}
-              </button>
-            </>
-          }
-        >
-          <div className="space-y-5">
-            <div className="rounded-xl border brand-border-soft brand-bg-soft p-4 text-sm text-steel-200">
-              <div className="font-semibold">Configuración operativa para tu empresa</div>
-              <div className="mt-1 text-xs text-steel-400">
-                Estos valores funcionan como defaults. El deadline puede modificarse luego para una asignación específica desde <strong className="text-steel-200">Asignaciones</strong>. Los cambios no alteran asignaciones ni certificados ya emitidos.
-              </div>
-            </div>
-
-            {configurationError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
-                {configurationError}
-              </div>
-            )}
-
-            {configurationMessage && (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
-                {configurationMessage}
-              </div>
-            )}
-
-            <section className="rounded-xl border border-steel-700 bg-steel-900/70 p-4">
-              <div className="flex items-center gap-2">
-                <Clock size={16} className="brand-text" />
-                <h3 className="text-sm font-semibold text-steel-100">Deadline de realización</h3>
-              </div>
-              <p className="mt-1 text-xs text-steel-500">
-                Define la fecha límite sugerida cada vez que este training se asigna.
-              </p>
-
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label className={`rounded-xl border p-3 cursor-pointer ${
-                  configurationForm.deadline_mode === 'days_after_assignment'
-                    ? 'brand-border brand-bg-soft'
-                    : 'border-steel-700 bg-steel-950'
-                }`}>
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="radio"
-                      name="deadline-mode"
-                      checked={configurationForm.deadline_mode === 'days_after_assignment'}
-                      onChange={() => setConfigurationForm(current => ({ ...current, deadline_mode: 'days_after_assignment' }))}
-                      className="mt-1"
-                    />
-                    <div>
-                      <div className="text-sm font-semibold text-steel-100">X días desde la asignación</div>
-                      <div className="text-xs text-steel-500 mt-1">Se calcula automáticamente al asignar.</div>
-                    </div>
-                  </div>
-                </label>
-
-                <label className={`rounded-xl border p-3 cursor-pointer ${
-                  configurationForm.deadline_mode === 'no_deadline'
-                    ? 'brand-border brand-bg-soft'
-                    : 'border-steel-700 bg-steel-950'
-                }`}>
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="radio"
-                      name="deadline-mode"
-                      checked={configurationForm.deadline_mode === 'no_deadline'}
-                      onChange={() => setConfigurationForm(current => ({ ...current, deadline_mode: 'no_deadline' }))}
-                      className="mt-1"
-                    />
-                    <div>
-                      <div className="text-sm font-semibold text-steel-100">Sin deadline</div>
-                      <div className="text-xs text-steel-500 mt-1">La asignación se crea sin fecha límite.</div>
-                    </div>
-                  </div>
-                </label>
-              </div>
-
-              {configurationForm.deadline_mode === 'days_after_assignment' && (
-                <div className="mt-4 max-w-xs">
-                  <label className="label">Completar dentro de</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      value={configurationForm.deadline_days}
-                      onChange={event => setConfigurationForm(current => ({
-                        ...current,
-                        deadline_days: Number(event.target.value),
-                      }))}
-                      className="input"
-                    />
-                    <span className="text-sm text-steel-400">días</span>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-xl border border-steel-700 bg-steel-900/70 p-4">
-              <div className="flex items-center gap-2">
-                <Award size={16} className="brand-text" />
-                <h3 className="text-sm font-semibold text-steel-100">Vigencia del certificado</h3>
-              </div>
-              <p className="mt-1 text-xs text-steel-500">
-                Define cuánto tiempo será válido un certificado nuevo emitido para este training.
-              </p>
-
-              {!showConfiguration.certificate_enabled ? (
-                <div className="mt-4 rounded-xl border border-steel-700 bg-steel-950 p-3 text-sm text-steel-400">
-                  Este training está configurado como informativo y no emite certificado.
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-950 p-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="certificate-validity"
-                      checked={configurationForm.certificate_validity_mode === 'inherit'}
-                      onChange={() => setConfigurationForm(current => ({ ...current, certificate_validity_mode: 'inherit' }))}
-                      className="mt-1"
-                    />
-                    <div>
-                      <div className="text-sm font-semibold text-steel-100">Usar vigencia del catálogo</div>
-                      <div className="text-xs text-steel-500 mt-1">
-                        Actualmente: {showConfiguration.validity_months ? `${showConfiguration.validity_months} meses` : 'sin vencimiento'}.
-                      </div>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-950 p-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="certificate-validity"
-                      checked={configurationForm.certificate_validity_mode === 'fixed_months'}
-                      onChange={() => setConfigurationForm(current => ({ ...current, certificate_validity_mode: 'fixed_months' }))}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-steel-100">Definir vigencia propia</div>
-                      <div className="text-xs text-steel-500 mt-1">Aplica solamente a esta empresa.</div>
-                      {configurationForm.certificate_validity_mode === 'fixed_months' && (
-                        <div className="mt-3 flex items-center gap-2 max-w-xs">
-                          <input
-                            type="number"
-                            min={1}
-                            value={configurationForm.certificate_validity_months}
-                            onChange={event => setConfigurationForm(current => ({
-                              ...current,
-                              certificate_validity_months: Number(event.target.value),
-                            }))}
-                            className="input"
-                          />
-                          <span className="text-sm text-steel-400">meses</span>
-                        </div>
-                      )}
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-3 rounded-xl border border-steel-700 bg-steel-950 p-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="certificate-validity"
-                      checked={configurationForm.certificate_validity_mode === 'no_expiry'}
-                      onChange={() => setConfigurationForm(current => ({ ...current, certificate_validity_mode: 'no_expiry' }))}
-                      className="mt-1"
-                    />
-                    <div>
-                      <div className="text-sm font-semibold text-steel-100">Sin vencimiento</div>
-                      <div className="text-xs text-steel-500 mt-1">Los nuevos certificados no tendrán fecha de expiración.</div>
-                    </div>
-                  </label>
-                </div>
-              )}
-            </section>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-steel-700 bg-steel-950 p-3">
-                <div className="text-xs text-steel-500">Deadline efectivo</div>
-                <div className="mt-1 text-sm font-semibold text-steel-100">
-                  {getDeadlineSummary(configurationForm)}
-                </div>
-              </div>
-              <div className="rounded-xl border border-steel-700 bg-steel-950 p-3">
-                <div className="text-xs text-steel-500">Vigencia efectiva</div>
-                <div className="mt-1 text-sm font-semibold text-steel-100">
-                  {getCertificateValiditySummary({ configuration: configurationForm, training: showConfiguration })}
-                </div>
               </div>
             </div>
           </div>
@@ -1699,48 +1426,32 @@ export default function AdminTrainings() {
           }}
           title={`Asignar: ${showAssign.title}`}
           size="lg"
-          stickyFooter
           footer={
-            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-steel-400">
-                <span className="font-semibold text-steel-200">
-                  {getAssignSelectionSummary().total} seleccionado(s)
-                </span>
-                {' · '}
-                <span className="font-semibold brand-text">
-                  {getAssignSelectionSummary().newCount} nueva(s) asignación(es)
-                </span>
-                {getAssignSelectionSummary().alreadyAssignedCount > 0 && (
-                  <span> · {getAssignSelectionSummary().alreadyAssignedCount} ya asignado(s)</span>
-                )}
-              </div>
+            <>
+              <button
+                onClick={() => {
+                  if (isAssigning) return;
+                  resetAssignModal();
+                }}
+                className="btn-ghost"
+                disabled={isAssigning}
+              >
+                Cancelar
+              </button>
 
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={() => {
-                    if (isAssigning) return;
-                    resetAssignModal();
-                  }}
-                  className="btn-ghost"
-                  disabled={isAssigning}
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  onClick={handleAssign}
-                  disabled={
-                    isAssigning ||
-                    getAssignTargetCount() === 0 ||
-                    (assignMode === 'criterion' && selectedFilterValues.length === 0)
-                  }
-                  className="btn-primary"
-                >
-                  <Plus size={15} />
-                  {isAssigning ? 'Asignando...' : `Asignar (${getAssignTargetCount()})`}
-                </button>
-              </div>
-            </div>
+              <button
+                onClick={handleAssign}
+                disabled={
+                  isAssigning ||
+                  getAssignTargetCount() === 0 ||
+                  (assignMode === 'criterion' && criterionValues.length === 0)
+                }
+                className="btn-primary"
+              >
+                <Plus size={15} />
+                {isAssigning ? 'Asignando...' : `Asignar (${getAssignTargetCount()})`}
+              </button>
+            </>
           }
         >
           <div className="space-y-3">
@@ -1775,19 +1486,19 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('all');
-                  setSelectedFilterValues([]);
+                  setCriterionValues([]);
                   setSelectedUsers(new Set(users.map(worker => worker.id)));
                 }}
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
                   assignMode === 'all'
-                    ? 'brand-bg-soft brand-border'
+                    ? 'bg-amber-500/10 border-amber-500/40'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
                 <div className="text-sm font-semibold text-steel-100">Todos</div>
                 <div className="text-xs text-steel-400 mt-1">
-                  {users.length} usuarios asignables · {users.filter(worker => !assignedUserIds.has(worker.id)).length} nuevos
+                  {users.length} usuarios activos · {users.filter(worker => !assignedUserIds.has(worker.id)).length} nuevos
                 </div>
               </button>
 
@@ -1795,13 +1506,13 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('criterion');
-                  setSelectedFilterValues([]);
+                  setCriterionValues([]);
                   setSelectedUsers(new Set(assignedUserIds));
                 }}
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
                   assignMode === 'criterion'
-                    ? 'brand-bg-soft brand-border'
+                    ? 'bg-amber-500/10 border-amber-500/40'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
@@ -1815,13 +1526,13 @@ export default function AdminTrainings() {
                 type="button"
                 onClick={() => {
                   setAssignMode('individual');
-                  setSelectedFilterValues([]);
+                  setCriterionValues([]);
                   setSelectedUsers(new Set(assignedUserIds));
                 }}
                 disabled={isAssigning}
                 className={`rounded-xl border p-3 text-left transition-colors ${
                   assignMode === 'individual'
-                    ? 'brand-bg-soft brand-border'
+                    ? 'bg-amber-500/10 border-amber-500/40'
                     : 'bg-steel-900 border-steel-700 hover:border-steel-600'
                 }`}
               >
@@ -1832,23 +1543,16 @@ export default function AdminTrainings() {
               </button>
             </div>
 
-            {unpreparedWorkerCount > 0 && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                Hay {unpreparedWorkerCount} trabajador(es) en la nómina que todavía no tienen un profile asignable.
-                Ejecutá la sincronización de nómina → profiles antes de asignar trainings a toda la empresa.
-              </div>
-            )}
-
             {assignMode === 'criterion' && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="label">Filtrar por</label>
                     <select
-                      value={selectedFilterCriterion}
+                      value={criterionKey}
                       onChange={event => {
-                        setSelectedFilterCriterion(event.target.value as WorkerFilterKey);
-                        setSelectedFilterValues([]);
+                        setCriterionKey(event.target.value as WorkerFilterKey);
+                        setCriterionValues([]);
                       }}
                       className="select"
                       disabled={isAssigning}
@@ -1864,110 +1568,90 @@ export default function AdminTrainings() {
                   <div className="rounded-xl border border-steel-700 bg-steel-900/70 p-3">
                     <div className="text-xs text-steel-500">Selección actual</div>
                     <div className="mt-1 text-sm font-semibold text-steel-100">
-                      {selectedFilterValues.length === 0
-                        ? `Sin ${selectedFilterDefinition.label.toLowerCase()} seleccionado`
-                        : `${selectedFilterValues.length} valor(es) seleccionado(s)`}
+                      {criterionValues.length} valor(es) · {criterionUsers.length} trabajador(es)
                     </div>
                     <div className="mt-1 text-xs text-steel-400">
-                      {criterionUsers.length} trabajador(es) coinciden · {' '}
                       {criterionUsers.filter(worker => !assignedUserIds.has(worker.id)).length} nueva(s) asignación(es)
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-steel-700 bg-steel-900/50">
-                  <div className="flex flex-col gap-2 border-b border-steel-700 p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-steel-100">
-                        Elegir {selectedFilterDefinition.label.toLowerCase()}
-                      </div>
-                      <div className="text-xs text-steel-400">
-                        Podés seleccionar uno o varios valores.
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="btn-ghost text-xs"
-                        disabled={isAssigning || criterionFilterOptions.length === 0}
-                        onClick={() => setSelectedFilterValues(criterionFilterOptions.map(option => option.value))}
-                      >
-                        Seleccionar todos
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost text-xs"
-                        disabled={isAssigning || selectedFilterValues.length === 0}
-                        onClick={() => setSelectedFilterValues([])}
-                      >
-                        Limpiar
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="max-h-56 overflow-y-auto p-2">
-                    {criterionFilterOptions.length === 0 && (
-                      <div className="p-3 text-sm text-steel-400">
-                        No hay valores disponibles para este criterio.
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="label mb-0">{criterionDefinition.label}</label>
+                    {criterionOptions.length > 0 && (
+                      <div className="flex gap-2 text-xs">
+                        <button
+                          type="button"
+                          className="text-amber-300 hover:text-amber-200 disabled:opacity-50"
+                          disabled={isAssigning}
+                          onClick={() => setCriterionValues(criterionOptions.map(option => option.value))}
+                        >
+                          Seleccionar todos
+                        </button>
+                        <button
+                          type="button"
+                          className="text-steel-400 hover:text-steel-200 disabled:opacity-50"
+                          disabled={isAssigning || criterionValues.length === 0}
+                          onClick={() => setCriterionValues([])}
+                        >
+                          Limpiar
+                        </button>
                       </div>
                     )}
-
-                    {criterionFilterOptions.map(option => {
-                      const checked = selectedFilterValues.includes(option.value);
-                      const optionWorkers = filterWorkersByCriterion(
-                        users as any[],
-                        selectedFilterCriterion,
-                        [option.value]
-                      ) as Profile[];
-                      const newCount = optionWorkers.filter(worker => !assignedUserIds.has(worker.id)).length;
-
-                      return (
-                        <label
-                          key={option.value}
-                          className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 transition-colors ${
-                            checked ? 'brand-bg-soft' : 'hover:bg-steel-800'
-                          }`}
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={isAssigning}
-                              onChange={() => {
-                                setSelectedFilterValues(previous =>
-                                  previous.includes(option.value)
-                                    ? previous.filter(value => value !== option.value)
-                                    : [...previous, option.value]
-                                );
-                              }}
-                              className="h-4 w-4"
-                            />
-                            <span className="truncate text-sm text-steel-200">{option.label}</span>
-                          </div>
-
-                          <span className="flex-shrink-0 text-xs text-steel-500">
-                            {option.count} total · {newCount} nuevos
-                          </span>
-                        </label>
-                      );
-                    })}
                   </div>
+
+                  {criterionOptions.length === 0 ? (
+                    <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
+                      No hay valores disponibles para este criterio.
+                    </div>
+                  ) : (
+                    <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-steel-700 bg-steel-950/40 p-2">
+                      {criterionOptions.map(option => {
+                        const checked = criterionValues.includes(option.value);
+                        return (
+                          <label
+                            key={option.value}
+                            className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                              checked
+                                ? 'border-amber-500/40 bg-amber-500/10'
+                                : 'border-steel-700 bg-steel-900 hover:border-steel-600'
+                            }`}
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={isAssigning}
+                                onChange={event => {
+                                  setCriterionValues(previous =>
+                                    event.target.checked
+                                      ? Array.from(new Set([...previous, option.value]))
+                                      : previous.filter(value => value !== option.value)
+                                  );
+                                }}
+                                className="accent-amber-500"
+                              />
+                              <span className="truncate text-sm text-steel-200">{option.label}</span>
+                            </span>
+                            <span className="text-xs text-steel-500">{option.count}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                {selectedFilterValues.length > 0 && (
+                {criterionValues.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-steel-400">
-                      Trabajadores incluidos por {selectedFilterDefinition.label.toLowerCase()}:
+                    <p className="text-xs text-steel-400 font-medium">
+                      Usuarios incluidos por {criterionDefinition.label.toLowerCase()}:
                     </p>
-
                     {criterionUsers.map(worker => renderWorkerAssignmentRow(worker))}
                   </div>
-                )}
-
-                {selectedFilterValues.length === 0 && (
+                ) : (
                   <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
-                    Seleccioná uno o varios valores para ver exactamente qué trabajadores serán incluidos.
+                    Seleccioná al menos un valor para ver qué usuarios serán asignados.
                   </div>
                 )}
               </div>
@@ -1981,7 +1665,7 @@ export default function AdminTrainings() {
 
                 {users.length === 0 && (
                   <div className="rounded-lg border border-steel-700 bg-steel-900 p-3 text-sm text-steel-400">
-                    No hay trabajadores asignables para este tenant.
+                    No hay usuarios activos para asignar en esta empresa.
                   </div>
                 )}
 

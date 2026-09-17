@@ -73,6 +73,25 @@ type AssignTargetMode = 'filtered' | 'role' | 'all_workers';
 type AssignmentAction = 'deadline' | 'unassign' | 'reassign' | null;
 type NotificationType = 'assignment' | 'reminder' | 'unassignment' | 'reassignment';
 
+
+const MAIL_QUEUE_MARKER = 'CIGUENA_MAIL_QUEUE_V2';
+const EMAIL_SEND_DELAY_MS = 350;
+const EMAIL_RATE_LIMIT_MAX_RETRIES = 4;
+const EMAIL_RATE_LIMIT_RETRY_BASE_MS = 1500;
+
+function waitMs(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error || 'Error desconocido al enviar email.');
+}
+
+function isRateLimitError(error: unknown) {
+  return /too many requests|rate limit|10 requests per second/i.test(getErrorMessage(error));
+}
+
 interface Profile {
   id: string;
   tenant_id?: string | null;
@@ -184,6 +203,12 @@ interface BulkReminderResult {
   workers: number;
   withEmail: number;
   evidence: EmailEvidence;
+}
+
+interface AssignmentMailCompletion {
+  sent: number;
+  total: number;
+  failed: number;
 }
 
 interface AssignmentReviewItem {
@@ -412,11 +437,12 @@ export default function AdminAssignments() {
   const [assignStep, setAssignStep] = useState<'select' | 'due_date' | 'confirm'>('select');
   const [selectedTrainingId, setSelectedTrainingId] = useState('');
   const [assignTargetMode, setAssignTargetMode] = useState<AssignTargetMode>('filtered');
-  const [assignRole, setAssignRole] = useState('all');
+  const [assignRoles, setAssignRoles] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState(getDefaultDueDateISODate());
   const [sendEmail, setSendEmail] = useState(true);
   const [includeCertifiedUsers, setIncludeCertifiedUsers] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [assignmentMailCompletion, setAssignmentMailCompletion] = useState<AssignmentMailCompletion | null>(null);
 
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [assignmentAction, setAssignmentAction] = useState<AssignmentAction>(null);
@@ -604,6 +630,18 @@ export default function AdminAssignments() {
   useEffect(() => {
     loadAssignments();
   }, [tenantId]);
+
+  useEffect(() => {
+    if (!isAssigning) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isAssigning]);
 
   const workerUsers = useMemo(() => {
     return users.filter((profile) => isWorker(profile) && isActiveProfile(profile));
@@ -818,11 +856,12 @@ export default function AdminAssignments() {
   const assignTargets = useMemo(() => {
     if (assignTargetMode === 'all_workers') return assignableWorkerUsers;
     if (assignTargetMode === 'role') {
-      if (assignRole === 'all') return [];
-      return assignableWorkerUsers.filter((profile) => getWorkerRole(profile) === assignRole);
+      if (assignRoles.length === 0) return [];
+      const selectedRoles = new Set(assignRoles);
+      return assignableWorkerUsers.filter((profile) => selectedRoles.has(getWorkerRole(profile)));
     }
     return filteredUsersFromCurrentView;
-  }, [assignTargetMode, assignRole, assignableWorkerUsers, filteredUsersFromCurrentView]);
+  }, [assignTargetMode, assignRoles, assignableWorkerUsers, filteredUsersFromCurrentView]);
 
   const selectedTraining = useMemo(() => {
     return enabledTrainingOptions.find((training) => training.id === selectedTrainingId) ?? null;
@@ -1016,13 +1055,14 @@ export default function AdminAssignments() {
     setErrorMessage(null);
     setSuccessMessage(null);
     setLastEmailEvidence(null);
+    setAssignmentMailCompletion(null);
     setAssignStep('select');
 
     const firstTraining = enabledTrainingOptions[0] ?? null;
     setSelectedTrainingId(firstTraining?.id ?? '');
     const canReuseRoleFilter = workerFilterKey === 'work_role' && workerFilterValue !== 'all';
     setAssignTargetMode(canReuseRoleFilter ? 'role' : 'filtered');
-    setAssignRole(canReuseRoleFilter ? workerFilterValue : 'all');
+    setAssignRoles(canReuseRoleFilter ? [workerFilterValue] : []);
     setDueDate(calculateDefaultDueDateISODate(firstTraining));
     setSendEmail(true);
     setIncludeCertifiedUsers(false);
@@ -1120,17 +1160,61 @@ export default function AdminAssignments() {
       };
     }
 
-    const results = await Promise.allSettled(
-      validAssignments.map((assignment) =>
-        sendTrainingNotificationEmail({ assignmentId: assignment.id, type })
-      )
-    );
+    console.info(MAIL_QUEUE_MARKER, 'start', {
+      type,
+      total: validAssignments.length,
+      delay_ms: EMAIL_SEND_DELAY_MS,
+    });
 
-    const sent = results.filter((result) => result.status === 'fulfilled').length;
-    const failed = results.length - sent;
-    const firstError = results.find((result) => result.status === 'rejected') as
-      | PromiseRejectedResult
-      | undefined;
+    let sent = 0;
+    const errors: string[] = [];
+
+    for (let index = 0; index < validAssignments.length; index += 1) {
+      const assignment = validAssignments[index];
+      let delivered = false;
+      let lastError: unknown = null;
+
+      for (let attempt = 0; attempt <= EMAIL_RATE_LIMIT_MAX_RETRIES; attempt += 1) {
+        try {
+          await sendTrainingNotificationEmail({ assignmentId: assignment.id, type });
+          sent += 1;
+          delivered = true;
+          break;
+        } catch (error) {
+          lastError = error;
+
+          const canRetry = isRateLimitError(error) && attempt < EMAIL_RATE_LIMIT_MAX_RETRIES;
+          if (!canRetry) break;
+
+          const retryDelay = EMAIL_RATE_LIMIT_RETRY_BASE_MS * (attempt + 1);
+          console.warn(MAIL_QUEUE_MARKER, 'rate-limit-retry', {
+            type,
+            assignment_id: assignment.id,
+            attempt: attempt + 1,
+            retry_in_ms: retryDelay,
+          });
+          await waitMs(retryDelay);
+        }
+      }
+
+      if (!delivered) {
+        errors.push(getErrorMessage(lastError));
+      }
+
+      if (index < validAssignments.length - 1) {
+        await waitMs(EMAIL_SEND_DELAY_MS);
+      }
+    }
+
+    const failed = validAssignments.length - sent;
+    const firstError = errors[0];
+
+    console.info(MAIL_QUEUE_MARKER, 'done', {
+      type,
+      total: validAssignments.length,
+      sent,
+      failed,
+    });
 
     return {
       requested: true,
@@ -1138,7 +1222,9 @@ export default function AdminAssignments() {
       recipient_count: sent,
       admin_email: adminEmail,
       type,
-      error: failed > 0 ? firstError?.reason?.message || `${failed} email(s) fallaron.` : undefined,
+      error: failed > 0
+        ? `${failed} email(s) fallaron.${firstError ? ` Primer error: ${firstError}` : ''}`
+        : undefined,
       message: failed > 0
         ? `Se enviaron ${sent} email(s), pero fallaron ${failed}.`
         : `Email enviado a ${sent} persona(s).`,
@@ -1290,6 +1376,7 @@ export default function AdminAssignments() {
       setLastEmailEvidence(emailEvidence);
 
       const skipped = assignmentReview.length - finalAssignmentTargets.length;
+      const emailTargetCount = refreshed.filter((assignment) => Boolean(assignment.user?.email)).length;
 
       setSuccessMessage(
         `Training asignado/reasignado a ${finalAssignmentTargets.length} usuario(s). Se omitieron ${skipped}. ${
@@ -1304,6 +1391,14 @@ export default function AdminAssignments() {
       setShowAssignModal(false);
       setAssignStep('select');
       await loadAssignments();
+
+      if (emailEvidence.requested) {
+        setAssignmentMailCompletion({
+          sent: emailEvidence.recipient_count,
+          total: emailTargetCount,
+          failed: Math.max(0, emailTargetCount - emailEvidence.recipient_count),
+        });
+      }
     } catch (error) {
       console.error('Error creando asignaciones masivas:', error);
       setErrorMessage(
@@ -1583,7 +1678,7 @@ export default function AdminAssignments() {
   const assignCanContinue =
     selectedTraining &&
     assignTargets.length > 0 &&
-    (assignTargetMode !== 'role' || assignRole !== 'all');
+    (assignTargetMode !== 'role' || assignRoles.length > 0);
 
   const actionTitle =
     assignmentAction === 'deadline'
@@ -1596,6 +1691,56 @@ export default function AdminAssignments() {
 
   return (
     <div className="space-y-4">
+      {isAssigning && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-steel-950/85 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-steel-900 p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-300">
+              <Mail size={24} className="animate-pulse" />
+            </div>
+            <h3 className="text-lg font-semibold text-steel-100">Enviando notificaciones</h3>
+            <p className="mt-3 text-sm leading-6 text-steel-300">
+              Estamos enviando un mail a cada usuario. Dejá esta pestaña abierta y no refresques hasta que termine el proceso.
+            </p>
+            <p className="mt-3 text-xs text-steel-500">
+              El envío se realiza de forma controlada para asegurar que todos los mails sean procesados correctamente.
+            </p>
+            <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-steel-800">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-amber-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(assignmentMailCompletion)}
+        onClose={() => setAssignmentMailCompletion(null)}
+        title="Notificaciones enviadas"
+        size="sm"
+        footer={
+          <button onClick={() => setAssignmentMailCompletion(null)} className="btn-primary">
+            Cerrar
+          </button>
+        }
+      >
+        {assignmentMailCompletion && (
+          <div className="space-y-3 text-sm text-steel-300">
+            {assignmentMailCompletion.failed === 0 ? (
+              <p>
+                Ya enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> mails para notificar a los usuarios de sus asignaciones.
+              </p>
+            ) : (
+              <>
+                <p>
+                  Enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> de {assignmentMailCompletion.total} mails para notificar a los usuarios de sus asignaciones.
+                </p>
+                <p className="text-amber-300">
+                  {assignmentMailCompletion.failed} mail(s) no pudieron enviarse. Revisá la evidencia de notificación antes de continuar.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
       {(errorMessage || successMessage) && (
         <div
           className={`rounded-xl border px-4 py-3 text-sm ${
@@ -2078,19 +2223,48 @@ export default function AdminAssignments() {
 
               {assignTargetMode === 'role' && (
                 <div>
-                  <label className="label">Rol operativo *</label>
-                  <select
-                    value={assignRole}
-                    onChange={(event) => setAssignRole(event.target.value)}
-                    className="select"
-                  >
-                    <option value="all">Seleccionar rol...</option>
-                    {roleOptions.map((roleOption) => (
-                      <option key={roleOption.role} value={roleOption.role}>
-                        {roleOption.role} ({roleOption.count})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="label mb-0">Roles operativos *</label>
+                    <span className="text-xs text-steel-500">
+                      {assignRoles.length} seleccionado(s)
+                    </span>
+                  </div>
+                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto rounded-xl border border-steel-700 bg-steel-900/60 p-2">
+                    {roleOptions.map((roleOption) => {
+                      const checked = assignRoles.includes(roleOption.role);
+                      return (
+                        <label
+                          key={roleOption.role}
+                          className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3 transition-colors ${
+                            checked
+                              ? 'brand-border brand-bg-soft'
+                              : 'border-steel-700 bg-steel-950/50 hover:border-steel-600'
+                          }`}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                setAssignRoles((current) =>
+                                  event.target.checked
+                                    ? [...current, roleOption.role]
+                                    : current.filter((role) => role !== roleOption.role)
+                                );
+                              }}
+                              disabled={isAssigning}
+                              className="h-4 w-4 rounded border-steel-600 bg-steel-950"
+                            />
+                            <span className="truncate text-sm text-steel-200">{roleOption.role}</span>
+                          </div>
+                          <span className="flex-shrink-0 text-xs text-steel-500">{roleOption.count}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 text-xs text-steel-500">
+                    Podés seleccionar uno o más roles. Se asignará el training a todos los workers que pertenezcan a cualquiera de los roles elegidos.
+                  </div>
                 </div>
               )}
 
