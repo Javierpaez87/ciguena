@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, CircleHelp, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { AlertCircle, HelpCircle, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBranding } from '../contexts/BrandingContext';
 import PublicBrandLockup from '../components/branding/PublicBrandLockup';
@@ -206,7 +206,7 @@ export default function LoginPage({ onRegister, onForgotPassword }: LoginPagePro
               onClick={() => setIsSupportOpen(true)}
               className="inline-flex items-center gap-2 text-sm text-steel-400 transition-colors hover:text-steel-200"
             >
-              <CircleHelp size={15} />
+              <HelpCircle size={15} />
               ¿Problemas para ingresar a la plataforma?
             </button>
           </div>

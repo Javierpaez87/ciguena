@@ -9,7 +9,7 @@ import {
   Loader2,
   LogIn,
   Mail,
-  CircleHelp,
+  HelpCircle,
   X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -424,7 +424,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                   onClick={() => setIsSupportOpen(true)}
                   className="inline-flex items-center gap-2 text-sm text-steel-400 transition-colors hover:text-steel-200"
                 >
-                  <CircleHelp size={15} />
+                  <HelpCircle size={15} />
                   ¿Problemas para ingresar o registrarte?
                 </button>
               </div>

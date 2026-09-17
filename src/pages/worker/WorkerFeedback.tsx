@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LifeBuoy, MessageSquareWarning } from 'lucide-react';
+import { LifeBuoy, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
 import SupportRequestModal from '../../components/support/SupportRequestModal';
@@ -28,7 +28,7 @@ export default function WorkerFeedback() {
                 onClick={() => setIsOpen(true)}
                 className="btn-primary mt-5 justify-center"
               >
-                <MessageSquareWarning size={16} />
+                <MessageSquare size={16} />
                 Reportar problema o sugerencia
               </button>
             </div>
