@@ -205,6 +205,12 @@ interface BulkReminderResult {
   evidence: EmailEvidence;
 }
 
+interface AssignmentMailCompletion {
+  sent: number;
+  total: number;
+  failed: number;
+}
+
 interface AssignmentReviewItem {
   profile: Profile;
   existingAssignment?: Assignment | null;
@@ -436,6 +442,7 @@ export default function AdminAssignments() {
   const [sendEmail, setSendEmail] = useState(true);
   const [includeCertifiedUsers, setIncludeCertifiedUsers] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [assignmentMailCompletion, setAssignmentMailCompletion] = useState<AssignmentMailCompletion | null>(null);
 
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [assignmentAction, setAssignmentAction] = useState<AssignmentAction>(null);
@@ -623,6 +630,18 @@ export default function AdminAssignments() {
   useEffect(() => {
     loadAssignments();
   }, [tenantId]);
+
+  useEffect(() => {
+    if (!isAssigning) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isAssigning]);
 
   const workerUsers = useMemo(() => {
     return users.filter((profile) => isWorker(profile) && isActiveProfile(profile));
@@ -1035,6 +1054,7 @@ export default function AdminAssignments() {
     setErrorMessage(null);
     setSuccessMessage(null);
     setLastEmailEvidence(null);
+    setAssignmentMailCompletion(null);
     setAssignStep('select');
 
     const firstTraining = enabledTrainingOptions[0] ?? null;
@@ -1355,6 +1375,7 @@ export default function AdminAssignments() {
       setLastEmailEvidence(emailEvidence);
 
       const skipped = assignmentReview.length - finalAssignmentTargets.length;
+      const emailTargetCount = refreshed.filter((assignment) => Boolean(assignment.user?.email)).length;
 
       setSuccessMessage(
         `Training asignado/reasignado a ${finalAssignmentTargets.length} usuario(s). Se omitieron ${skipped}. ${
@@ -1369,6 +1390,14 @@ export default function AdminAssignments() {
       setShowAssignModal(false);
       setAssignStep('select');
       await loadAssignments();
+
+      if (emailEvidence.requested) {
+        setAssignmentMailCompletion({
+          sent: emailEvidence.recipient_count,
+          total: emailTargetCount,
+          failed: Math.max(0, emailTargetCount - emailEvidence.recipient_count),
+        });
+      }
     } catch (error) {
       console.error('Error creando asignaciones masivas:', error);
       setErrorMessage(
@@ -1661,6 +1690,56 @@ export default function AdminAssignments() {
 
   return (
     <div className="space-y-4">
+      {isAssigning && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-steel-950/85 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-steel-900 p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-300">
+              <Mail size={24} className="animate-pulse" />
+            </div>
+            <h3 className="text-lg font-semibold text-steel-100">Enviando notificaciones</h3>
+            <p className="mt-3 text-sm leading-6 text-steel-300">
+              Estamos enviando un mail a cada usuario. Dejá esta pestaña abierta y no refresques hasta que termine el proceso.
+            </p>
+            <p className="mt-3 text-xs text-steel-500">
+              El envío se realiza de forma controlada para asegurar que todos los mails sean procesados correctamente.
+            </p>
+            <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-steel-800">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-amber-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(assignmentMailCompletion)}
+        onClose={() => setAssignmentMailCompletion(null)}
+        title="Notificaciones enviadas"
+        size="sm"
+        footer={
+          <button onClick={() => setAssignmentMailCompletion(null)} className="btn-primary">
+            Cerrar
+          </button>
+        }
+      >
+        {assignmentMailCompletion && (
+          <div className="space-y-3 text-sm text-steel-300">
+            {assignmentMailCompletion.failed === 0 ? (
+              <p>
+                Ya enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> mails para notificar a los usuarios de sus asignaciones.
+              </p>
+            ) : (
+              <>
+                <p>
+                  Enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> de {assignmentMailCompletion.total} mails para notificar a los usuarios de sus asignaciones.
+                </p>
+                <p className="text-amber-300">
+                  {assignmentMailCompletion.failed} mail(s) no pudieron enviarse. Revisá la evidencia de notificación antes de continuar.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
       {(errorMessage || successMessage) && (
         <div
           className={`rounded-xl border px-4 py-3 text-sm ${

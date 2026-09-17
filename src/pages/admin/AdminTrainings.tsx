@@ -13,6 +13,7 @@ import {
   Eye,
   Check,
   Layers,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -45,6 +46,12 @@ type EmailNotificationRow = {
   status: string | null;
   sent_at: string | null;
   created_at: string | null;
+};
+
+type AssignmentMailCompletion = {
+  total: number;
+  sent: number;
+  failed: number;
 };
 
 function getWorkerRole(profile: Profile) {
@@ -203,6 +210,7 @@ export default function AdminTrainings() {
   const [selectedRole, setSelectedRole] = useState('');
 
   const [isAssigning, setIsAssigning] = useState(false);
+  const [assignmentMailCompletion, setAssignmentMailCompletion] = useState<AssignmentMailCompletion | null>(null);
   const [assignMessage, setAssignMessage] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -271,6 +279,18 @@ export default function AdminTrainings() {
   const filtered = trainings.filter(t =>
     t.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  useEffect(() => {
+    if (!isAssigning) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isAssigning]);
 
   const detailTest = useMemo(() => {
     if (!showDetail) return null;
@@ -597,6 +617,7 @@ export default function AdminTrainings() {
       return;
     }
 
+    setAssignmentMailCompletion(null);
     setIsAssigning(true);
     setAssignError(null);
     setAssignMessage(null);
@@ -655,6 +676,11 @@ export default function AdminTrainings() {
     await loadAssignmentsForTraining(showAssign.id);
 
     setIsAssigning(false);
+    setAssignmentMailCompletion({
+      total: assignmentIds.length,
+      sent: emailResult.sent,
+      failed: emailResult.failed,
+    });
 
     const refreshedAssignedIds = new Set([...Array.from(assignedUserIds), ...newTargets]);
     setSelectedUsers(refreshedAssignedIds);
@@ -675,9 +701,6 @@ export default function AdminTrainings() {
       `Training "${showAssign.title}" asignado a ${newTargets.length} usuario(s) de ${modeLabel}. Deadline sugerido: ${formatDate(getDefaultDueDateISODate())}.${emailText}`
     );
 
-    setTimeout(() => {
-      resetAssignModal();
-    }, 1400);
   };
 
   const getContentLabel = (training: Training) => {
@@ -1094,6 +1117,56 @@ export default function AdminTrainings() {
 
   return (
     <div className="space-y-4">
+      {isAssigning && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-steel-950/85 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-steel-900 p-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-300">
+              <Mail size={24} className="animate-pulse" />
+            </div>
+            <h3 className="text-lg font-semibold text-steel-100">Enviando notificaciones</h3>
+            <p className="mt-3 text-sm leading-6 text-steel-300">
+              Estamos asignando el training y enviando un mail a cada usuario. Dejá esta pestaña abierta y no refresques hasta que termine el proceso.
+            </p>
+            <p className="mt-3 text-xs text-steel-500">
+              El envío se realiza en lotes controlados para evitar límites del proveedor de email.
+            </p>
+            <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-steel-800">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-amber-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(assignmentMailCompletion)}
+        onClose={() => setAssignmentMailCompletion(null)}
+        title="Notificaciones enviadas"
+        size="sm"
+        footer={
+          <button onClick={() => setAssignmentMailCompletion(null)} className="btn-primary">
+            Cerrar
+          </button>
+        }
+      >
+        {assignmentMailCompletion && (
+          <div className="space-y-3 text-sm text-steel-300">
+            {assignmentMailCompletion.failed === 0 ? (
+              <p>
+                Ya enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> mails para notificar a los usuarios de sus nuevas asignaciones.
+              </p>
+            ) : (
+              <>
+                <p>
+                  Enviamos <span className="font-semibold text-steel-100">{assignmentMailCompletion.sent}</span> de {assignmentMailCompletion.total} mails para notificar a los usuarios de sus nuevas asignaciones.
+                </p>
+                <p className="text-amber-300">
+                  {assignmentMailCompletion.failed} mail(s) no pudieron enviarse. Revisá la evidencia antes de continuar.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
       <div className="relative max-w-sm">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-steel-400" />
         <input
