@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
-  AlertTriangle,
   ArrowLeft,
   CheckCircle,
   Eye,
@@ -10,7 +9,6 @@ import {
   LogIn,
   Mail,
   HelpCircle,
-  X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBranding } from '../contexts/BrandingContext';
@@ -29,7 +27,6 @@ interface CompanyOption {
 
 interface RegistrationSuccess {
   isAutoApproved: boolean;
-  requestedAdmin: boolean;
   emailSent: boolean;
   emailWarning: string | null;
 }
@@ -55,8 +52,6 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [requestedAdmin, setRequestedAdmin] = useState(false);
-  const [showAdminWarning, setShowAdminWarning] = useState(false);
 
   const [error, setError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState<RegistrationSuccess | null>(null);
@@ -101,20 +96,6 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     };
   }, [isDomainBound, domainTenantId, domainTenantName, branding.brandName]);
 
-  const handleAdminRequestChange = (checked: boolean) => {
-    if (checked) {
-      setShowAdminWarning(true);
-      return;
-    }
-
-    setRequestedAdmin(false);
-  };
-
-  const confirmAdminRequest = () => {
-    setRequestedAdmin(true);
-    setShowAdminWarning(false);
-  };
-
   const clearForm = () => {
     setFullName('');
     setEmail(invitationEmail);
@@ -122,7 +103,6 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
     setCompanyId(isDomainBound && domainTenantId ? domainTenantId : '');
     setPassword('');
     setConfirmPassword('');
-    setRequestedAdmin(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -161,7 +141,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
       phone: phone.trim(),
       companyId,
       password,
-      requestedAdmin,
+      requestedAdmin: false,
     });
 
     if (registerResult.error) {
@@ -171,7 +151,6 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
 
     setRegistrationSuccess({
       isAutoApproved: registerResult.preapproved === true && registerResult.status === 'active',
-      requestedAdmin,
       emailSent: registerResult.emailSent !== false,
       emailWarning: registerResult.emailWarning || null,
     });
@@ -226,9 +205,7 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
                     <p className="mt-2 text-sm leading-6 text-emerald-100/80">
                       {registrationSuccess.isAutoApproved
                         ? 'Ya podés ingresar con el email y la contraseña que elegiste.'
-                        : registrationSuccess.requestedAdmin
-                          ? 'Tu solicitud de acceso como administrador quedó pendiente de aprobación. Te avisaremos por email cuando tu cuenta sea aprobada.'
-                          : 'Como tu email no estaba preaprobado en la nómina de tu organización, tu acceso quedó pendiente de aprobación. Esto puede ocurrir, por ejemplo, si llegaste al registro sin una invitación. Te avisaremos por email cuando tu cuenta sea aprobada.'}
+                        : 'Como tu email no estaba preaprobado en la nómina de tu organización, tu acceso quedó pendiente de aprobación. Esto puede ocurrir, por ejemplo, si llegaste al registro sin una invitación. Te avisaremos por email cuando tu cuenta sea aprobada.'}
                     </p>
                   </div>
                 </div>
@@ -381,24 +358,6 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
               </div>
             </div>
 
-            <div className="rounded-xl border border-steel-700 bg-steel-950/40 p-4">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requestedAdmin}
-                  onChange={e => handleAdminRequestChange(e.target.checked)}
-                  className="brand-checkbox mt-1 h-4 w-4"
-                  disabled={isLoading}
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-steel-100">Solicitar acceso como administrador</span>
-                  <span className="block mt-1 text-xs leading-relaxed text-steel-400">
-                    Marcá esta opción únicamente si sos administrador y necesitás gestionar la plataforma. Si sos trabajador, no la selecciones. El acceso administrativo requiere validación previa porque permite consultar y gestionar información sensible de la empresa.
-                  </span>
-                </span>
-              </label>
-            </div>
-
             <button type="submit" disabled={isLoading || isLoadingCompanies} className="btn-primary w-full justify-center py-3">
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -443,40 +402,6 @@ export default function RegisterPage({ onBackToLogin }: RegisterPageProps) {
         defaultPhone={phone}
       />
 
-      {showAdminWarning && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-steel-700 bg-steel-900 p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 rounded-full brand-bg-soft p-2 brand-text">
-                  <AlertTriangle size={20} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-steel-50">Solicitud de acceso como administrador</h2>
-                  <p className="mt-3 text-sm leading-relaxed text-steel-300">
-                    El rol de administrador permite acceder y gestionar información sensible de la empresa, incluyendo usuarios, capacitaciones, avances y certificados.
-                  </p>
-                  <p className="mt-3 text-sm leading-relaxed text-steel-300">
-                    Por razones de seguridad, tu solicitud deberá ser validada antes de habilitar permisos administrativos.
-                  </p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setShowAdminWarning(false)} className="text-steel-500 hover:text-steel-200" aria-label="Cerrar">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
-              <button type="button" onClick={() => setShowAdminWarning(false)} className="btn-secondary justify-center">
-                Cancelar
-              </button>
-              <button type="button" onClick={confirmAdminRequest} className="btn-primary justify-center">
-                Continuar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
