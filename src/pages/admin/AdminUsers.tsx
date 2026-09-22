@@ -345,6 +345,64 @@ function getWorkerRole(profile?: Profile | null) {
   );
 }
 
+type WorkerEntryOrigin = 'csv' | 'manual' | 'external' | 'unknown';
+
+const WORKER_ENTRY_ORIGIN_META: Record<
+  WorkerEntryOrigin,
+  { label: string; className: string }
+> = {
+  csv: {
+    label: 'Nómina CSV',
+    className: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+  },
+  manual: {
+    label: 'Manual individual',
+    className: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
+  },
+  external: {
+    label: 'Ingreso externo',
+    className: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  },
+  unknown: {
+    label: 'Sin identificar',
+    className: 'border-steel-600 bg-steel-800 text-steel-400',
+  },
+};
+
+function getWorkerEntryOrigin(profile: Profile): WorkerEntryOrigin {
+  const source = normalize(profile.source);
+  const rawSource = normalize(getRawPayloadString(profile.raw_payload, 'source'));
+
+  if (source === 'csv' || rawSource === 'csv_sync') return 'csv';
+
+  if (
+    source === 'manual' ||
+    rawSource === 'admin_manual_create' ||
+    rawSource === 'admin_email_invite'
+  ) {
+    return 'manual';
+  }
+
+  if (source.startsWith('self_register_')) return 'external';
+
+  // Antes de ser aprobada, una solicitud externa todavía no tiene fila en
+  // employee_directory ni source persistido. Esa combinación ya existe hoy
+  // en el flujo de registro y alcanza para identificarla sin tocar Supabase.
+  if (
+    !profile.employee_directory_id &&
+    Boolean(profile.auth_user_id) &&
+    profile.preapproved === false
+  ) {
+    return 'external';
+  }
+
+  return 'unknown';
+}
+
+function getWorkerEntryOriginMeta(profile: Profile) {
+  return WORKER_ENTRY_ORIGIN_META[getWorkerEntryOrigin(profile)];
+}
+
 function isDirectoryOnly(profile: Profile) {
   return Boolean(profile.is_directory_only || String(profile.id || '').startsWith('directory:'));
 }
@@ -2393,6 +2451,7 @@ export default function AdminUsers() {
             <thead>
               <tr className="bg-steel-900 border-b border-steel-700">
                 <th className="table-header">Nombre</th>
+                <th className="table-header hidden lg:table-cell">Origen</th>
                 <th className="table-header hidden md:table-cell">Rol operativo</th>
                 <th className="table-header hidden xl:table-cell">Puesto</th>
                 <th className="table-header hidden lg:table-cell">Área</th>
@@ -2430,6 +2489,21 @@ export default function AdminUsers() {
                           </div>
                         </div>
                       </div>
+                    </td>
+
+                    <td className="table-cell hidden lg:table-cell">
+                      {(() => {
+                        const originMeta = getWorkerEntryOriginMeta(profile);
+
+                        return (
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${originMeta.className}`}
+                            title="Origen de ingreso del trabajador"
+                          >
+                            {originMeta.label}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     <td className="table-cell hidden md:table-cell text-steel-300">
@@ -3451,7 +3525,7 @@ export default function AdminUsers() {
                 { label: 'Sede', value: showDetail.site },
                 { label: 'Región', value: showDetail.region },
                 { label: 'Yacimiento', value: showDetail.oilfield },
-                { label: 'Origen', value: showDetail.source },
+                { label: 'Origen de ingreso', value: getWorkerEntryOriginMeta(showDetail).label },
               ].map((item) => (
                 <div key={item.label} className="bg-steel-900 rounded-lg p-3">
                   <div className="text-xs text-steel-500 mb-1">{item.label}</div>
