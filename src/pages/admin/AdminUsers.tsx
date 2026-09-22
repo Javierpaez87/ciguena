@@ -1198,6 +1198,18 @@ export default function AdminUsers() {
     loadUsersData();
   }, [tenantId]);
 
+  useEffect(() => {
+    if (!sendingOnboardingReminder) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [sendingOnboardingReminder]);
+
   const filterOptions = useMemo(
     () => getWorkerFilterOptions(users, filterCriterion),
     [users, filterCriterion]
@@ -3483,7 +3495,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
               >
                 <Mail size={15} />
                 {sendingOnboardingReminder
-                  ? 'Enviando...'
+                  ? `Enviando ${getOnboardingReminderEmails(onboardingReminderKind).length} emails...`
                   : onboardingReminderKind
                     ? `Enviar a ${getOnboardingReminderEmails(onboardingReminderKind).length}`
                     : 'Enviar'}
@@ -3539,16 +3551,38 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
           </div>
         ) : onboardingReminderKind ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-              <div className="text-sm font-semibold text-amber-200">
-                Se enviará un recordatorio a {getOnboardingReminderEmails(onboardingReminderKind).length} persona{getOnboardingReminderEmails(onboardingReminderKind).length === 1 ? '' : 's'}.
+            {sendingOnboardingReminder ? (
+              <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <RefreshCw size={18} className="mt-0.5 shrink-0 animate-spin text-sky-300" />
+                  <div>
+                    <div className="text-sm font-semibold text-sky-200">
+                      Envío en curso · {getOnboardingReminderEmails(onboardingReminderKind).length} emails
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-sky-100/80">
+                      Esperá a que aparezca “Envío finalizado”. No cierres esta pestaña, no recargues el navegador y no navegues a otra página mientras se procesan los emails.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="mt-2 text-xs leading-5 text-amber-100/70">
-                {onboardingReminderKind === 'invited'
-                  ? 'Sólo se incluyen personas con invitación enviada que todavía no registraron su cuenta.'
-                  : 'Sólo se incluyen cuentas activas ya registradas que todavía no completaron el onboarding.'}
-              </p>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="text-sm font-semibold text-amber-200">
+                  Se enviará un recordatorio a {getOnboardingReminderEmails(onboardingReminderKind).length} persona{getOnboardingReminderEmails(onboardingReminderKind).length === 1 ? '' : 's'}.
+                </div>
+                <p className="mt-2 text-xs leading-5 text-amber-100/70">
+                  {onboardingReminderKind === 'invited'
+                    ? 'Sólo se incluyen personas con invitación enviada que todavía no registraron su cuenta.'
+                    : 'Sólo se incluyen cuentas activas ya registradas que todavía no completaron el onboarding.'}
+                </p>
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/20 bg-black/10 px-3 py-2">
+                  <AlertCircle size={15} className="mt-0.5 shrink-0 text-amber-300" />
+                  <p className="text-xs leading-5 text-amber-100/80">
+                    Al confirmar, mantené esta pestaña abierta y no refresques hasta ver el resultado final del envío.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {onboardingReminderKind === 'registered' && registeredReminderExcludedCount > 0 && (
               <div className="rounded-lg border border-steel-700 bg-steel-900/70 px-3 py-2 text-xs text-steel-400">
