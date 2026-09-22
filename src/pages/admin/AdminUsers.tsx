@@ -1083,8 +1083,16 @@ export default function AdminUsers() {
       }, {});
 
       const directoryRows = (directoryResult.data ?? []) as EmployeeDirectory[];
+      const allProfiles = (usersResult.data ?? []) as Profile[];
+      const adminProfiles = allProfiles.filter(isAdminUser);
+      const adminProfileIds = new Set(adminProfiles.map((profile) => profile.id));
+      const adminEmails = new Set(
+        adminProfiles
+          .map((profile) => normalize(profile.email))
+          .filter(Boolean)
+      );
 
-      const rawProfiles = ((usersResult.data ?? []) as Profile[]).filter((profile) => !isAdminUser(profile));
+      const rawProfiles = allProfiles.filter((profile) => !isAdminUser(profile));
       const profileById = new Map(rawProfiles.map((profile) => [profile.id, profile]));
       const directoryByProfileId = new Map<string, EmployeeDirectory>();
       const directoryByEmail = new Map<string, EmployeeDirectory>();
@@ -1147,6 +1155,10 @@ export default function AdminUsers() {
 
       const directoryOnlyProfiles = directoryRows
         .filter((row) => !row.profile_id || !profileById.has(row.profile_id))
+        // Si una fila de employee_directory pertenece a un profile admin, no debe
+        // reconstruirse como worker sólo porque los admins se excluyen de rawProfiles.
+        .filter((row) => !row.profile_id || !adminProfileIds.has(row.profile_id))
+        .filter((row) => !row.email || !adminEmails.has(normalize(row.email)))
         .filter((row) => !registeredDirectoryIds.has(row.id))
         .map(directoryRowToProfile);
 
