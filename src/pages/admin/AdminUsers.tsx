@@ -223,6 +223,19 @@ type InvitationRunResult = {
   trackingWarning?: string | null;
 };
 
+type OnboardingReminderKind = 'invited' | 'registered';
+
+type OnboardingReminderRunResult = {
+  requested: number;
+  sent: number;
+  failed: number;
+  status?: string | null;
+  failedRecipients?: Array<{
+    email: string;
+    error?: string | null;
+  }>;
+};
+
 type OnboardingStage = 'not_invited' | 'invited' | 'registered' | 'completed';
 type OnboardingFilter = 'all' | OnboardingStage;
 
@@ -343,6 +356,64 @@ function getWorkerRole(profile?: Profile | null) {
     profile?.position?.trim() ||
     'Sin rol definido'
   );
+}
+
+type WorkerEntryOrigin = 'csv' | 'manual' | 'external' | 'unknown';
+
+const WORKER_ENTRY_ORIGIN_META: Record<
+  WorkerEntryOrigin,
+  { label: string; className: string }
+> = {
+  csv: {
+    label: 'Nómina CSV',
+    className: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+  },
+  manual: {
+    label: 'Manual individual',
+    className: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
+  },
+  external: {
+    label: 'Ingreso externo',
+    className: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  },
+  unknown: {
+    label: 'Sin identificar',
+    className: 'border-steel-600 bg-steel-800 text-steel-400',
+  },
+};
+
+function getWorkerEntryOrigin(profile: Profile): WorkerEntryOrigin {
+  const source = normalize(profile.source);
+  const rawSource = normalize(getRawPayloadString(profile.raw_payload, 'source'));
+
+  if (source === 'csv' || rawSource === 'csv_sync') return 'csv';
+
+  if (
+    source === 'manual' ||
+    rawSource === 'admin_manual_create' ||
+    rawSource === 'admin_email_invite'
+  ) {
+    return 'manual';
+  }
+
+  if (source.startsWith('self_register_')) return 'external';
+
+  // Antes de ser aprobada, una solicitud externa todavía no tiene fila en
+  // employee_directory ni source persistido. Esa combinación ya existe hoy
+  // en el flujo de registro y alcanza para identificarla sin tocar Supabase.
+  if (
+    !profile.employee_directory_id &&
+    Boolean(profile.auth_user_id) &&
+    profile.preapproved === false
+  ) {
+    return 'external';
+  }
+
+  return 'unknown';
+}
+
+function getWorkerEntryOriginMeta(profile: Profile) {
+  return WORKER_ENTRY_ORIGIN_META[getWorkerEntryOrigin(profile)];
 }
 
 function isDirectoryOnly(profile: Profile) {
@@ -948,6 +1019,10 @@ export default function AdminUsers() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [inviteProgress, setInviteProgress] = useState<{ processed: number; total: number } | null>(null);
   const [invitationResult, setInvitationResult] = useState<InvitationRunResult | null>(null);
+  const [onboardingReminderKind, setOnboardingReminderKind] = useState<OnboardingReminderKind | null>(null);
+  const [onboardingReminderResult, setOnboardingReminderResult] = useState<OnboardingReminderRunResult | null>(null);
+  const [onboardingReminderError, setOnboardingReminderError] = useState<string | null>(null);
+  const [sendingOnboardingReminder, setSendingOnboardingReminder] = useState(false);
 
   async function loadUsersData(options?: { silent?: boolean }) {
     if (!tenantId) {
@@ -1223,6 +1298,56 @@ export default function AdminUsers() {
       className: ONBOARDING_STAGE_META[stage].cardClassName,
     })),
   ];
+
+  const invitedReminderEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          employeeDirectory
+            .filter(
+              (row) =>
+                !row.profile_id &&
+                normalize(row.status) === 'invited' &&
+                Boolean(row.email) &&
+                isValidEmail(row.email || '')
+            )
+            .map((row) => normalize(row.email))
+            .filter(Boolean)
+        )
+      ),
+    [employeeDirectory]
+  );
+
+  const registeredOnboardingRows = useMemo(
+    () =>
+      users.filter(
+        (profile) => getOnboardingStage(profile, signatureConsentByUserId) === 'registered'
+      ),
+    [users, signatureConsentByUserId]
+  );
+
+  const registeredReminderEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          registeredOnboardingRows
+            .filter(
+              (profile) =>
+                isActive(profile) &&
+                Boolean(profile.email) &&
+                isValidEmail(profile.email || '')
+            )
+            .map((profile) => normalize(profile.email))
+            .filter(Boolean)
+        )
+      ),
+    [registeredOnboardingRows]
+  );
+
+  const registeredReminderExcludedCount = Math.max(
+    0,
+    registeredOnboardingRows.length - registeredReminderEmails.length
+  );
 
   const bulkInvitationRows = useMemo(
     () =>
@@ -1616,6 +1741,128 @@ export default function AdminUsers() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  function getOnboardingReminderCopy(kind: OnboardingReminderKind) {
+    const platformName = branding.brandName || tenantName || 'la plataforma';
+
+    if (kind === 'invited') {
+      return {
+        subject: `Recordatorio: completá tu registro en ${platformName}`,
+        body: `Hola {{nombre}},
+
+Ya recibiste una invitación para acceder a ${platformName}. Tu cuenta todavía no fue registrada.
+
+Ingresá a la plataforma y registrate utilizando este mismo email para activar tu acceso.
+
+Después del registro vas a poder validar tus datos y completar el onboarding.`,
+      };
+    }
+
+    return {
+      subject: `Recordatorio: completá tu onboarding en ${platformName}`,
+      body: `Hola {{nombre}},
+
+Tu cuenta ya está registrada. Ya podés avanzar con el onboarding.
+
+Ingresá a la plataforma para validar tus datos y completar el consentimiento de firma electrónica.
+
+Una vez finalizado este paso, tu onboarding quedará completo y podrás continuar con tus capacitaciones.`,
+    };
+  }
+
+  function getOnboardingReminderEmails(kind: OnboardingReminderKind) {
+    return kind === 'invited' ? invitedReminderEmails : registeredReminderEmails;
+  }
+
+  function openOnboardingReminder(kind: OnboardingReminderKind) {
+    setOnboardingReminderResult(null);
+    setOnboardingReminderError(null);
+    setOnboardingReminderKind(kind);
+  }
+
+  function closeOnboardingReminder() {
+    if (sendingOnboardingReminder) return;
+
+    setOnboardingReminderKind(null);
+    setOnboardingReminderResult(null);
+    setOnboardingReminderError(null);
+  }
+
+  async function handleSendOnboardingReminder() {
+    if (!tenantId || !onboardingReminderKind) return;
+
+    const recipientEmails = getOnboardingReminderEmails(onboardingReminderKind);
+    if (recipientEmails.length === 0) {
+      setOnboardingReminderError('No hay destinatarios habilitados para este recordatorio.');
+      return;
+    }
+
+    const copy = getOnboardingReminderCopy(onboardingReminderKind);
+
+    setSendingOnboardingReminder(true);
+    setOnboardingReminderError(null);
+    setOnboardingReminderResult(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        throw new Error('Tu sesión venció. Volvé a ingresar antes de enviar recordatorios.');
+      }
+
+      const response = await fetch('/.netlify/functions/send-bulk-communication', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          mode: 'send',
+          tenantId,
+          recipientEmails,
+          subject: copy.subject,
+          body: copy.body,
+          includePlatformButton: true,
+          filters: {
+            source: 'admin_users_onboarding_reminder',
+            onboarding_stage: onboardingReminderKind,
+            selected_count: recipientEmails.length,
+          },
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'No pudimos enviar el recordatorio masivo.');
+      }
+
+      const normalizedResult: OnboardingReminderRunResult = {
+        requested: Number(result?.requested ?? recipientEmails.length),
+        sent: Number(result?.sent ?? 0),
+        failed: Number(result?.failed ?? 0),
+        status: result?.status || null,
+        failedRecipients: Array.isArray(result?.failedRecipients)
+          ? result.failedRecipients
+          : [],
+      };
+
+      setOnboardingReminderResult(normalizedResult);
+
+      if (normalizedResult.failed === 0) {
+        setSuccessMessage(
+          `Recordatorio enviado correctamente a ${normalizedResult.sent} persona${normalizedResult.sent === 1 ? '' : 's'}.`
+        );
+      }
+    } catch (error) {
+      setOnboardingReminderError(
+        error instanceof Error ? error.message : 'No pudimos enviar el recordatorio masivo.'
+      );
+    } finally {
+      setSendingOnboardingReminder(false);
     }
   }
 
@@ -2364,25 +2611,58 @@ export default function AdminUsers() {
             )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {onboardingCards.map((card) => {
-              const selected = onboardingFilter === card.key;
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {onboardingCards.map((card) => {
+                const selected = onboardingFilter === card.key;
 
-              return (
+                return (
+                  <button
+                    key={card.key}
+                    type="button"
+                    onClick={() => setOnboardingFilter(card.key)}
+                    className={`rounded-lg border px-3 py-2 text-left transition-all ${card.className} ${
+                      selected ? 'ring-2 ring-white/20 shadow-sm' : 'hover:border-steel-500'
+                    }`}
+                    title="Filtrar trabajadores por este estado de onboarding"
+                  >
+                    <div className="text-base font-semibold leading-none">{card.count}</div>
+                    <div className="mt-1 text-[11px] font-medium">{card.label}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {onboardingFilter === 'invited' && (
+              <button
+                type="button"
+                onClick={() => openOnboardingReminder('invited')}
+                disabled={invitedReminderEmails.length === 0}
+                className="btn-secondary shrink-0 text-xs"
+              >
+                <Mail size={14} />
+                Recordar a {invitedReminderEmails.length} invitado{invitedReminderEmails.length === 1 ? '' : 's'} que ya pueden registrarse
+              </button>
+            )}
+
+            {onboardingFilter === 'registered' && (
+              <div className="flex flex-col items-start gap-1 xl:items-end">
                 <button
-                  key={card.key}
                   type="button"
-                  onClick={() => setOnboardingFilter(card.key)}
-                  className={`rounded-lg border px-3 py-2 text-left transition-all ${card.className} ${
-                    selected ? 'ring-2 ring-white/20 shadow-sm' : 'hover:border-steel-500'
-                  }`}
-                  title="Filtrar trabajadores por este estado de onboarding"
+                  onClick={() => openOnboardingReminder('registered')}
+                  disabled={registeredReminderEmails.length === 0}
+                  className="btn-secondary shrink-0 text-xs"
                 >
-                  <div className="text-base font-semibold leading-none">{card.count}</div>
-                  <div className="mt-1 text-[11px] font-medium">{card.label}</div>
+                  <Mail size={14} />
+                  Recordar a {registeredReminderEmails.length} registrado{registeredReminderEmails.length === 1 ? '' : 's'} que completen onboarding
                 </button>
-              );
-            })}
+                {registeredReminderExcludedCount > 0 && (
+                  <span className="text-[10px] text-amber-300/80">
+                    {registeredReminderExcludedCount} registrado{registeredReminderExcludedCount === 1 ? '' : 's'} pendiente{registeredReminderExcludedCount === 1 ? '' : 's'} de aprobación o sin email no se incluye{registeredReminderExcludedCount === 1 ? '' : 'n'}.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2393,6 +2673,7 @@ export default function AdminUsers() {
             <thead>
               <tr className="bg-steel-900 border-b border-steel-700">
                 <th className="table-header">Nombre</th>
+                <th className="table-header hidden lg:table-cell">Origen</th>
                 <th className="table-header hidden md:table-cell">Rol operativo</th>
                 <th className="table-header hidden xl:table-cell">Puesto</th>
                 <th className="table-header hidden lg:table-cell">Área</th>
@@ -2430,6 +2711,21 @@ export default function AdminUsers() {
                           </div>
                         </div>
                       </div>
+                    </td>
+
+                    <td className="table-cell hidden lg:table-cell">
+                      {(() => {
+                        const originMeta = getWorkerEntryOriginMeta(profile);
+
+                        return (
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${originMeta.className}`}
+                            title="Origen de ingreso del trabajador"
+                          >
+                            {originMeta.label}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     <td className="table-cell hidden md:table-cell text-steel-300">
@@ -3149,6 +3445,144 @@ export default function AdminUsers() {
       </Modal>
 
       <Modal
+        open={Boolean(onboardingReminderKind)}
+        onClose={closeOnboardingReminder}
+        title={
+          onboardingReminderResult
+            ? 'Resultado del recordatorio'
+            : onboardingReminderKind === 'invited'
+              ? 'Recordar registro'
+              : 'Recordar onboarding'
+        }
+        size="md"
+        footer={
+          onboardingReminderResult ? (
+            <button
+              onClick={closeOnboardingReminder}
+              className="btn-primary"
+            >
+              Cerrar
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={closeOnboardingReminder}
+                disabled={sendingOnboardingReminder}
+                className="btn-ghost"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendOnboardingReminder}
+                disabled={
+                  sendingOnboardingReminder ||
+                  !onboardingReminderKind ||
+                  getOnboardingReminderEmails(onboardingReminderKind).length === 0
+                }
+                className="btn-primary"
+              >
+                <Mail size={15} />
+                {sendingOnboardingReminder
+                  ? 'Enviando...'
+                  : onboardingReminderKind
+                    ? `Enviar a ${getOnboardingReminderEmails(onboardingReminderKind).length}`
+                    : 'Enviar'}
+              </button>
+            </>
+          )
+        }
+      >
+        {onboardingReminderKind && onboardingReminderResult ? (
+          <div className="space-y-4">
+            <div
+              className={`rounded-xl border p-4 ${
+                onboardingReminderResult.failed > 0
+                  ? 'border-amber-500/30 bg-amber-500/10'
+                  : 'border-emerald-500/30 bg-emerald-500/10'
+              }`}
+            >
+              <div className="text-sm font-semibold text-steel-100">
+                Envío finalizado
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <div className="text-xl font-bold text-steel-100">{onboardingReminderResult.requested}</div>
+                  <div className="text-[10px] text-steel-400">destinatarios</div>
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-emerald-300">{onboardingReminderResult.sent}</div>
+                  <div className="text-[10px] text-steel-400">enviados</div>
+                </div>
+                <div>
+                  <div className={`text-xl font-bold ${onboardingReminderResult.failed > 0 ? 'text-red-300' : 'text-steel-300'}`}>
+                    {onboardingReminderResult.failed}
+                  </div>
+                  <div className="text-[10px] text-steel-400">fallidos</div>
+                </div>
+              </div>
+            </div>
+
+            {onboardingReminderResult.failedRecipients &&
+              onboardingReminderResult.failedRecipients.length > 0 && (
+                <div className="max-h-48 overflow-y-auto rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                  <div className="mb-2 text-xs font-semibold text-red-300">No se pudieron enviar</div>
+                  <div className="space-y-2">
+                    {onboardingReminderResult.failedRecipients.map((recipient) => (
+                      <div key={recipient.email} className="text-xs text-steel-300">
+                        <span className="font-medium">{recipient.email}</span>
+                        {recipient.error ? ` · ${recipient.error}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+          </div>
+        ) : onboardingReminderKind ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="text-sm font-semibold text-amber-200">
+                Se enviará un recordatorio a {getOnboardingReminderEmails(onboardingReminderKind).length} persona{getOnboardingReminderEmails(onboardingReminderKind).length === 1 ? '' : 's'}.
+              </div>
+              <p className="mt-2 text-xs leading-5 text-amber-100/70">
+                {onboardingReminderKind === 'invited'
+                  ? 'Sólo se incluyen personas con invitación enviada que todavía no registraron su cuenta.'
+                  : 'Sólo se incluyen cuentas activas ya registradas que todavía no completaron el onboarding.'}
+              </p>
+            </div>
+
+            {onboardingReminderKind === 'registered' && registeredReminderExcludedCount > 0 && (
+              <div className="rounded-lg border border-steel-700 bg-steel-900/70 px-3 py-2 text-xs text-steel-400">
+                {registeredReminderExcludedCount} cuenta{registeredReminderExcludedCount === 1 ? '' : 's'} registrada{registeredReminderExcludedCount === 1 ? '' : 's'} no se incluye{registeredReminderExcludedCount === 1 ? '' : 'n'} porque todavía está{registeredReminderExcludedCount === 1 ? '' : 'n'} pendiente{registeredReminderExcludedCount === 1 ? '' : 's'} de aprobación o no tiene{registeredReminderExcludedCount === 1 ? '' : 'n'} un email válido.
+              </div>
+            )}
+
+            <div className="rounded-xl border border-steel-700 bg-steel-900/70 p-4">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-steel-500">
+                Email que se enviará
+              </div>
+              <div className="text-xs text-steel-500">Asunto</div>
+              <div className="mt-1 text-sm font-semibold text-steel-100">
+                {getOnboardingReminderCopy(onboardingReminderKind).subject}
+              </div>
+              <div className="mt-4 text-xs text-steel-500">Mensaje</div>
+              <div className="mt-1 whitespace-pre-line text-sm leading-6 text-steel-300">
+                {getOnboardingReminderCopy(onboardingReminderKind).body.replace('{{nombre}}', 'Nombre')}
+              </div>
+              <div className="mt-4 rounded-lg border border-steel-700 bg-steel-800/70 px-3 py-2 text-xs text-steel-400">
+                El email incluirá el botón para ingresar a la plataforma.
+              </div>
+            </div>
+
+            {onboardingReminderError && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {onboardingReminderError}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
         open={showBulkInvite}
         onClose={() => {
           if (!saving) {
@@ -3451,7 +3885,7 @@ export default function AdminUsers() {
                 { label: 'Sede', value: showDetail.site },
                 { label: 'Región', value: showDetail.region },
                 { label: 'Yacimiento', value: showDetail.oilfield },
-                { label: 'Origen', value: showDetail.source },
+                { label: 'Origen de ingreso', value: getWorkerEntryOriginMeta(showDetail).label },
               ].map((item) => (
                 <div key={item.label} className="bg-steel-900 rounded-lg p-3">
                   <div className="text-xs text-steel-500 mb-1">{item.label}</div>
