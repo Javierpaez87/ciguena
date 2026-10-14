@@ -391,18 +391,6 @@ export const handler = async (event: any) => {
   );
   const emailFrom = getEmailSender(branding);
 
-  // Tombstones are tenant-scoped; check before any Auth or profile mutations.
-  const { data: trashedMatches, error: trashLookupError } = await supabaseAdmin
-    .from('worker_trash_identities')
-    .select('id')
-    .eq('tenant_id', companyId)
-    .eq('email_normalized', email)
-    .limit(1);
-  if (trashLookupError) return json(500, { error: 'No se pudo validar el estado de tu usuario.' });
-  if (trashedMatches?.length) {
-    return json(409, { error: 'Tu usuario fue dado de baja. Contactá a los administradores de tu organización para solicitar su restauración.' });
-  }
-
   // La nómina indica si la persona está habilitada para registrarse.
   // Un profile o profile_id por sí solos NO significan que exista una cuenta Auth válida.
   const { data: employeeDirectoryEntry, error: employeeDirectoryError } = await supabaseAdmin
