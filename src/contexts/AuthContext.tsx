@@ -52,6 +52,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 type SupabaseProfile = Profile & {
+  deleted_at?: string | null;
   auth_user_id?: string;
   phone?: string | null;
   requested_admin?: boolean;
@@ -114,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const authUser = data.session.user;
     const { profile } = await getProfileForAuthUser(authUser.id);
 
-    if (!profile || profile.status !== 'active') {
+    if (!profile || (profile.status !== 'active' || Boolean(profile.deleted_at))) {
       setSessionUser(null);
       setGhostSession(null);
       setIsLoading(false);
@@ -137,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       getProfileForAuthUser(authUser.id).then(({ profile }) => {
-        if (!profile || profile.status !== 'active') {
+        if (!profile || (profile.status !== 'active' || Boolean(profile.deleted_at))) {
           setSessionUser(null);
           setGhostSession(null);
           setIsLoading(false);
@@ -177,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: 'Tu usuario no tiene un perfil asociado. Contactá al administrador de tu organización.' };
     }
 
-    if (profile.status !== 'active') {
+    if ((profile.status !== 'active' || Boolean(profile.deleted_at))) {
       await supabase.auth.signOut();
       setSessionUser(null);
       setIsLoading(false);

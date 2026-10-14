@@ -6,6 +6,8 @@ import {
   ToggleRight,
   Eye,
   Pencil,
+  Trash2,
+  RotateCcw,
   Mail,
   Users,
   RefreshCw,
@@ -989,6 +991,9 @@ export default function AdminUsers() {
 
   const [users, setUsers] = useState<Profile[]>([]);
   const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
+  const [deletedUsers, setDeletedUsers] = useState<Profile[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashBusy, setTrashBusy] = useState(false);
   const [tenantName, setTenantName] = useState('');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [tenantTrainings, setTenantTrainings] = useState<TenantTraining[]>([]);
@@ -1141,6 +1146,7 @@ export default function AdminUsers() {
           preapproved: profile.preapproved ?? true,
           source: profile.source || directoryRow.source,
           directory_status: directoryRow.status,
+          deleted_at: profile.deleted_at || directoryRow.deleted_at,
           directory_created_at: directoryRow.created_at,
           invited_at: profile.invited_at || directoryRow.invited_at,
           registered_at: profile.registered_at || directoryRow.registered_at,
@@ -1162,7 +1168,8 @@ export default function AdminUsers() {
         .filter((row) => !registeredDirectoryIds.has(row.id))
         .map(directoryRowToProfile);
 
-      const loadedUsers = [...enhancedProfiles, ...directoryOnlyProfiles]
+      const allWorkers = [...enhancedProfiles, ...directoryOnlyProfiles];
+      const loadedUsers = allWorkers.filter((worker) => !worker.deleted_at)
         .sort((a, b) => getFullName(a).toLowerCase().localeCompare(getFullName(b).toLowerCase()));
 
       const loadedTenantTrainings = (tenantTrainingsResult.data ?? []) as TenantTraining[];
@@ -1188,7 +1195,8 @@ export default function AdminUsers() {
         };
       });
 
-      setEmployeeDirectory(directoryRows);
+      setDeletedUsers(allWorkers.filter((worker) => Boolean(worker.deleted_at)));
+      setEmployeeDirectory(directoryRows.filter((row) => !row.deleted_at));
       setTenantName(tenantResult.data?.name || '');
       setUsers(loadedUsers);
       setAssignments(sortByCreatedAtDesc(loadedAssignments));
@@ -1203,6 +1211,31 @@ export default function AdminUsers() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function changeDeletedState(profile: Profile, restore: boolean) {
+    if (!tenantId || trashBusy) return;
+    const message = restore
+      ? `¿Restaurar a ${getFullName(profile)}? Volverá como inactivo y necesitará aprobación para ingresar.`
+      : `¿Enviar a ${getFullName(profile)} a la papelera? Se bloqueará su acceso y dejará de figurar en la nómina activa.`;
+    if (!window.confirm(message)) return;
+    setTrashBusy(true);
+    setErrorMessage(null);
+    try {
+      const { error } = await supabase.rpc('set_worker_trashed', {
+        p_tenant_id: tenantId,
+        p_profile_id: isDirectoryOnly(profile) ? null : profile.id,
+        p_directory_id: profile.employee_directory_id || (isDirectoryOnly(profile) ? profile.id.replace('directory:', '') : null),
+        p_restore: restore,
+      });
+      if (error) throw error;
+      await loadUsersData({ silent: true });
+      setSuccessMessage(restore ? 'Usuario restaurado como inactivo.' : 'Usuario enviado a la papelera.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo actualizar la papelera.');
+    } finally {
+      setTrashBusy(false);
     }
   }
 
@@ -2439,6 +2472,27 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         }}
       />
 
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" onClick={() => setShowTrash(!showTrash)} className="btn-secondary text-xs">
+          <Trash2 size={14} /> {showTrash ? 'Volver a usuarios' : `Papelera (${deletedUsers.length})`}
+        </button>
+      </div>
+      {showTrash ? (
+        <div className="card p-4 space-y-3">
+          <h2 className="font-semibold text-steel-100">Papelera de usuarios</h2>
+          <p className="text-sm text-steel-400">Los usuarios eliminados no se incluyen en las métricas operativas. Al restaurarlos quedan inactivos.</p>
+          {deletedUsers.length === 0 && <p className="text-sm text-steel-400">La papelera está vacía.</p>}
+          {deletedUsers.map((profile) => (
+            <div key={profile.id} className="flex items-center justify-between gap-3 border-b border-steel-700 py-2">
+              <div className="min-w-0"><div className="font-medium text-steel-100">{getFullName(profile)}</div>
+                <div className="text-xs text-steel-400">{profile.email || 'Sin email'} · {profile.dni || 'Sin DNI'}</div></div>
+              <button type="button" disabled={trashBusy} onClick={() => changeDeletedState(profile, true)} className="btn-secondary text-xs">
+                <RotateCcw size={14} /> Restaurar
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : <>
       <div className="card p-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(320px,1.5fr)_minmax(180px,0.8fr)_minmax(220px,1fr)_minmax(150px,0.65fr)] gap-3 items-end">
           <label className="block">
@@ -2822,6 +2876,10 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                           <Pencil size={14} />
                         </button>
 
+                        <button type="button" disabled={trashBusy}
+                          onClick={() => changeDeletedState(profile, false)}
+                          className="p-1.5 rounded hover:bg-red-500/10 text-steel-400 hover:text-red-400 transition-colors"
+                          title="Eliminar usuario (enviar a papelera)"><Trash2 size={14} /></button>
                         <button
                           onClick={() => toggleStatus(profile)}
                           className="p-1.5 rounded hover:bg-steel-700 transition-colors"
@@ -2850,6 +2908,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         )}
       </div>
 
+      </>}
       <Modal
         open={showCreate}
         onClose={() => setShowCreate(false)}
