@@ -569,16 +569,10 @@ export default function AdminAssignments() {
           ? certificatesByAssignmentId.get(assignment.id)
           : null;
 
-        // Some historical assignments store an auth user ID instead of a profile ID.
-        // Resolve both formats before linking worker details and certificates.
-        const resolvedProfileId = assignment.user_id
-          ? profileIdByKnownUserId.get(assignment.user_id) || assignment.user_id
-          : null;
-
         const certificateByUserTraining =
-          resolvedProfileId && assignment.training_id
+          assignment.user_id && assignment.training_id
             ? certificatesByUserTrainingKey.get(
-                getUserTrainingKey(resolvedProfileId, assignment.training_id)
+                getUserTrainingKey(assignment.user_id, assignment.training_id)
               )
             : null;
 
@@ -590,7 +584,7 @@ export default function AdminAssignments() {
 
         const hydratedAssignment: Assignment = {
           ...assignment,
-          user: resolvedProfileId ? usersById.get(resolvedProfileId) ?? null : null,
+          user: assignment.user_id ? usersById.get(assignment.user_id) ?? null : null,
           training: trainingKey ? trainingsByAnyId.get(trainingKey) ?? null : null,
         };
 
