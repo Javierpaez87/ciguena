@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   ChevronLeft,
@@ -126,6 +126,37 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   const [attempt, setAttempt] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
+  const [attemptHistoryLoaded, setAttemptHistoryLoaded] = useState(false);
+  const [completedEarlier, setCompletedEarlier] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setAttemptHistoryLoaded(false);
+    setCompletedEarlier(false);
+    setAttempt(1);
+    if (!assignment?.id || !test) {
+      setAttemptHistoryLoaded(true);
+      return;
+    }
+    supabase.from('training_test_attempts')
+      .select('attempt_number, passed')
+      .eq('assignment_id', assignment.id)
+      .eq('test_id', test.id)
+      .order('attempt_number', { ascending: false })
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          console.error('No se pudo recuperar historial de intentos:', error);
+          setSaveWarning('No pudimos verificar los intentos anteriores. Contactá a soporte antes de rendir.');
+          return;
+        }
+        setCompletedEarlier(Boolean(data?.some(item => item.passed)));
+        setAttempt((data?.[0]?.attempt_number ?? 0) + 1);
+        setAttemptHistoryLoaded(true);
+      });
+    return () => { active = false; };
+  }, [assignment?.id, test?.id]);
+
 
   const questionsForAttempt = useMemo<ShuffledQuestion[]>(() => {
     if (!test) return [];
@@ -373,61 +404,27 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     }
   };
 
-  const registerTestAttempt = async ({
-    score,
-    passed,
-    correct,
-  }: {
-    score: number;
-    passed: boolean;
-    correct: number;
-  }) => {
-    if (!assignment?.id || !assignment?.user_id || !test) return;
-
-    const { data: attemptData, error: attemptError } = await supabase
-      .from('training_test_attempts')
-      .insert({
-        assignment_id: assignment.id,
-        user_id: assignment.user_id,
-        training_id: assignment.training_id,
-        test_id: test.id,
-        attempt_number: attempt,
-        score,
-        correct_answers: correct,
-        total_questions: questionsForAttempt.length,
-        passed,
-      })
-      .select('id')
-      .single();
-
-    if (attemptError) {
-      console.error('Error registrando intento de examen:', attemptError);
-      return;
+  const registerTestAttempt = async (): Promise<boolean> => {
+    if (!assignment?.id || !test) {
+      setSaveWarning('No encontramos los datos de la asignación para auditar el examen.');
+      return false;
     }
 
-    const attemptId = attemptData?.id;
-
-    if (!attemptId) return;
-
-    const answersPayload = questionsForAttempt.map((question) => {
-      const selectedOption = answers[question.id] ?? '';
-
-      return {
-        attempt_id: attemptId,
-        question_id: question.id,
-        selected_option: selectedOption,
-        correct_option: question.correctOption,
-        is_correct: selectedOption === question.correctOption,
-      };
+    // A single database transaction saves the historical bank, the exact batch,
+    // every question/option/answer and the existing attempt tables.
+    const { error } = await supabase.rpc('record_training_test_attempt_audited', {
+      p_assignment_id: assignment.id,
+      p_test: test,
+      p_questions: questionsForAttempt,
+      p_answers: answers,
     });
 
-    const { error: answersError } = await supabase
-      .from('training_test_attempt_answers')
-      .insert(answersPayload);
-
-    if (answersError) {
-      console.error('Error registrando respuestas del examen:', answersError);
+    if (error) {
+      console.error('No se pudo registrar el examen auditado:', error);
+      setSaveWarning('No pudimos guardar la evidencia del examen. No se emitió ningún certificado. Por favor, contactá a soporte antes de reintentar.');
+      return false;
     }
+    return true;
   };
 
   const submitTest = async () => {
@@ -435,7 +432,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       setSaveWarning('Ghost View está en modo solo lectura. No se registrarán intentos ni certificados.');
       return;
     }
-    if (!test || questionsForAttempt.length === 0) return;
+    if (!test || questionsForAttempt.length === 0 || !attemptHistoryLoaded || completedEarlier || isSaving) return;
 
     setSaveWarning(null);
 
@@ -452,19 +449,18 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     const score = Math.round((correct / questionsForAttempt.length) * 100);
     const passed = score >= test.passingScore;
 
+    setIsSaving(true);
+    const saved = await registerTestAttempt();
+    if (!saved) {
+      setIsSaving(false);
+      return;
+    }
+
     setResult({
       score,
       passed,
       correct,
       total: questionsForAttempt.length,
-    });
-
-    setIsSaving(true);
-
-    await registerTestAttempt({
-      score,
-      passed,
-      correct,
     });
 
     if (passed) {
@@ -513,6 +509,20 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
         >
           <ChevronLeft size={14} /> Volver
         </button>
+      </div>
+    );
+  }
+
+  if (!attemptHistoryLoaded) {
+    return <div className="text-center py-16">{saveWarning || 'Verificando historial de intentos...'}</div>;
+  }
+
+  if (completedEarlier) {
+    return (
+      <div className="text-center py-16">
+        <Award size={32} className="mx-auto mb-3" />
+        <p>Este examen ya fue aprobado. Consultá tu certificado.</p>
+        <button onClick={() => onNavigate('worker-certificates')} className="btn-primary mt-4 mx-auto">Ver certificados</button>
       </div>
     );
   }
