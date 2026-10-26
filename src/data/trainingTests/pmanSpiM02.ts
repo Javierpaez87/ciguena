@@ -1,0 +1,347 @@
+import type { TrainingTest } from './types';
+
+export const pmanSpiM02Test: TrainingTest = {
+  id: "test_spi_pman_m02",
+  trainingId: "tr_spi_pman_m02",
+  title: "Examen · Protección de Manos · Módulo 2 · Control y Reducción de Riesgos",
+  description: 'Evaluación de Protección de Manos SPI. Banco de 30 preguntas en 3 baterías consecutivas de 10.',
+  passingScore: 80,
+  questionsPerAttempt: 10,
+  maxAttempts: 3,
+  attemptMode: 'sequential_blocks',
+  questions: [
+    // Batería 1 · Intento 1
+    {
+      id: "SPI-PMAN-M02-B1-P01",
+      question: "¿Cuál es el orden correcto de la jerarquía de controles, de mayor a menor eficacia?",
+      options: [
+        { key: "a", text: "EPP, administrativos, ingeniería, sustitución y eliminación." },
+        { key: "b", text: "Eliminación, sustitución, ingeniería, administrativos y EPP." },
+        { key: "c", text: "Sustitución, eliminación, ingeniería, EPP y administrativos." },
+        { key: "d", text: "Ingeniería, eliminación, administrativos, sustitución y EPP." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P02",
+      question: "Para evitar que un incidente se repita, ¿qué nivel de la jerarquía de controles es el más eficaz?",
+      options: [
+        { key: "a", text: "Eliminación." },
+        { key: "b", text: "Sustitución." },
+        { key: "c", text: "Controles administrativos." },
+        { key: "d", text: "Equipos de protección personal." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P03",
+      question: "¿En qué consiste la eliminación?",
+      options: [
+        { key: "a", text: "En reemplazar la herramienta por otra más segura." },
+        { key: "b", text: "En quitar el peligro del proceso." },
+        { key: "c", text: "En señalizar el peligro para que todos lo conozcan." },
+        { key: "d", text: "En reducir el tiempo de exposición al peligro." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P04",
+      question: "Un equipo deja de golpear una llave con martillo y adopta una llave de torque hidráulica para no exponer las manos al impacto. ¿Qué nivel de control aplicó?",
+      options: [
+        { key: "a", text: "Eliminación." },
+        { key: "b", text: "Controles de ingeniería." },
+        { key: "c", text: "Sustitución." },
+        { key: "d", text: "Controles administrativos." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P05",
+      question: "Se rediseña una herramienta de ensamblaje y se le instalan manijas para que los dedos queden fuera de la zona de atrapamiento. ¿Qué tipo de control es?",
+      options: [
+        { key: "a", text: "Eliminación." },
+        { key: "b", text: "Control de ingeniería." },
+        { key: "c", text: "Control administrativo." },
+        { key: "d", text: "Sustitución." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P06",
+      question: "Tras incidentes por pellizcos al colocar una protección, se identifican los puntos de pellizco con calcomanías. ¿A qué nivel de la jerarquía corresponde?",
+      options: [
+        { key: "a", text: "Controles administrativos." },
+        { key: "b", text: "Eliminación." },
+        { key: "c", text: "Controles de ingeniería." },
+        { key: "d", text: "Equipos de protección personal." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P07",
+      question: "¿Cuáles son las dos acciones clave de la evaluación previa del trabajo?",
+      options: [
+        { key: "a", text: "Firmar el permiso de trabajo y comenzar la tarea enseguida." },
+        { key: "b", text: "Revisar el EPP y avisar al supervisor al terminar." },
+        { key: "c", text: "Calcular el tiempo de la tarea y asignar responsables." },
+        { key: "d", text: "Identificar los peligros de cada tarea e informarlos." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P08",
+      question: "¿Cuál es la característica fundamental del EPP, como los guantes de impacto?",
+      options: [
+        { key: "a", text: "Elimina el riesgo de raíz si se usa correctamente." },
+        { key: "b", text: "Es el control más eficaz de la jerarquía." },
+        { key: "c", text: "Reemplaza a los controles de ingeniería." },
+        { key: "d", text: "Es la última línea de defensa." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P09",
+      question: "Observás a un compañero que golpea con un martillo una pieza que sostiene con la otra mano. ¿Qué pregunta te ayuda a detectar el peligro?",
+      options: [
+        { key: "a", text: "¿El martillo es de la marca y el peso recomendados?" },
+        { key: "b", text: "¿Cuánto tiempo le falta para terminar la tarea que está haciendo?" },
+        { key: "c", text: "¿Dónde está la otra mano y qué pasa si el golpe se desvía?" },
+        { key: "d", text: "¿El martillo es nuevo o ya fue usado en otras tareas?" },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B1-P10",
+      question: "Tenés que ajustar una conexión con una llave grande. Según la jerarquía, ¿cuál es la primera pregunta que te tenés que hacer?",
+      options: [
+        { key: "a", text: "¿Qué EPP necesito para hacer esta tarea?" },
+        { key: "b", text: "¿Hay un procedimiento para esta tarea?" },
+        { key: "c", text: "¿Se puede rediseñar la herramienta que uso?" },
+        { key: "d", text: "¿Se puede eliminar el peligro o la tarea?" },
+      ],
+      correctOption: "d",
+    },
+    // Batería 2 · Intento 2
+    {
+      id: "SPI-PMAN-M02-B2-P01",
+      question: "¿Cómo se aplica la jerarquía de controles?",
+      options: [
+        { key: "a", text: "De abajo hacia arriba: primero el EPP y después los demás controles." },
+        { key: "b", text: "Se elige un solo nivel, según el presupuesto disponible." },
+        { key: "c", text: "De arriba hacia abajo: primero eliminar y el EPP al final." },
+        { key: "d", text: "En cualquier orden, porque todos los niveles son igual de eficaces." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P02",
+      question: "Cuanto más alto está un control en la jerarquía…",
+      options: [
+        { key: "a", text: "…mayor es su eficacia y menos depende de las personas." },
+        { key: "b", text: "…más depende de que cada persona lo cumpla correctamente." },
+        { key: "c", text: "…más barato y rápido resulta implementarlo." },
+        { key: "d", text: "…más supervisión necesita para funcionar bien." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P03",
+      question: "Un trabajador se cortó el pulgar al abrir la parte inferior de un bolsón con un cuchillo, y se eliminó la carga de producto por caída del contenido. ¿Por qué es la mejor opción?",
+      options: [
+        { key: "a", text: "Porque se entregó un cuchillo de mejor calidad." },
+        { key: "b", text: "Porque al eliminar la tarea, desaparece el riesgo de corte." },
+        { key: "c", text: "Porque el trabajador ahora usa guantes anticorte durante la tarea." },
+        { key: "d", text: "Porque se colocó un cartel de advertencia en los bolsones." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P04",
+      question: "¿En qué consiste la sustitución?",
+      options: [
+        { key: "a", text: "En quitar por completo la tarea peligrosa del proceso de trabajo." },
+        { key: "b", text: "En rediseñar el equipo o la herramienta para que las manos queden alejadas." },
+        { key: "c", text: "En reforzar los procedimientos de trabajo y la supervisión." },
+        { key: "d", text: "En reemplazar la tarea, herramienta o método por algo más seguro." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P05",
+      question: "¿Qué ventaja tiene un control de ingeniería frente a uno administrativo?",
+      options: [
+        { key: "a", text: "Es más rápido y económico de implementar que un procedimiento." },
+        { key: "b", text: "La protección queda en el equipo y depende menos de la persona." },
+        { key: "c", text: "No requiere ningún tipo de mantenimiento ni de revisión." },
+        { key: "d", text: "Reemplaza la necesidad de evaluar la tarea antes de empezar." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P06",
+      question: "¿Cuál es la principal limitación de los controles administrativos?",
+      options: [
+        { key: "a", text: "Dependen de que todas las personas los conozcan y los cumplan." },
+        { key: "b", text: "Son los controles más caros de toda la jerarquía de controles." },
+        { key: "c", text: "Solo se pueden aplicar en equipos nuevos o recién instalados." },
+        { key: "d", text: "Eliminan el peligro, pero frenan la producción de la operación." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P07",
+      question: "¿En qué nivel de la jerarquía se ubica la evaluación previa del trabajo?",
+      options: [
+        { key: "a", text: "Eliminación." },
+        { key: "b", text: "Controles de ingeniería." },
+        { key: "c", text: "Controles administrativos." },
+        { key: "d", text: "Equipos de protección personal." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P08",
+      question: "Un trabajador se golpeó el pulgar usando una maza sobre un fluid end, y se le entregaron guantes de alto impacto. ¿Qué logra esa medida?",
+      options: [
+        { key: "a", text: "Elimina por completo el riesgo de golpe en esa tarea." },
+        { key: "b", text: "Reduce las consecuencias del golpe, pero no evita que ocurra." },
+        { key: "c", text: "Evita que la mano quede en la trayectoria de la maza al golpear." },
+        { key: "d", text: "Reemplaza la necesidad de evaluar la tarea." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P09",
+      question: "Al observar una tarea para buscar peligros para las manos, ¿qué conviene revisar?",
+      options: [
+        { key: "a", text: "Solamente que la persona tenga los guantes puestos y que estén en buen estado." },
+        { key: "b", text: "El orden, la limpieza y el estado del vestuario de la persona." },
+        { key: "c", text: "Que la tarea se termine dentro del tiempo previsto por el supervisor." },
+        { key: "d", text: "La otra mano, los bordes que puedan atrapar y el estado de la herramienta." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M02-B2-P10",
+      question: "Al elegir cómo controlar un peligro, ¿cuándo se define el EPP necesario?",
+      options: [
+        { key: "a", text: "Al final, después de evaluar los otros cuatro niveles." },
+        { key: "b", text: "Al principio, antes de analizar cualquier otro control." },
+        { key: "c", text: "Solo si no existe un procedimiento escrito para la tarea." },
+        { key: "d", text: "Nunca: si hay otros controles, el EPP ya no hace falta." },
+      ],
+      correctOption: "a",
+    },
+    // Batería 3 · Intento 3
+    {
+      id: "SPI-PMAN-M02-B3-P01",
+      question: "¿Para qué sirve la jerarquía de controles?",
+      options: [
+        { key: "a", text: "Para definir quién es el responsable de cada tarea en la operación." },
+        { key: "b", text: "Para clasificar las lesiones según su gravedad." },
+        { key: "c", text: "Para decidir qué EPP comprar para cada puesto." },
+        { key: "d", text: "Para ordenar las medidas de prevención según su eficacia." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P02",
+      question: "¿Por qué los controles administrativos y el EPP están en los niveles más bajos de la jerarquía?",
+      options: [
+        { key: "a", text: "Porque dependen más de las personas y de la supervisión." },
+        { key: "b", text: "Porque son los controles más caros de implementar en la operación." },
+        { key: "c", text: "Porque no tienen ninguna utilidad real en la prevención." },
+        { key: "d", text: "Porque solo se aplican después de un incidente." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P03",
+      question: "Si un peligro se puede eliminar, ¿qué conviene hacer?",
+      options: [
+        { key: "a", text: "Priorizar el EPP, porque protege directamente a la persona." },
+        { key: "b", text: "Señalizarlo, porque es más rápido de implementar." },
+        { key: "c", text: "Eliminarlo, porque es la opción más eficaz de la jerarquía." },
+        { key: "d", text: "Mantenerlo y capacitar al personal para que lo evite." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P04",
+      question: "En el caso de la llave de torque hidráulica, ¿qué se logró con la sustitución?",
+      options: [
+        { key: "a", text: "Que nadie tenga que sostener la llave mientras se golpea." },
+        { key: "b", text: "Que la llave sea más liviana y fácil de transportar en campo." },
+        { key: "c", text: "Que el golpe con martillo sea más preciso." },
+        { key: "d", text: "Que el trabajador pueda usar guantes de mayor resistencia." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P05",
+      question: "¿Qué hacen los controles de ingeniería?",
+      options: [
+        { key: "a", text: "Quitan por completo la tarea peligrosa del proceso de trabajo." },
+        { key: "b", text: "Modifican o rediseñan el equipo, la herramienta o el proceso." },
+        { key: "c", text: "Definen procedimientos, señalización y prácticas de trabajo seguro." },
+        { key: "d", text: "Protegen el cuerpo del trabajador con equipos personales." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P06",
+      question: "¿Cuál de estas medidas es un control administrativo?",
+      options: [
+        { key: "a", text: "Instalar manijas rediseñadas en la herramienta de ensamblaje." },
+        { key: "b", text: "Reemplazar el martillo y la llave por una llave de torque hidráulica." },
+        { key: "c", text: "Un procedimiento que indica cómo tomar la pieza durante la tarea." },
+        { key: "d", text: "Entregar guantes de alto impacto a quienes realizan la tarea." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P07",
+      question: "Durante la evaluación previa detectás un peligro para las manos. ¿Qué tenés que hacer?",
+      options: [
+        { key: "a", text: "Seguir con la tarea y comentarlo al terminar la jornada." },
+        { key: "b", text: "Reportarlo para que se corrija o elimine." },
+        { key: "c", text: "Usar guantes más resistentes y continuar." },
+        { key: "d", text: "Resolverlo por tu cuenta sin avisarle a nadie." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P08",
+      question: "¿Por qué el EPP no reemplaza a los demás controles?",
+      options: [
+        { key: "a", text: "Porque es demasiado caro como para usarlo en todas las tareas de la operación." },
+        { key: "b", text: "Porque solo es obligatorio en algunas operaciones y no en todas." },
+        { key: "c", text: "Porque se desgasta con el uso y hay que cambiarlo muy seguido." },
+        { key: "d", text: "Porque no evita el golpe ni el atrapamiento: solo reduce las consecuencias." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P09",
+      question: "¿Cuándo conviene hacer el ejercicio de búsqueda de peligros en tu lugar de trabajo?",
+      options: [
+        { key: "a", text: "Solo después de que ocurre un incidente, para investigar sus causas." },
+        { key: "b", text: "Una vez al año, durante la auditoría de seguridad." },
+        { key: "c", text: "Antes de cada tarea, para detectar los peligros a tiempo." },
+        { key: "d", text: "Solo cuando la tarea es nueva para el equipo de trabajo." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M02-B3-P10",
+      question: "¿Cuál es el objetivo de recorrer la jerarquía en orden al elegir un control?",
+      options: [
+        { key: "a", text: "Priorizar los controles más eficaces y no depender solo del EPP." },
+        { key: "b", text: "Cumplir con un trámite obligatorio antes de empezar la tarea." },
+        { key: "c", text: "Elegir siempre el control más económico y más rápido de aplicar en campo." },
+        { key: "d", text: "Asegurar que todos usen el mismo tipo de guante en la tarea." },
+      ],
+      correctOption: "a",
+    },
+  ],
+};
