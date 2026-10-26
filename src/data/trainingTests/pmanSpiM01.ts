@@ -1,0 +1,347 @@
+import type { TrainingTest } from './types';
+
+export const pmanSpiM01Test: TrainingTest = {
+  id: "test_spi_pman_m01",
+  trainingId: "tr_spi_pman_m01",
+  title: "Examen · Protección de Manos · Módulo 1 · Riesgos y Prevención",
+  description: 'Evaluación de Protección de Manos SPI. Banco de 30 preguntas en 3 baterías consecutivas de 10.',
+  passingScore: 80,
+  questionsPerAttempt: 10,
+  maxAttempts: 3,
+  attemptMode: 'sequential_blocks',
+  questions: [
+    // Batería 1 · Intento 1
+    {
+      id: "SPI-PMAN-M01-B1-P01",
+      question: "¿Cuál de estas lesiones de manos suele aparecer con el tiempo y no por un único evento?",
+      options: [
+        { key: "a", text: "Las fracturas por un golpe con maza o martillo." },
+        { key: "b", text: "Las lesiones por esfuerzo repetitivo o vibración." },
+        { key: "c", text: "Las laceraciones por bordes filosos o rebabas." },
+        { key: "d", text: "Los aplastamientos entre dos piezas que se mueven al mismo tiempo." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P02",
+      question: "¿Qué es el efecto látigo?",
+      options: [
+        { key: "a", text: "El rebote de la maza hacia la mano cuando golpea una superficie dura o metálica." },
+        { key: "b", text: "La vibración que transmite una herramienta eléctrica a la mano durante un uso prolongado." },
+        { key: "c", text: "El movimiento brusco de una manguera o cable al liberarse tensión o recibir un golpe." },
+        { key: "d", text: "El tirón brusco que se siente en la muñeca al levantar una carga manual pesada." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P03",
+      question: "Una herramienta debe sostenerse mientras recibe golpes de maza. ¿Qué medida corresponde priorizar?",
+      options: [
+        { key: "a", text: "Utilizar un dispositivo manos libres para sostenerla." },
+        { key: "b", text: "Usar guantes de impacto y sujetarla con firmeza con la mano." },
+        { key: "c", text: "Sujetarla con ambas manos para que no se mueva." },
+        { key: "d", text: "Golpear con menos fuerza para reducir el impacto." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P04",
+      question: "¿Qué define a un punto de pellizco?",
+      options: [
+        { key: "a", text: "Que un objeto se mueva con fuerza propia y pueda impactar directamente la mano." },
+        { key: "b", text: "Que haya bordes filosos o rebabas expuestas en la pieza o la herramienta." },
+        { key: "c", text: "Que exista una superficie caliente que pueda provocar quemaduras al tocarla." },
+        { key: "d", text: "Que la mano pueda quedar atrapada entre un objeto móvil y otro fijo o móvil." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P05",
+      question: "Un operador ajusta una conexión, la llave se resbala y su mano impacta contra la estructura del equipo. ¿Qué tipo de golpe es?",
+      options: [
+        { key: "a", text: "Golpe por." },
+        { key: "b", text: "Atrapamiento." },
+        { key: "c", text: "Efecto látigo." },
+        { key: "d", text: "Golpe contra." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P06",
+      question: "¿Qué tienen en común la maquinaria, los martillos, las herramientas de perforación, las cargas manuales y la manipulación de tuberías?",
+      options: [
+        { key: "a", text: "Todos requieren un permiso de trabajo en caliente antes de empezar." },
+        { key: "b", text: "Todos se controlan solamente con el uso de guantes de alto impacto adecuados." },
+        { key: "c", text: "Todos pueden generar puntos de atrapamiento o de golpe para las manos." },
+        { key: "d", text: "Todos generan principalmente riesgo eléctrico para quien los opera." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P07",
+      question: "Antes de hacer fuerza sobre una llave, ¿qué pregunta clave hay que hacerse?",
+      options: [
+        { key: "a", text: "¿Qué pasa con mis manos si la herramienta se suelta?" },
+        { key: "b", text: "¿La llave es del tamaño justo para no dañar la tuerca?" },
+        { key: "c", text: "¿Cuánto tiempo me queda para terminar la tarea?" },
+        { key: "d", text: "¿Mis guantes son los más resistentes disponibles?" },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P08",
+      question: "Al analizar incidentes con lesiones en manos, ¿cuál de estos factores se encontró?",
+      options: [
+        { key: "a", text: "Las herramientas eran nuevas y todavía no estaban probadas en campo." },
+        { key: "b", text: "Las personas no identificaron los peligros antes de empezar." },
+        { key: "c", text: "Los equipos tenían demasiadas protecciones." },
+        { key: "d", text: "Las tareas se planificaban con demasiada anticipación." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P09",
+      question: "¿Cuál de estas situaciones es un factor humano que aumenta la posibilidad de un incidente?",
+      options: [
+        { key: "a", text: "Usar una llave de torque hidráulica para el ajuste." },
+        { key: "b", text: "Reportar un peligro antes de empezar la tarea." },
+        { key: "c", text: "Tomar atajos y sentir presión por terminar rápido." },
+        { key: "d", text: "Detenerse a mirar el lugar antes de comenzar." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B1-P10",
+      question: "¿Cuál es el paso más importante antes de comenzar una tarea?",
+      options: [
+        { key: "a", text: "Ponerse los guantes y comenzar la tarea cuanto antes." },
+        { key: "b", text: "Preguntar cuánto tiempo hay disponible para terminar el trabajo." },
+        { key: "c", text: "Elegir la herramienta más grande y resistente que haya disponible." },
+        { key: "d", text: "Identificar los peligros del lugar, el equipo y las herramientas." },
+      ],
+      correctOption: "d",
+    },
+    // Batería 2 · Intento 2
+    {
+      id: "SPI-PMAN-M01-B2-P01",
+      question: "¿Por qué una lesión en una mano no afecta solo al trabajo?",
+      options: [
+        { key: "a", text: "Porque las lesiones de manos siempre requieren cirugía y largos meses de recuperación." },
+        { key: "b", text: "Porque puede afectar la vida diaria, la familia y la capacidad de trabajar." },
+        { key: "c", text: "Porque las manos se lesionan con más frecuencia en casa que en el lugar de trabajo." },
+        { key: "d", text: "Porque toda lesión de manos deja una secuela permanente, aunque sea leve." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P02",
+      question: "¿Qué significa estar en la línea de fuego?",
+      options: [
+        { key: "a", text: "Trabajar cerca de equipos que tienen riesgo de incendio o fuentes de calor sin ninguna protección." },
+        { key: "b", text: "Ocupar el puesto de mayor responsabilidad y exposición dentro del equipo de trabajo." },
+        { key: "c", text: "Estar en la trayectoria de la energía de un golpe, una pieza o un elemento con tensión." },
+        { key: "d", text: "Estar expuesto al calor que despide un equipo en funcionamiento durante la tarea." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P03",
+      question: "¿Por qué no se debe golpear una herramienta manual que no está diseñada para eso?",
+      options: [
+        { key: "a", text: "Porque puede romperse, desprender fragmentos o transmitir energía a las manos." },
+        { key: "b", text: "Porque pierde la garantía del fabricante y después no se puede reclamar." },
+        { key: "c", text: "Porque se desgasta más rápido y hay que reemplazarla antes de lo previsto." },
+        { key: "d", text: "Porque pierde precisión y afecta la calidad de los próximos ajustes que se hagan." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P04",
+      question: "Estás ajustando una conexión y tus dedos quedan entre la boca de la llave y la conexión. ¿Qué riesgo hay si la llave gira o se suelta?",
+      options: [
+        { key: "a", text: "Que la mano sufra una quemadura por la fricción con la llave." },
+        { key: "b", text: "Que se produzca un corte por una rebaba de la conexión." },
+        { key: "c", text: "Que la llave se dañe y haya que reemplazarla." },
+        { key: "d", text: "Que los dedos queden atrapados en un punto de pellizco." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P05",
+      question: "Una herramienta cae desde una plataforma y golpea la mano de un trabajador. ¿Qué tipo de golpe es?",
+      options: [
+        { key: "a", text: "Golpe contra." },
+        { key: "b", text: "Punto de pellizco." },
+        { key: "c", text: "Atrapamiento entre dos objetos móviles." },
+        { key: "d", text: "Golpe por." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P06",
+      question: "Al usar un martillo sobre una pieza, ¿qué mano suele quedar más expuesta?",
+      options: [
+        { key: "a", text: "La que sostiene o apoya la pieza, porque puede quedar en la trayectoria del golpe." },
+        { key: "b", text: "La que sostiene el martillo, por la vibración que transmite el mango en cada golpe." },
+        { key: "c", text: "Ninguna de las dos, siempre que se usen guantes de impacto adecuados." },
+        { key: "d", text: "Las dos por igual, sin importar dónde estén ubicadas durante la tarea." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P07",
+      question: "¿Cuál es la medida de protección más directa para evitar lesiones en las manos?",
+      options: [
+        { key: "a", text: "El uso de guantes de alto impacto adecuados para cada tarea." },
+        { key: "b", text: "La posición de las manos: no ponerlas donde puedan estar en riesgo." },
+        { key: "c", text: "La firma del permiso de trabajo antes de comenzar cualquier tarea." },
+        { key: "d", text: "La experiencia y la habilidad del operador para realizar la tarea." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P08",
+      question: "Un trabajador usa una llave como palanca porque no tiene a mano la herramienta correcta. ¿Qué factor contribuyente representa?",
+      options: [
+        { key: "a", text: "Falta de equipos de protección personal adecuados." },
+        { key: "b", text: "Uso incorrecto de las herramientas provistas." },
+        { key: "c", text: "Falta de señalización en el equipo." },
+        { key: "d", text: "Golpe contra objeto." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P09",
+      question: "Al hablar de factores humanos como las distracciones o los apuros, ¿cuál es el enfoque correcto?",
+      options: [
+        { key: "a", text: "Identificar al responsable de cada error para poder sancionarlo a tiempo." },
+        { key: "b", text: "Asumir que estas situaciones solo les pasan a las personas con poca experiencia." },
+        { key: "c", text: "No buscar culpables: la planificación, los tiempos y el entorno también influyen." },
+        { key: "d", text: "Resolverlo exclusivamente sumando más supervisión en cada una de las tareas." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B2-P10",
+      question: "¿Cuál de estas es una de las tres preguntas para identificar peligros antes de actuar?",
+      options: [
+        { key: "a", text: "¿Quién es el responsable si algo sale mal?" },
+        { key: "b", text: "¿Cuánto tiempo lleva normalmente esta tarea?" },
+        { key: "c", text: "¿Hay algún compañero disponible para ayudarme?" },
+        { key: "d", text: "¿Dónde puede quedar atrapada mi mano?" },
+      ],
+      correctOption: "d",
+    },
+    // Batería 3 · Intento 3
+    {
+      id: "SPI-PMAN-M01-B3-P01",
+      question: "Además de cortes, aplastamientos y fracturas, ¿qué otras lesiones de manos se mencionan en la capacitación?",
+      options: [
+        { key: "a", text: "Esguinces de muñeca, tendinitis de codo y contracturas." },
+        { key: "b", text: "Congelamiento, ampollas por fricción y calambres." },
+        { key: "c", text: "Dermatitis, alergias al látex y uñas encarnadas." },
+        { key: "d", text: "Quemaduras, electrocución e infecciones." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P02",
+      question: "Antes de intervenir un equipo donde puede haber energía acumulada, ¿qué es lo correcto?",
+      options: [
+        { key: "a", text: "Identificar la línea de fuego y controlar la energía antes de intervenir." },
+        { key: "b", text: "Ponerse guantes de alto impacto y comenzar la tarea con precaución." },
+        { key: "c", text: "Pedirle a un compañero que sostenga el elemento mientras se trabaja." },
+        { key: "d", text: "Golpear suavemente el equipo para comprobar si todavía queda tensión acumulada." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P03",
+      question: "¿Para qué sirven las herramientas manos libres?",
+      options: [
+        { key: "a", text: "Para poder trabajar sin necesidad de usar guantes ni otro EPP." },
+        { key: "b", text: "Para terminar la tarea en menos tiempo." },
+        { key: "c", text: "Para mantener las manos alejadas de la zona de peligro." },
+        { key: "d", text: "Para que una sola persona pueda hacer el trabajo de dos." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P04",
+      question: "¿En qué dos situaciones la mano puede quedar pellizcada o atrapada?",
+      options: [
+        { key: "a", text: "Entre dos objetos fijos, o entre un objeto fijo y el piso." },
+        { key: "b", text: "Entre un objeto móvil y uno fijo, o entre dos objetos móviles." },
+        { key: "c", text: "Solo cuando la máquina está encendida y le faltan las protecciones." },
+        { key: "d", text: "Solo cuando se trabaja sin guantes o con guantes dañados." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P05",
+      question: "¿Qué diferencia un golpe por de un golpe contra?",
+      options: [
+        { key: "a", text: "La gravedad de la lesión: el golpe por es leve y el golpe contra es grave." },
+        { key: "b", text: "La herramienta usada: el golpe por es con martillo y el golpe contra es con llave." },
+        { key: "c", text: "De dónde viene la fuerza: del objeto (golpe por) o de la persona (golpe contra)." },
+        { key: "d", text: "El lugar donde ocurre: el golpe por en el taller y el golpe contra en campo." },
+      ],
+      correctOption: "c",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P06",
+      question: "Las rebabas y los bordes filosos de piezas y herramientas pueden provocar principalmente:",
+      options: [
+        { key: "a", text: "Quemaduras." },
+        { key: "b", text: "Cortes y laceraciones." },
+        { key: "c", text: "Lesiones por vibración." },
+        { key: "d", text: "Electrocución." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P07",
+      question: "Mientras una mano sostiene la maza, ¿qué hay que verificar sobre la otra mano?",
+      options: [
+        { key: "a", text: "Que quede fuera del alcance y de la trayectoria del golpe." },
+        { key: "b", text: "Que sostenga la pieza lo más cerca posible del punto de impacto." },
+        { key: "c", text: "Que tenga un guante más grueso que la mano que golpea." },
+        { key: "d", text: "Que quede apoyada sobre la pieza para darle estabilidad." },
+      ],
+      correctOption: "a",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P08",
+      question: "¿Qué tienen en común no identificar peligros, no planificar, no seguir procedimientos y usar mal las herramientas?",
+      options: [
+        { key: "a", text: "Todos dependen solamente de la supervisión que haya en el lugar." },
+        { key: "b", text: "Todos aparecen de forma imprevista y no hay manera de anticiparlos a tiempo." },
+        { key: "c", text: "Todos se resuelven entregando guantes más resistentes al personal." },
+        { key: "d", text: "Todos se pueden detectar y corregir antes de que alguien se lastime." },
+      ],
+      correctOption: "d",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P09",
+      question: "Mientras ajustás una conexión, un compañero te habla y te das vuelta para responder. ¿Qué factor humano aparece?",
+      options: [
+        { key: "a", text: "Usar una herramienta inadecuada para la tarea." },
+        { key: "b", text: "Conversar o ser interrumpido durante la tarea." },
+        { key: "c", text: "No seguir el procedimiento escrito de la tarea." },
+        { key: "d", text: "Falta de planificación del trabajo." },
+      ],
+      correctOption: "b",
+    },
+    {
+      id: "SPI-PMAN-M01-B3-P10",
+      question: "La pregunta «¿Tengo la herramienta adecuada y la uso bien?» apunta a prevenir:",
+      options: [
+        { key: "a", text: "Demoras en la entrega del trabajo por tener que repetir la tarea." },
+        { key: "b", text: "Daños en el equipo por falta de mantenimiento." },
+        { key: "c", text: "Lesiones por usar herramientas no aptas o de forma incorrecta." },
+        { key: "d", text: "Errores al completar la documentación y los permisos de la tarea." },
+      ],
+      correctOption: "c",
+    },
+  ],
+};
