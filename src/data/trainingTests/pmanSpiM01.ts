@@ -28,7 +28,7 @@ export const pmanSpiM01Test: TrainingTest = {
       options: [
         { key: "a", text: "El rebote de la maza hacia la mano cuando golpea una superficie dura o metálica." },
         { key: "b", text: "La vibración que transmite una herramienta eléctrica a la mano durante un uso prolongado." },
-        { key: "c", text: "El movimiento brusco de una manguera o cable al liberarse tensión o recibir un golpe." },
+        { key: "c", text: "Transmisión de energía por golpe indirecto." },
         { key: "d", text: "El tirón brusco que se siente en la muñeca al levantar una carga manual pesada." },
       ],
       correctOption: "c",
