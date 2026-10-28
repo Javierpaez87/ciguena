@@ -68,11 +68,6 @@ const getOptionKey = (option: TestOption, optionIndex: number) => {
   return option.key || String(optionIndex);
 };
 
-const generateCertificateCode = (trainingId: string) => {
-  const cleanTrainingId = trainingId.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
-  return `CIG-${cleanTrainingId}-${Date.now()}`;
-};
-
 const getExpirationDate = async (trainingId: string, tenantId: string) => {
   const training = baseTrainings.find(item => item.id === trainingId) ?? null;
 
@@ -309,122 +304,49 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     };
   };
 
-  const issueCertificate = async ({
-    score,
-    attemptNumber,
-  }: {
+  // Certificate issuance and the final assignment transition are atomic in PostgreSQL.
+  // Only the ID of the already-audited attempt (not a client-supplied score) is trusted.
+  const registerTestAttempt = async (): Promise<{
+    id: string;
     score: number;
-    attemptNumber: number;
-  }) => {
-    if (!assignment?.id || !assignment?.user_id || !assignment?.training_id) return;
-
-    const { data: existingCertificate, error: existingError } = await supabase
-      .from('certificates')
-      .select('id, company_signature_url')
-      .eq('assignment_id', assignment.id)
-      .maybeSingle();
-
-    if (existingError) {
-      console.error('Error verificando certificado existente:', existingError);
-    }
-
-    if (existingCertificate?.id) {
-      return;
-    }
-
-    const { tenantId, workerSignatureUrl, companySignature } = await getCertificateContext();
-
-    if (!tenantId) {
-      setSaveWarning(
-        'El examen fue aprobado, pero no se pudo emitir el certificado porque no encontramos la empresa asociada.'
-      );
-      console.error('No se pudo emitir certificado: tenant_id no encontrado.');
-      return;
-    }
-
-    if (!companySignature?.signature_image_url) {
-      setSaveWarning(
-        'El certificado se emitirá sin firma responsable porque no se pudo leer la firma default activa de la empresa. Revisá tenant_signatures/RLS.'
-      );
-    }
-
-    const certificateExpiresAt = await getExpirationDate(assignment.training_id, tenantId);
-
-    const certificatePayload = {
-      assignment_id: assignment.id,
-      user_id: assignment.user_id,
-      training_id: assignment.training_id,
-      tenant_id: tenantId,
-      certificate_code: generateCertificateCode(assignment.training_id),
-      worker_signature_url: workerSignatureUrl,
-      company_signature_id: companySignature?.id ?? null,
-      company_signature_url: companySignature?.signature_image_url ?? null,
-      company_signer_name: companySignature?.signer_name ?? null,
-      company_signer_role: companySignature?.signer_role ?? null,
-      issued_at: new Date().toISOString(),
-      expires_at: certificateExpiresAt,
-      status: 'valid',
-      test_score: score,
-      test_attempts_count: attemptNumber,
-    };
-
-    console.log('Emitiendo certificado con payload:', certificatePayload);
-
-    const { error } = await supabase.from('certificates').insert(certificatePayload);
-
-    if (error) {
-      console.error('Error emitiendo certificado:', error);
-      setSaveWarning(`Aprobaste el examen, pero no pudimos emitir el certificado: ${error.message}`);
-    }
-  };
-
-  const markAssignmentAsCertificateIssued = async ({
-    score,
-    attemptNumber,
-  }: {
-    score: number;
-    attemptNumber: number;
-  }) => {
-    if (!assignment?.id) return;
-
-    const { error } = await supabase
-      .from('training_assignments')
-      .update({
-        status: 'certificate_issued',
-        completed_at: new Date().toISOString(),
-        progress_percentage: 100,
-        test_score: score,
-        test_attempts_count: attemptNumber,
-        test_passed_at: new Date().toISOString(),
-      })
-      .eq('id', assignment.id);
-
-    if (error) {
-      console.error('Error actualizando assignment al aprobar examen:', error);
-    }
-  };
-
-  const registerTestAttempt = async (): Promise<boolean> => {
+    passed: boolean;
+    correct: number;
+    total: number;
+  } | null> => {
     if (!assignment?.id || !test) {
       setSaveWarning('No encontramos los datos de la asignación para auditar el examen.');
-      return false;
+      return null;
     }
 
-    // A single database transaction saves the historical bank, the exact batch,
-    // every question/option/answer and the existing attempt tables.
-    const { error } = await supabase.rpc('record_training_test_attempt_audited', {
+    const { data: attemptId, error } = await supabase.rpc('record_training_test_attempt_audited', {
       p_assignment_id: assignment.id,
       p_test: test,
       p_questions: questionsForAttempt,
       p_answers: answers,
     });
-
-    if (error) {
+    if (error || !attemptId) {
       console.error('No se pudo registrar el examen auditado:', error);
-      setSaveWarning('No pudimos guardar la evidencia del examen. No se emitió ningún certificado. Por favor, contactá a soporte antes de reintentar.');
-      return false;
+      setSaveWarning('No pudimos guardar la evidencia del examen. No se emitió ningún certificado. Contactá a soporte antes de reintentar.');
+      return null;
     }
-    return true;
+
+    const { data: recorded, error: readError } = await supabase
+      .from('training_test_attempts')
+      .select('id, score, passed, correct_answers, total_questions')
+      .eq('id', attemptId)
+      .single();
+    if (readError || !recorded) {
+      console.error('No se pudo consultar el resultado registrado:', readError);
+      setSaveWarning('El intento quedó registrado, pero no pudimos consultar el resultado. No vuelvas a rendirlo: contactá a soporte.');
+      return null;
+    }
+    return {
+      id: recorded.id,
+      score: recorded.score,
+      passed: recorded.passed,
+      correct: recorded.correct_answers,
+      total: recorded.total_questions,
+    };
   };
 
   const submitTest = async () => {
@@ -436,43 +358,40 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
     setSaveWarning(null);
 
-    let correct = 0;
-
-    questionsForAttempt.forEach((question) => {
-      const selectedOptionKey = answers[question.id];
-
-      if (selectedOptionKey === question.correctOption) {
-        correct++;
-      }
-    });
-
-    const score = Math.round((correct / questionsForAttempt.length) * 100);
-    const passed = score >= test.passingScore;
-
     setIsSaving(true);
-    const saved = await registerTestAttempt();
-    if (!saved) {
+    const recorded = await registerTestAttempt();
+    if (!recorded) {
       setIsSaving(false);
       return;
     }
 
     setResult({
-      score,
-      passed,
-      correct,
-      total: questionsForAttempt.length,
+      score: recorded.score,
+      passed: recorded.passed,
+      correct: recorded.correct,
+      total: recorded.total,
     });
 
-    if (passed) {
-      await issueCertificate({
-        score,
-        attemptNumber: attempt,
-      });
-
-      await markAssignmentAsCertificateIssued({
-        score,
-        attemptNumber: attempt,
-      });
+    if (recorded.passed) {
+      try {
+        // Certificate expiry is retained from the existing catalog / tenant configuration.
+        // The database validates the exam evidence and derives issuance time itself.
+        const { tenantId } = await getCertificateContext();
+        const expiresAt = tenantId && assignment?.training_id
+          ? await getExpirationDate(assignment.training_id, tenantId)
+          : null;
+        const { error: certificateError } = await supabase.rpc('issue_audited_test_certificate', {
+          p_attempt_id: recorded.id,
+          p_expires_at: expiresAt,
+        });
+        if (certificateError) {
+          console.error('No se pudo emitir certificado auditado:', certificateError);
+          setSaveWarning(`Tu examen se guardó y aprobaste, pero no pudimos emitir el certificado: ${certificateError.message}`);
+        }
+      } catch (certificateError) {
+        console.error('Error emitiendo certificado:', certificateError);
+        setSaveWarning('Tu examen se guardó, pero hubo un problema al emitir el certificado. Contactá a soporte.');
+      }
     }
 
     setIsSaving(false);
