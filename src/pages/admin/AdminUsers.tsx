@@ -16,6 +16,8 @@ import {
   Download,
   SlidersHorizontal,
   X,
+  Trash2,
+  RotateCcw,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -60,6 +62,8 @@ interface Profile {
   dni?: string | null;
   phone?: string | null;
   status?: string | null;
+  deleted_at?: string | null;
+  is_test_user?: boolean | null;
   preapproved?: boolean | null;
   source?: string | null;
   created_at?: string | null;
@@ -988,6 +992,10 @@ export default function AdminUsers() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [users, setUsers] = useState<Profile[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashTarget, setTrashTarget] = useState<Profile | null>(null);
+  const [trashReason, setTrashReason] = useState("duplicate");
+  const [trashBusy, setTrashBusy] = useState(false);
   const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
   const [tenantName, setTenantName] = useState('');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -1236,6 +1244,7 @@ export default function AdminUsers() {
 
   const filtered = useMemo(() => {
     return users.filter((profile) => {
+      if (Boolean(profile.deleted_at) !== showTrash) return false;
       const profileStatus = normalize(profile.status || 'active');
       const normalizedStatus = profileStatus === 'activo' ? 'active' : profileStatus;
 
@@ -1263,6 +1272,7 @@ export default function AdminUsers() {
     });
   }, [
     users,
+    showTrash,
     search,
     statusFilter,
     onboardingFilter,
@@ -1284,7 +1294,7 @@ export default function AdminUsers() {
     setFilterValue('all');
   }
 
-  const activeCount = users.filter(isActive).length;
+  const activeCount = users.filter((profile) => !profile.deleted_at && isActive(profile)).length;
   const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
   const pendingCount = users.filter((profile) => normalize(profile.status) === 'pending').length;
 
@@ -1505,6 +1515,31 @@ export default function AdminUsers() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  }
+
+  async function changeTrashState(profile: Profile, restore: boolean) {
+    if (!tenantId || isDirectoryOnly(profile)) {
+      setErrorMessage('Los registros solo de nómina requieren un flujo de archivo específico.');
+      return;
+    }
+    setTrashBusy(true);
+    setErrorMessage(null);
+    try {
+      const { error } = await supabase.rpc('admin_set_profile_trash', {
+        p_tenant: tenantId,
+        p_profile: profile.id,
+        p_restore: restore,
+        p_reason: restore ? null : trashReason,
+      });
+      if (error) throw error;
+      setTrashTarget(null);
+      setSuccessMessage(restore ? 'Usuario restaurado.' : 'Usuario enviado a papelera. Se conservaron sus certificados y exámenes.');
+      await loadUsersData({ silent: true });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'No se pudo actualizar la papelera.');
+    } finally {
+      setTrashBusy(false);
+    }
   }
 
   async function toggleStatus(profile: Profile) {
@@ -2513,7 +2548,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between pt-3 border-t border-steel-700/70">
           <div className="flex items-center gap-2 min-h-9">
             <span className="text-xs text-steel-400">
-              Mostrando <span className="font-semibold text-steel-200">{filtered.length}</span> de {users.length} trabajadores
+              Mostrando <span className="font-semibold text-steel-200">{filtered.length}</span> {showTrash ? "en papelera" : "en nómina"}
             </span>
             {hasActiveFilters && (
               <button
@@ -2528,6 +2563,10 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
           </div>
 
           <div className="flex flex-wrap gap-2 lg:justify-end">
+            <button type="button" className="btn-secondary text-xs" onClick={() => { setShowTrash(!showTrash); clearFilters(); }}>
+              {showTrash ? <Users size={14} /> : <Trash2 size={14} />}
+              {showTrash ? 'Volver a nómina' : `Papelera (${users.filter((u) => !!u.deleted_at).length})`}
+            </button>
             <button onClick={() => loadUsersData()} className="btn-secondary text-xs">
               <RefreshCw size={14} />
               Actualizar
@@ -2822,7 +2861,16 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                           <Pencil size={14} />
                         </button>
 
-                        <button
+                        {!isDirectoryOnly(profile) && (
+                          <button type="button"
+                            onClick={() => { setTrashTarget(profile); setTrashReason('duplicate'); }}
+                            className="p-1.5 rounded hover:bg-steel-700 text-steel-400 hover:text-red-300"
+                            title={showTrash ? 'Restaurar usuario' : 'Enviar a papelera'}
+                          >
+                            {showTrash ? <RotateCcw size={15} /> : <Trash2 size={15} />}
+                          </button>
+                        )}
+                        {!showTrash && <button
                           onClick={() => toggleStatus(profile)}
                           className="p-1.5 rounded hover:bg-steel-700 transition-colors"
                           title={isActive(profile) ? 'Desactivar' : 'Activar'}
@@ -2832,7 +2880,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                           ) : (
                             <ToggleLeft size={16} className="text-steel-500" />
                           )}
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -2849,6 +2897,33 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
           </div>
         )}
       </div>
+
+      <Modal
+        open={!!trashTarget}
+        onClose={() => { if (!trashBusy) setTrashTarget(null); }}
+        title={showTrash ? 'Restaurar usuario' : 'Enviar usuario a papelera'}
+        size="md"
+        footer={<>
+          <button type="button" className="btn-secondary" disabled={trashBusy} onClick={() => setTrashTarget(null)}>Cancelar</button>
+          <button type="button" disabled={trashBusy} className={showTrash ? 'btn-primary' : 'btn-secondary text-red-300'} onClick={() => trashTarget && changeTrashState(trashTarget, showTrash)}>
+            {trashBusy ? 'Procesando...' : showTrash ? 'Restaurar' : 'Confirmar papelera'}
+          </button>
+        </>}
+      >
+        <div className="space-y-3 text-sm text-steel-200">
+          <p><strong>{trashTarget ? getFullName(trashTarget) : ''}</strong> — {trashTarget?.email}</p>
+          <p>Se conservarán las asignaciones, certificados, intentos y auditorías. Este cambio no fusiona perfiles duplicados.</p>
+          {!showTrash && <label className="block">Motivo
+            <select className="select w-full mt-1" value={trashReason} onChange={(e) => setTrashReason(e.target.value)}>
+              <option value="duplicate">Usuario duplicado</option>
+              <option value="test">Usuario de prueba</option>
+              <option value="roster_error">Error de nómina</option>
+              <option value="other">Otro</option>
+            </select>
+          </label>}
+          <p className="text-amber-300">La papelera no elimina cuentas de Supabase Auth. Verificá métricas y procesos externos antes de usar en producción.</p>
+        </div>
+      </Modal>
 
       <Modal
         open={showCreate}
