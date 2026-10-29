@@ -17,6 +17,7 @@ type CsvExportModalProps<T> = {
   rows: T[];
   columns: CsvExportColumn<T>[];
   description?: string;
+  filters?: React.ReactNode;
 };
 
 function csvEscape(value: string | number | boolean | null | undefined) {
@@ -57,6 +58,7 @@ export default function CsvExportModal<T>({
   rows,
   columns,
   description,
+  filters,
 }: CsvExportModalProps<T>) {
   const defaultKeys = useMemo(
     () => columns.filter((column) => column.defaultSelected !== false).map((column) => column.key),
@@ -105,6 +107,7 @@ export default function CsvExportModal<T>({
       }
     >
       <div className="space-y-4">
+        {filters}
         <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-sm text-steel-300">
           {description || 'Elegí las columnas que querés incluir. Se exportarán los datos correspondientes a la vista actual.'}
         </div>
