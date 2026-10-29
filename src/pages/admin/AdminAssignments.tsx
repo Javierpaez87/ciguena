@@ -35,6 +35,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 import Modal from '../../components/ui/Modal';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
+import CheckMultiSelect from '../../components/ui/CheckMultiSelect';
 import {
   EmployeeDirectoryRecord,
   getOperationalRole,
@@ -1824,8 +1825,8 @@ export default function AdminAssignments() {
       <Modal open={bulkDeadlineOpen} onClose={() => !bulkDeadlineBusy && setBulkDeadlineOpen(false)} title="Modificar deadlines masivamente" size="xl">
         {bulkDeadlineStep === 'select' ? <div className="space-y-5 text-sm text-steel-200">
           <p className="text-steel-400">Los filtros se combinan. Sin selección de roles o trainings se incluyen todos. Completados y certificados siempre se excluyen.</p>
-          <section><h3 className="font-semibold mb-2">1. Roles</h3><select multiple className="input w-full min-h-28" value={bulkDeadlineRoles} onChange={e=>setBulkDeadlineRoles(Array.from(e.target.selectedOptions, o=>o.value))}><option value="" disabled>Todos (sin selección)</option>{bulkDeadlineRoleOptions.map(role=><option key={role} value={role}>{role}</option>)}</select><p className="text-xs text-steel-400">Sin selección = Todos. Ctrl/Cmd para seleccionar varios.</p></section>
-          <section><h3 className="font-semibold mb-2">2. Trainings</h3><select multiple className="input w-full min-h-32" value={bulkDeadlineTrainings} onChange={e=>setBulkDeadlineTrainings(Array.from(e.target.selectedOptions,o=>o.value))}><option value="" disabled>Todos (sin selección)</option>{enabledTrainingOptions.map(tr=><option key={tr.id} value={tr.id}>{tr.title}</option>)}</select><p className="text-xs text-steel-400">Sin selección = Todos. Ctrl/Cmd para seleccionar varios.</p></section>
+          <section><CheckMultiSelect label="1. Roles" allLabel="Todos los roles" options={bulkDeadlineRoleOptions.map(role => ({ value: role, label: role }))} value={bulkDeadlineRoles} onChange={setBulkDeadlineRoles} /></section>
+          <section><CheckMultiSelect label="2. Trainings" allLabel="Todos los trainings" options={enabledTrainingOptions.map(training => ({ value: training.id, label: training.title }))} value={bulkDeadlineTrainings} onChange={setBulkDeadlineTrainings} /></section>
           <section><h3 className="font-semibold mb-2">3. Vencimientos</h3><select className="input w-full" value={bulkDeadlineScope} onChange={e=>setBulkDeadlineScope(e.target.value as typeof bulkDeadlineScope)}><option value="current">Solo vigentes</option><option value="expired">Solo vencidos</option><option value="all">Todos los deadlines</option></select></section>
           <section><h3 className="font-semibold mb-2">4. Nueva fecha</h3><input type="date" className="input w-full" value={bulkDeadlineDate} onChange={e=>setBulkDeadlineDate(e.target.value)}/></section>
           <label className="flex gap-2"><input type="checkbox" checked={bulkDeadlineAllowShorten} onChange={e=>setBulkDeadlineAllowShorten(e.target.checked)}/>Permitir también adelantar deadlines (puede acortar plazos)</label>
@@ -2823,11 +2824,10 @@ export default function AdminAssignments() {
         columns={assignmentExportColumns}
         description={`Coincidencias: ${exportMatchingRows.length}. Se exportarán ${exportRows.length} filas de acuerdo con los filtros de este modal.`}
         filters={<div className="space-y-3">
-          <p className="text-xs text-steel-400">Sin selección = Todos. Usá Ctrl/Cmd para seleccionar varios valores.</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <label className="text-xs">Roles<select multiple className="input w-full" value={exportRoles} onChange={e=>setExportRoles(Array.from(e.target.selectedOptions,o=>o.value))}>{bulkDeadlineRoleOptions.map(x=><option key={x} value={x}>{x}</option>)}</select></label>
-            <label className="text-xs">Trainings<select multiple className="input w-full" value={exportTrainings} onChange={e=>setExportTrainings(Array.from(e.target.selectedOptions,o=>o.value))}>{enabledTrainingOptions.map(x=><option key={x.id} value={x.id}>{x.title}</option>)}</select></label>
-            <label className="text-xs">Estados<select multiple className="input w-full" value={exportStatuses} onChange={e=>setExportStatuses(Array.from(e.target.selectedOptions,o=>o.value))}>{STATUS_FILTERS.filter(x=>x.value!=='all').map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</select></label>
+            <CheckMultiSelect label="Roles" allLabel="Todos los roles" options={bulkDeadlineRoleOptions.map(role => ({ value: role, label: role }))} value={exportRoles} onChange={setExportRoles} />
+            <CheckMultiSelect label="Trainings" allLabel="Todos los trainings" options={enabledTrainingOptions.map(training => ({ value: training.id, label: training.title }))} value={exportTrainings} onChange={setExportTrainings} />
+            <CheckMultiSelect label="Estados" allLabel="Todos los estados" options={STATUS_FILTERS.filter(item => item.value !== 'all')} value={exportStatuses} onChange={setExportStatuses} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <label className="text-xs">Tipo de fecha<select className="input w-full" value={exportDateField} onChange={e=>setExportDateField(e.target.value as typeof exportDateField)}><option value="due_date">Deadline</option><option value="assigned_at">Asignación</option><option value="completed_at">Finalización</option></select></label>
