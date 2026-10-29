@@ -35,6 +35,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 import Modal from '../../components/ui/Modal';
 import CsvExportModal, { CsvExportColumn } from '../../components/ui/CsvExportModal';
+import CheckMultiSelect from '../../components/ui/CheckMultiSelect';
 import {
   EmployeeDirectoryRecord,
   getOperationalRole,
@@ -455,7 +456,27 @@ export default function AdminAssignments() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [exportRoles, setExportRoles] = useState<string[]>([]);
+  const [exportTrainings, setExportTrainings] = useState<string[]>([]);
+  const [exportStatuses, setExportStatuses] = useState<string[]>([]);
+  const [exportDateField, setExportDateField] = useState<'due_date'|'assigned_at'|'completed_at'>('due_date');
+  const [exportDateStart, setExportDateStart] = useState('');
+  const [exportDateEnd, setExportDateEnd] = useState('');
+  const [exportLimit, setExportLimit] = useState('all');
 
+  const [bulkDeadlineOpen, setBulkDeadlineOpen] = useState(false);
+  const [bulkDeadlineStep, setBulkDeadlineStep] = useState<'select' | 'review'>('select');
+  const [bulkDeadlineRoles, setBulkDeadlineRoles] = useState<string[]>([]);
+  const [bulkDeadlineTrainings, setBulkDeadlineTrainings] = useState<string[]>([]);
+  const [bulkDeadlineScope, setBulkDeadlineScope] = useState<'current' | 'expired' | 'all'>('all');
+  const [bulkDeadlineDate, setBulkDeadlineDate] = useState(getDefaultDueDateISODate());
+  const [bulkDeadlineAllowShorten, setBulkDeadlineAllowShorten] = useState(false);
+  const [bulkDeadlineNotify, setBulkDeadlineNotify] = useState(false);
+  const [bulkDeadlineBusy, setBulkDeadlineBusy] = useState(false);
+  const [bulkDeadlineSelection, setBulkDeadlineSelection] = useState<Assignment[]>([]);
+  const [latestDeadlineBatch, setLatestDeadlineBatch] = useState<{batch_id:string;changed_count:number;created_at?:string;actor_email?:string} | null>(null);
   const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
   const [isSendingBulkReminder, setIsSendingBulkReminder] = useState(false);
   const [bulkReminderResult, setBulkReminderResult] = useState<BulkReminderResult | null>(null);
@@ -466,6 +487,93 @@ export default function AdminAssignments() {
   const [reminderTrainingFilter, setReminderTrainingFilter] = useState('all');
   const [reminderStatusFilter, setReminderStatusFilter] = useState('all_pending');
 
+  // Every batch uses an explicit range: PostgREST's implicit 1,000-row limit is unsafe for bulk operations.
+  async function fetchAllTenantRows(table: string, tenant: string) {
+    const all: any[] = [];
+    const chunkSize = 500;
+    for (let offset = 0; ; offset += chunkSize) {
+      const result = await supabase.from(table).select('*').eq('tenant_id', tenant)
+        .order('id', { ascending: true }).range(offset, offset + chunkSize - 1);
+      if (result.error) throw result.error;
+      const chunk = result.data ?? [];
+      all.push(...chunk);
+      if (chunk.length < chunkSize) break;
+      if (offset > 100000) throw new Error(`Demasiados registros en ${table}; paginá el proceso en el servidor.`);
+    }
+    return all;
+  }
+
+  const bulkDeadlineRoleOptions = useMemo(() => [...new Set(assignments.map(a => getWorkerRole(a.user)).filter(Boolean))].sort(), [assignments]);
+  const bulkDeadlineCandidates = useMemo(() => assignments.filter(a => {
+    if (!isActiveAssignment(a) || !a.due_date || !a.user_id) return false;
+    if (['passed','certificate_issued'].includes(a.status || '') || a.completed_at ||
+      certificates.some(c => c.assignment_id === a.id)) return false;
+    if (bulkDeadlineRoles.length && !bulkDeadlineRoles.includes(getWorkerRole(a.user))) return false;
+    if (bulkDeadlineTrainings.length && !bulkDeadlineTrainings.includes(a.training_id || '')) return false;
+    const expired = new Date(a.due_date).getTime() < Date.now();
+    return bulkDeadlineScope === 'all' || (bulkDeadlineScope === 'expired' ? expired : !expired);
+  }), [assignments, certificates, bulkDeadlineRoles, bulkDeadlineTrainings, bulkDeadlineScope]);
+  const bulkDeadlineReviewRows = useMemo(() => {
+    const m = new Map<string, {training:string;old:string;count:number}>();
+    bulkDeadlineSelection.forEach(a => {
+      const old = formatDate(a.due_date);
+      const training = getTrainingTitle(a.training, a);
+      const key = `${a.training_id}|${old}`;
+      const row = m.get(key) || {training,old,count:0}; row.count++; m.set(key,row);
+    });
+    return [...m.values()].sort((a,b) => a.training.localeCompare(b.training) || a.old.localeCompare(b.old));
+  }, [bulkDeadlineSelection]);
+  async function openDeadlineBulk() {
+    setBulkDeadlineOpen(true);setBulkDeadlineStep('select');setBulkDeadlineRoles([]);setBulkDeadlineTrainings([]);
+    setBulkDeadlineScope('all');setBulkDeadlineNotify(false);setBulkDeadlineAllowShorten(false);
+    if (tenantId) {
+      const {data,error} = await supabase.rpc('deadline_change_latest', {p_tenant:tenantId});
+      if (!error) setLatestDeadlineBatch(data?.[0] || null);
+    }
+  }
+  function reviewBulkDeadlines() {
+    const newDate = new Date(`${bulkDeadlineDate}T00:00:00-03:00`).getTime();
+    if (!Number.isFinite(newDate)) {setErrorMessage('Seleccioná una fecha válida.');return;}
+    const selection = bulkDeadlineCandidates.filter(a => {
+      const previous = new Date(a.due_date!).getTime();
+      return previous !== newDate && (bulkDeadlineAllowShorten || newDate > previous);
+    });
+    if (!selection.length) {setErrorMessage('No hay deadlines elegibles para modificar.');return;}
+    if (selection.length > 2000) {setErrorMessage('Este lote supera el máximo seguro de 2.000 asignaciones por operación. Acotá los filtros; no se modificó nada.');return;}
+    setErrorMessage(null);setBulkDeadlineSelection(selection);setBulkDeadlineStep('review');
+  }
+  async function saveBulkDeadlines() {
+    if (!tenantId || !bulkDeadlineSelection.length) return;
+    setBulkDeadlineBusy(true);
+    try {
+      const {data,error} = await supabase.rpc('bulk_deadline_change', {
+        p_tenant:tenantId,p_items:bulkDeadlineSelection.map(a => ({id:a.id,due_date:a.due_date})),
+        p_new_date:bulkDeadlineDate,p_revert_batch:null,
+      });
+      if (error) throw error;
+      setLatestDeadlineBatch({batch_id:data.batch_id,changed_count:data.changed});
+      setBulkDeadlineOpen(false);
+      await loadAssignments();
+      setSuccessMessage(`Se actualizaron ${data.changed} deadlines. Lote ${data.batch_id}.`);
+      if (bulkDeadlineNotify) {
+        const evidence = await notifyAssignmentsByEmail({assignmentsToNotify:bulkDeadlineSelection,type:'reminder'});
+        setLastEmailEvidence(evidence);
+        setSuccessMessage(`Se actualizaron ${data.changed} deadlines. Emails enviados: ${evidence.recipient_count}. ${evidence.error || ''}`);
+      }
+    } catch(e) {setErrorMessage(getErrorMessage(e));} finally {setBulkDeadlineBusy(false);}
+  }
+  async function revertBulkDeadlines() {
+    if (!tenantId || !latestDeadlineBatch || !window.confirm(`¿Revertir el lote de ${latestDeadlineBatch.changed_count} deadlines?`)) return;
+    setBulkDeadlineBusy(true);
+    try {
+      const {data,error} = await supabase.rpc('bulk_deadline_change', {
+        p_tenant:tenantId,p_items:[],p_new_date:null,p_revert_batch:latestDeadlineBatch.batch_id,
+      });
+      if (error) throw error;
+      setLatestDeadlineBatch(null);setBulkDeadlineOpen(false);
+      await loadAssignments();setSuccessMessage(`Se revirtieron ${data.changed} deadlines. No se envían emails de reversión.`);
+    } catch(e) {setErrorMessage(getErrorMessage(e));} finally {setBulkDeadlineBusy(false);}
+  }
   async function loadAssignments() {
     if (!tenantId) {
       setLoading(false);
@@ -478,27 +586,14 @@ export default function AdminAssignments() {
     setSuccessMessage(null);
 
     try {
-      const [assignmentsResult, usersResult, directoryResult, trainingsResult, certificatesResult] =
-        await Promise.all([
-          supabase.from('training_assignments').select('*').eq('tenant_id', tenantId),
-          supabase.from('profiles').select('*').eq('tenant_id', tenantId),
-          supabase.from('employee_directory').select('*').eq('tenant_id', tenantId),
-          supabase.from('tenant_trainings').select('*').eq('tenant_id', tenantId),
-          supabase.from('certificates').select('*').eq('tenant_id', tenantId),
-        ]);
-
-      if (assignmentsResult.error) throw assignmentsResult.error;
-      if (usersResult.error) throw usersResult.error;
-      if (directoryResult.error) throw directoryResult.error;
-      if (trainingsResult.error) throw trainingsResult.error;
-      if (certificatesResult.error) throw certificatesResult.error;
-
-      const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
-      const rawUsers = (usersResult.data ?? []) as Profile[];
-      const directoryRows = (directoryResult.data ?? []) as EmployeeDirectoryRecord[];
+      const [loadedAssignmentsRaw, rawUsers, directoryRows, loadedTrainings, loadedCertificates] = await Promise.all([
+        fetchAllTenantRows('training_assignments', tenantId),
+        fetchAllTenantRows('profiles', tenantId),
+        fetchAllTenantRows('employee_directory', tenantId),
+        fetchAllTenantRows('tenant_trainings', tenantId),
+        fetchAllTenantRows('certificates', tenantId),
+      ]) as [Assignment[], Profile[], EmployeeDirectoryRecord[], TenantTraining[], Certificate[]];
       const loadedUsers = mergeProfilesWithDirectory(rawUsers as any, directoryRows) as Profile[];
-      const loadedTrainings = (trainingsResult.data ?? []) as TenantTraining[];
-      const loadedCertificates = (certificatesResult.data ?? []) as Certificate[];
 
       const usersById = new Map<string, Profile>();
       const profileIdByKnownUserId = new Map<string, string>();
@@ -780,6 +875,22 @@ export default function AdminAssignments() {
       (assignment) => normalize(assignment.status) === statusFilter
     );
   }, [filteredBeforeStatus, statusFilter]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const activePage = Math.min(pageNumber, pageCount);
+  const pageAssignments = useMemo(() => filtered.slice((activePage - 1) * pageSize, activePage * pageSize), [filtered, activePage, pageSize]);
+  useEffect(() => { setPageNumber(1); }, [search, statusFilter, workerFilterKey, workerFilterValue, trainingFilter, pageSize]);
+  const exportMatchingRows = useMemo(() => assignments.filter(a => {
+    if (exportRoles.length && !exportRoles.includes(getWorkerRole(a.user))) return false;
+    if (exportTrainings.length && !exportTrainings.includes(a.training_id || '')) return false;
+    if (exportStatuses.length && !exportStatuses.includes(a.status || '')) return false;
+    const date = a[exportDateField];
+    const iso = date ? String(date).slice(0, 10) : '';
+    if (exportDateStart && (!iso || iso < exportDateStart)) return false;
+    if (exportDateEnd && (!iso || iso > exportDateEnd)) return false;
+    return true;
+  }), [assignments, exportRoles, exportTrainings, exportStatuses, exportDateField, exportDateStart, exportDateEnd]);
+  const exportRows = useMemo(() => exportLimit === 'all' ? exportMatchingRows : exportMatchingRows.slice(0, Number(exportLimit)), [exportMatchingRows, exportLimit]);
+
 
 
   const bulkReminderTargets = useMemo(() => {
@@ -1711,6 +1822,26 @@ export default function AdminAssignments() {
         </div>
       )}
 
+      <Modal open={bulkDeadlineOpen} onClose={() => !bulkDeadlineBusy && setBulkDeadlineOpen(false)} title="Modificar deadlines masivamente" size="xl">
+        {bulkDeadlineStep === 'select' ? <div className="space-y-5 text-sm text-steel-200">
+          <p className="text-steel-400">Los filtros se combinan. Sin selección de roles o trainings se incluyen todos. Completados y certificados siempre se excluyen.</p>
+          <section><CheckMultiSelect label="1. Roles" allLabel="Todos los roles" options={bulkDeadlineRoleOptions.map(role => ({ value: role, label: role }))} value={bulkDeadlineRoles} onChange={setBulkDeadlineRoles} /></section>
+          <section><CheckMultiSelect label="2. Trainings" allLabel="Todos los trainings" options={enabledTrainingOptions.map(training => ({ value: training.id, label: training.title }))} value={bulkDeadlineTrainings} onChange={setBulkDeadlineTrainings} /></section>
+          <section><h3 className="font-semibold mb-2">3. Vencimientos</h3><select className="input w-full" value={bulkDeadlineScope} onChange={e=>setBulkDeadlineScope(e.target.value as typeof bulkDeadlineScope)}><option value="current">Solo vigentes</option><option value="expired">Solo vencidos</option><option value="all">Todos los deadlines</option></select></section>
+          <section><h3 className="font-semibold mb-2">4. Nueva fecha</h3><input type="date" className="input w-full" value={bulkDeadlineDate} onChange={e=>setBulkDeadlineDate(e.target.value)}/></section>
+          <label className="flex gap-2"><input type="checkbox" checked={bulkDeadlineAllowShorten} onChange={e=>setBulkDeadlineAllowShorten(e.target.checked)}/>Permitir también adelantar deadlines (puede acortar plazos)</label>
+          <label className="flex gap-2"><input type="checkbox" checked={bulkDeadlineNotify} onChange={e=>setBulkDeadlineNotify(e.target.checked)}/>Enviar recordatorios por email después del cambio (solo destinatarios con email; puede tardar)</label>
+          <p className="text-steel-400">Elegibles según filtros: {bulkDeadlineCandidates.length}. El servidor volverá a validar antes de aplicar cambios.</p>
+          {latestDeadlineBatch && <div className="rounded-xl border border-red-500/50 bg-red-950/30 p-3"><p className="text-red-300 mb-2">⚠️ Reversión destructiva del último lote · {latestDeadlineBatch.changed_count} registros · {latestDeadlineBatch.created_at ? new Date(latestDeadlineBatch.created_at).toLocaleString('es-AR') : 'Fecha no disponible'} · {latestDeadlineBatch.actor_email || 'Administrador no disponible'}</p><button className="rounded-lg bg-red-700 hover:bg-red-600 px-3 py-2 text-white" disabled={bulkDeadlineBusy} onClick={revertBulkDeadlines}>Revertir último lote</button></div>}
+          <div className="flex justify-end"><button className="btn-primary" onClick={reviewBulkDeadlines}>Verificar cambios</button></div>
+        </div> : <div className="space-y-4 text-sm text-steel-200">
+          <p>Elegibles según filtros: {bulkDeadlineCandidates.length}. Se excluyen {bulkDeadlineCandidates.length - bulkDeadlineSelection.length} sin cambio efectivo o con fecha que se acortaría sin autorización.</p><p>Vas a modificar <strong>{bulkDeadlineSelection.length}</strong> asignaciones. Fecha nueva: <strong>{bulkDeadlineDate}</strong>.</p>
+          {bulkDeadlineAllowShorten && <p className="text-amber-300">Atención: esta selección puede incluir plazos acortados.</p>}
+          <div className="max-h-72 overflow-auto"><table className="w-full"><thead><tr><th className="table-header">Training</th><th className="table-header">Cantidad</th><th className="table-header">Fecha anterior</th><th className="table-header">Nueva</th></tr></thead><tbody>{bulkDeadlineReviewRows.map((row,i)=><tr className="table-row" key={i}><td className="table-cell">{row.training}</td><td className="table-cell">{row.count}</td><td className="table-cell">{row.old}</td><td className="table-cell">{bulkDeadlineDate}</td></tr>)}</tbody></table></div>
+          <p className="text-steel-400">La operación y sus eventos de auditoría son atómicos. Si cambió algún registro desde la vista previa, se cancelará todo el lote.</p>
+          <div className="flex justify-end gap-2"><button className="btn-secondary" disabled={bulkDeadlineBusy} onClick={()=>setBulkDeadlineStep('select')}>Volver</button><button className="btn-primary" disabled={bulkDeadlineBusy} onClick={saveBulkDeadlines}>{bulkDeadlineBusy?'Procesando...':'Confirmar cambios'}</button></div>
+        </div>}
+      </Modal>
       <Modal
         open={Boolean(assignmentMailCompletion)}
         onClose={() => setAssignmentMailCompletion(null)}
@@ -1864,6 +1995,8 @@ export default function AdminAssignments() {
             Asignar curso masivo
           </button>
 
+          <button onClick={openDeadlineBulk} className="btn-secondary text-xs flex-shrink-0"><CalendarClock size={14}/> Deadlines masivos</button>
+
           <button onClick={openBulkReminderModal} className="btn-secondary text-xs flex-shrink-0">
             <BellRing size={14} />
             Reminder masivo
@@ -1941,13 +2074,13 @@ export default function AdminAssignments() {
                 <th className="table-header hidden md:table-cell">Estado</th>
                 <th className="table-header hidden lg:table-cell">Progreso</th>
                 <th className="table-header hidden lg:table-cell">Asignado</th>
-                <th className="table-header hidden xl:table-cell">Deadline</th>
+                <th className="table-header hidden xl:table-cell"><button type="button" onClick={openDeadlineBulk} title="Editar deadlines masivamente" className="flex items-center gap-1 hover:text-blue-300">Deadline <CalendarClock size={14}/></button></th>
                 <th className="table-header text-right">Acciones</th>
               </tr>
             </thead>
 
             <tbody>
-              {filtered.map((assignment) => {
+              {pageAssignments.map((assignment) => {
                 const userName = getFullName(assignment.user);
                 const userRole = getWorkerRole(assignment.user);
                 const trainingTitle = getTrainingTitle(assignment.training, assignment);
@@ -2063,6 +2196,17 @@ export default function AdminAssignments() {
           </table>
         </div>
 
+        <div className="flex items-center justify-between flex-wrap gap-3 p-3 text-xs text-steel-300 border-t border-steel-700">
+          <span>Mostrando {filtered.length ? (activePage - 1) * pageSize + 1 : 0}–{Math.min(activePage * pageSize, filtered.length)} de {filtered.length} asignaciones (total cargado: {assignments.length})</span>
+          <div className="flex gap-2 items-center">
+            <label>Filas por página <select className="input text-xs" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>{[50,100,200,500].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+            <button className="btn-secondary" disabled={activePage===1} onClick={()=>setPageNumber(1)}>«</button>
+            <button className="btn-secondary" disabled={activePage===1} onClick={()=>setPageNumber(activePage-1)}>‹</button>
+            <span>Página {activePage} / {pageCount}</span>
+            <button className="btn-secondary" disabled={activePage===pageCount} onClick={()=>setPageNumber(activePage+1)}>›</button>
+            <button className="btn-secondary" disabled={activePage===pageCount} onClick={()=>setPageNumber(pageCount)}>»</button>
+          </div>
+        </div>
         {filtered.length === 0 && (
           <EmptyState
             icon={<ClipboardList size={28} />}
@@ -2676,9 +2820,23 @@ export default function AdminAssignments() {
         onClose={() => setShowExportModal(false)}
         title="Exportar asignaciones"
         filename={`asignaciones-${brandSlug}.csv`}
-        rows={filtered}
+        rows={exportRows}
         columns={assignmentExportColumns}
-        description={`Se exportarán ${filtered.length} asignación(es) respetando los filtros actuales de rol, training, estado y búsqueda.`}
+        description={`Coincidencias: ${exportMatchingRows.length}. Se exportarán ${exportRows.length} filas de acuerdo con los filtros de este modal.`}
+        filters={<div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <CheckMultiSelect label="Roles" allLabel="Todos los roles" options={bulkDeadlineRoleOptions.map(role => ({ value: role, label: role }))} value={exportRoles} onChange={setExportRoles} />
+            <CheckMultiSelect label="Trainings" allLabel="Todos los trainings" options={enabledTrainingOptions.map(training => ({ value: training.id, label: training.title }))} value={exportTrainings} onChange={setExportTrainings} />
+            <CheckMultiSelect label="Estados" allLabel="Todos los estados" options={STATUS_FILTERS.filter(item => item.value !== 'all')} value={exportStatuses} onChange={setExportStatuses} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label className="text-xs">Tipo de fecha<select className="input w-full" value={exportDateField} onChange={e=>setExportDateField(e.target.value as typeof exportDateField)}><option value="due_date">Deadline</option><option value="assigned_at">Asignación</option><option value="completed_at">Finalización</option></select></label>
+            <label className="text-xs">Desde<input type="date" className="input w-full" value={exportDateStart} onChange={e=>setExportDateStart(e.target.value)}/></label>
+            <label className="text-xs">Hasta<input type="date" className="input w-full" value={exportDateEnd} onChange={e=>setExportDateEnd(e.target.value)}/></label>
+          </div>
+          <label className="text-xs">Cantidad<select className="input w-full" value={exportLimit} onChange={e=>setExportLimit(e.target.value)}>{['50','100','500','1000','all'].map(x=><option key={x} value={x}>{x==='all'?'Todos los resultados filtrados':x}</option>)}</select></label>
+          <button type="button" className="btn-secondary text-xs" onClick={()=>{setExportRoles([]);setExportTrainings([]);setExportStatuses([]);setExportDateStart('');setExportDateEnd('');setExportLimit('all')}}>Restablecer filtros</button>
+        </div>}
       />
 
       <Modal
