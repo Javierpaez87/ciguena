@@ -18,6 +18,7 @@ import {
   X,
   Trash2,
   RotateCcw,
+  History,
 } from 'lucide-react';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -996,6 +997,10 @@ export default function AdminUsers() {
   const [trashTarget, setTrashTarget] = useState<Profile | null>(null);
   const [trashReason, setTrashReason] = useState("Usuario duplicado");
   const [trashBusy, setTrashBusy] = useState(false);
+  const [trashHistoryUser, setTrashHistoryUser] = useState<Profile | null>(null);
+  const [trashHistory, setTrashHistory] = useState<Array<{ id: string; action: string; reason: string | null; created_at: string; actor_email: string | null }>>([]);
+  const [trashHistoryLoading, setTrashHistoryLoading] = useState(false);
+  const [trashHistoryError, setTrashHistoryError] = useState<string | null>(null);
   const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
   const [tenantName, setTenantName] = useState('');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -1517,6 +1522,21 @@ export default function AdminUsers() {
     URL.revokeObjectURL(url);
   }
 
+  async function openTrashHistory(profile: Profile) {
+    if (!tenantId || isDirectoryOnly(profile)) return;
+    setTrashHistoryUser(profile);
+    setTrashHistory([]);
+    setTrashHistoryError(null);
+    setTrashHistoryLoading(true);
+    const { data, error } = await supabase.rpc('admin_profile_trash_history', {
+      p_tenant: tenantId,
+      p_profile: profile.id,
+    });
+    if (error) setTrashHistoryError(error.message);
+    else setTrashHistory((data ?? []) as Array<{ id: string; action: string; reason: string | null; created_at: string; actor_email: string | null }>);
+    setTrashHistoryLoading(false);
+  }
+
   async function changeTrashState(profile: Profile, restore: boolean) {
     if (!tenantId || isDirectoryOnly(profile)) {
       setErrorMessage('Los registros solo de nómina requieren un flujo de archivo específico.');
@@ -1529,10 +1549,11 @@ export default function AdminUsers() {
         p_tenant: tenantId,
         p_profile: profile.id,
         p_restore: restore,
-        p_reason: restore ? null : trashReason.trim(),
+        p_reason: trashReason.trim(),
       });
       if (error) throw error;
       setTrashTarget(null);
+      setTrashReason('');
       setSuccessMessage(restore ? 'Usuario restaurado.' : 'Usuario enviado a papelera. Se conservaron sus certificados y exámenes.');
       await loadUsersData({ silent: true });
     } catch (error) {
@@ -2881,8 +2902,15 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                         </>}
 
                         {!isDirectoryOnly(profile) && (
+                          <button type="button" onClick={() => openTrashHistory(profile)}
+                            className="p-1.5 rounded hover:bg-steel-700 text-steel-400 hover:text-petroleum-200"
+                            title="Historial de papelera y restauraciones">
+                            <History size={15} />
+                          </button>
+                        )}
+                        {!isDirectoryOnly(profile) && (
                           <button type="button"
-                            onClick={() => { setTrashTarget(profile); setTrashReason('Usuario duplicado'); }}
+                            onClick={() => { setTrashTarget(profile); setTrashReason(showTrash ? '' : 'Usuario duplicado'); }}
                             className="p-1.5 rounded hover:bg-steel-700 text-steel-400 hover:text-red-300"
                             title={showTrash ? 'Restaurar usuario' : 'Enviar a papelera'}
                           >
@@ -2924,7 +2952,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         size="md"
         footer={<>
           <button type="button" className="btn-secondary" disabled={trashBusy} onClick={() => setTrashTarget(null)}>Cancelar</button>
-          <button type="button" disabled={trashBusy || (!showTrash && !trashReason.trim())} className={showTrash ? 'btn-primary' : 'btn-secondary text-red-300'} onClick={() => trashTarget && changeTrashState(trashTarget, showTrash)}>
+          <button type="button" disabled={trashBusy || !trashReason.trim()} className={showTrash ? 'btn-primary' : 'btn-secondary text-red-300'} onClick={() => trashTarget && changeTrashState(trashTarget, showTrash)}>
             {trashBusy ? 'Procesando...' : showTrash ? 'Restaurar' : 'Confirmar papelera'}
           </button>
         </>}
@@ -2949,9 +2977,55 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
               <span className="text-xs text-steel-400">Podés modificar libremente el texto sugerido.</span>
             </div>
           ) : (
-            <p className="text-sm">Motivo registrado: <strong>{trashTarget?.deletion_reason || 'Sin motivo'}</strong></p>
+            <div className="space-y-2">
+              <p className="text-sm">Motivo de eliminación: <strong>{trashTarget?.deletion_reason || 'Sin motivo'}</strong></p>
+              <label className="block text-sm font-semibold">Motivo de restauración (obligatorio)</label>
+              <div className="flex flex-wrap gap-2">
+                {['Eliminado por error', 'Duplicación descartada', 'Datos corregidos', 'Reactivación autorizada'].map((reason) => (
+                  <button key={reason} type="button" onClick={() => setTrashReason(reason)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs ${trashReason === reason ? 'border-petroleum-400 bg-petroleum-600/30 text-white' : 'border-steel-600 text-steel-300 hover:border-steel-400'}`}>
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              <textarea className="input w-full min-h-[88px] resize-y" maxLength={1000}
+                value={trashReason} onChange={(event) => setTrashReason(event.target.value)}
+                placeholder="Explicá por qué se restaura el usuario..." />
+            </div>
           )}
           <p className="text-amber-300">La papelera no elimina cuentas de Supabase Auth. Verificá métricas y procesos externos antes de usar en producción.</p>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!trashHistoryUser}
+        onClose={() => setTrashHistoryUser(null)}
+        title="Historial administrativo de papelera"
+        size="lg"
+        footer={<button className="btn-secondary" type="button" onClick={() => setTrashHistoryUser(null)}>Cerrar</button>}
+      >
+        <div className="space-y-4 text-sm text-steel-200">
+          <p className="font-medium">{trashHistoryUser ? getFullName(trashHistoryUser) : ''}</p>
+          {trashHistoryLoading && <p>Cargando historial...</p>}
+          {trashHistoryError && <p className="text-red-300" role="alert">{trashHistoryError}</p>}
+          {!trashHistoryLoading && !trashHistoryError && trashHistory.length === 0 && <p className="text-steel-400">No se registraron movimientos.</p>}
+          {!trashHistoryLoading && !trashHistoryError && (
+            <ol className="border-l border-steel-600 ml-2 space-y-4">
+              {trashHistory.map((event) => (
+                <li key={event.id} className="relative pl-5">
+                  <span className="absolute -left-1.5 top-1 w-3 h-3 rounded-full bg-petroleum-400" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <strong className={event.action === 'trash' ? 'text-red-300' : 'text-emerald-300'}>
+                      {event.action === 'trash' ? 'Enviado a papelera' : 'Restaurado'}
+                    </strong>
+                    <span className="text-xs text-steel-400">{new Date(event.created_at).toLocaleString('es-AR')}</span>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap break-words">{event.reason || 'Sin motivo histórico registrado'}</p>
+                  <p className="text-xs text-steel-400 mt-1">Administrador: {event.actor_email || 'Sin información'}</p>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       </Modal>
 
