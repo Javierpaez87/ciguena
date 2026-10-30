@@ -337,7 +337,7 @@ export const handler = async (event: any) => {
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, full_name, email, status, deleted_at')
+    .select('id, tenant_id, full_name, email, status, deleted_at')
     .eq('id', assignment.user_id)
     .maybeSingle();
 
@@ -353,6 +353,10 @@ export const handler = async (event: any) => {
     return json(404, {
       error: 'No encontramos el perfil asociado a la asignación.',
     });
+  }
+
+  if (profile.tenant_id !== assignment.tenant_id) {
+    return json(409, { error: 'La asignación y el perfil pertenecen a empresas distintas.' });
   }
 
   if (profile.deleted_at) {
