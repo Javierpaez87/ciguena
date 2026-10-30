@@ -994,7 +994,7 @@ export default function AdminUsers() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [showTrash, setShowTrash] = useState(false);
   const [trashTarget, setTrashTarget] = useState<Profile | null>(null);
-  const [trashReason, setTrashReason] = useState("duplicate");
+  const [trashReason, setTrashReason] = useState("Usuario duplicado");
   const [trashBusy, setTrashBusy] = useState(false);
   const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeDirectory[]>([]);
   const [tenantName, setTenantName] = useState('');
@@ -1295,8 +1295,8 @@ export default function AdminUsers() {
   }
 
   const activeCount = users.filter((profile) => !profile.deleted_at && isActive(profile)).length;
-  const inactiveCount = users.filter((profile) => normalize(profile.status) === 'inactive').length;
-  const pendingCount = users.filter((profile) => normalize(profile.status) === 'pending').length;
+  const inactiveCount = users.filter((profile) => !profile.deleted_at && normalize(profile.status) === 'inactive').length;
+  const pendingCount = users.filter((profile) => !profile.deleted_at && normalize(profile.status) === 'pending').length;
 
   const onboardingCounts = useMemo(() => {
     const counts: Record<OnboardingStage, number> = {
@@ -1529,7 +1529,7 @@ export default function AdminUsers() {
         p_tenant: tenantId,
         p_profile: profile.id,
         p_restore: restore,
-        p_reason: restore ? null : trashReason,
+        p_reason: restore ? null : trashReason.trim(),
       });
       if (error) throw error;
       setTrashTarget(null);
@@ -2628,7 +2628,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         <div className="flex gap-3 flex-wrap">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
             <Users size={13} className="text-steel-400" />
-            <span className="text-xs text-steel-300">{users.length} total</span>
+            <span className="text-xs text-steel-300">{users.filter((profile) => !profile.deleted_at).length} en nómina</span>
           </div>
 
           <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
@@ -2642,6 +2642,16 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
           <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
             <span className="text-xs text-steel-400">{inactiveCount} inactivos</span>
           </div>
+
+          <button
+            type="button"
+            onClick={() => { setShowTrash((current) => !current); clearFilters(); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${showTrash ? 'bg-red-500/20 border-red-400 text-red-200' : 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20'}`}
+            title="Ver usuarios eliminados y restaurarlos"
+          >
+            <Trash2 size={14} />
+            <span className="text-xs font-semibold">Papelera: {users.filter((profile) => !!profile.deleted_at).length}</span>
+          </button>
 
           <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
             <span className="text-xs text-steel-400">
@@ -2769,6 +2779,11 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                           <div className="text-sm font-medium text-steel-100 truncate">
                             {getFullName(profile)}
                           </div>
+                          {showTrash && (
+                            <div className="mt-1 max-w-xs text-xs text-red-200 whitespace-normal break-words" title={profile.deletion_reason || ''}>
+                              Motivo: {profile.deletion_reason || 'Sin motivo registrado'}
+                            </div>
+                          )}
                           <div className="text-xs text-steel-400 truncate">
                             {profile.email || 'Sin email'}
                           </div>
@@ -2828,7 +2843,9 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                           );
                           const onboardingMeta = ONBOARDING_STAGE_META[onboardingStage];
 
-                          return (
+                          return showTrash ? (
+                            <span className="text-xs text-red-300">En papelera</span>
+                          ) : (
                             <button
                               type="button"
                               onClick={() => setShowDetail(profile)}
@@ -2845,6 +2862,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
 
                     <td className="table-cell text-right">
                       <div className="flex items-center gap-1 justify-end">
+                        {!showTrash && <>
                         <button
                           onClick={() => setShowDetail(profile)}
                           className="p-1.5 rounded hover:bg-steel-700 text-steel-400 hover:text-steel-100 transition-colors"
@@ -2860,10 +2878,11 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                         >
                           <Pencil size={14} />
                         </button>
+                        </>}
 
                         {!isDirectoryOnly(profile) && (
                           <button type="button"
-                            onClick={() => { setTrashTarget(profile); setTrashReason('duplicate'); }}
+                            onClick={() => { setTrashTarget(profile); setTrashReason('Usuario duplicado'); }}
                             className="p-1.5 rounded hover:bg-steel-700 text-steel-400 hover:text-red-300"
                             title={showTrash ? 'Restaurar usuario' : 'Enviar a papelera'}
                           >
@@ -2905,7 +2924,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         size="md"
         footer={<>
           <button type="button" className="btn-secondary" disabled={trashBusy} onClick={() => setTrashTarget(null)}>Cancelar</button>
-          <button type="button" disabled={trashBusy} className={showTrash ? 'btn-primary' : 'btn-secondary text-red-300'} onClick={() => trashTarget && changeTrashState(trashTarget, showTrash)}>
+          <button type="button" disabled={trashBusy || (!showTrash && !trashReason.trim())} className={showTrash ? 'btn-primary' : 'btn-secondary text-red-300'} onClick={() => trashTarget && changeTrashState(trashTarget, showTrash)}>
             {trashBusy ? 'Procesando...' : showTrash ? 'Restaurar' : 'Confirmar papelera'}
           </button>
         </>}
@@ -2913,14 +2932,25 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         <div className="space-y-3 text-sm text-steel-200">
           <p><strong>{trashTarget ? getFullName(trashTarget) : ''}</strong> — {trashTarget?.email}</p>
           <p>Se conservarán las asignaciones, certificados, intentos y auditorías. Este cambio no fusiona perfiles duplicados.</p>
-          {!showTrash && <label className="block">Motivo
-            <select className="select w-full mt-1" value={trashReason} onChange={(e) => setTrashReason(e.target.value)}>
-              <option value="duplicate">Usuario duplicado</option>
-              <option value="test">Usuario de prueba</option>
-              <option value="roster_error">Error de nómina</option>
-              <option value="other">Otro</option>
-            </select>
-          </label>}
+          {!showTrash ? (
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold">Motivo de eliminación</label>
+              <div className="flex flex-wrap gap-2">
+                {['Usuario duplicado', 'Usuario de prueba', 'Error de nómina', 'Otro motivo'].map((reason) => (
+                  <button key={reason} type="button" onClick={() => setTrashReason(reason)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${trashReason === reason ? 'border-petroleum-400 bg-petroleum-600/30 text-white' : 'border-steel-600 text-steel-300 hover:border-steel-400'}`}>
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              <textarea className="input w-full min-h-[88px] resize-y" value={trashReason}
+                maxLength={1000} onChange={(event) => setTrashReason(event.target.value)}
+                placeholder="Seleccioná un motivo o escribí uno personalizado..." />
+              <span className="text-xs text-steel-400">Podés modificar libremente el texto sugerido.</span>
+            </div>
+          ) : (
+            <p className="text-sm">Motivo registrado: <strong>{trashTarget?.deletion_reason || 'Sin motivo'}</strong></p>
+          )}
           <p className="text-amber-300">La papelera no elimina cuentas de Supabase Auth. Verificá métricas y procesos externos antes de usar en producción.</p>
         </div>
       </Modal>
