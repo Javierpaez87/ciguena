@@ -15,6 +15,7 @@ import {
   Download,
   Eye,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 
 import { supabase } from '../../lib/supabase';
@@ -293,6 +294,13 @@ export default function SaTenants() {
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Tenant | null>(null);
+  const [sentinelSearch, setSentinelSearch] = useState('');
+  const [sentinelRows, setSentinelRows] = useState<Array<{profile_id:string;full_name:string|null;email:string|null;is_test_user:boolean}>>([]);
+  const [sentinelLoading, setSentinelLoading] = useState(false);
+  const [sentinelBusy, setSentinelBusy] = useState<string | null>(null);
+  const [sentinelReason, setSentinelReason] = useState('');
+  const [sentinelPending, setSentinelPending] = useState<{profile_id:string;full_name:string|null;is_test_user:boolean}|null>(null);
+  const [sentinelError, setSentinelError] = useState('');
   const [showTrainings, setShowTrainings] = useState<Tenant | null>(null);
   const [showCertificates, setShowCertificates] = useState<Tenant | null>(null);
   const [visibleCertificatesCount, setVisibleCertificatesCount] = useState(CERTIFICATES_STEP);
@@ -481,6 +489,41 @@ export default function SaTenants() {
   const filtered = tenantStats.filter((tenant) =>
     tenant.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  useEffect(() => {
+    if (!showDetail) { setSentinelRows([]); return; }
+    let cancelled = false;
+    setSentinelLoading(true);
+    setSentinelError('');
+    const handler = setTimeout(async () => {
+      const { data, error } = await supabase.rpc('global_sentinel_candidates', {
+        p_tenant: showDetail.id, p_search: sentinelSearch.trim(), p_limit: 50,
+      });
+      if (cancelled) return;
+      setSentinelLoading(false);
+      if (error) { setSentinelError(error.message); setSentinelRows([]); }
+      else setSentinelRows((data ?? []) as typeof sentinelRows);
+    }, 250);
+    return () => { cancelled = true; clearTimeout(handler); };
+  }, [showDetail?.id, sentinelSearch]);
+
+  async function changeSentinel() {
+    if (!showDetail || !sentinelPending || sentinelReason.trim().length < 3) return;
+    setSentinelBusy(sentinelPending.profile_id);
+    setSentinelError('');
+    const { error } = await supabase.rpc('admin_set_test_user', {
+      p_tenant: showDetail.id,
+      p_profile: sentinelPending.profile_id,
+      p_mark: !sentinelPending.is_test_user,
+      p_reason: sentinelReason.trim(),
+    });
+    setSentinelBusy(null);
+    if (error) { setSentinelError(error.message); return; }
+    setSentinelRows(rows => rows.map(row => row.profile_id === sentinelPending.profile_id
+      ? {...row, is_test_user: !sentinelPending.is_test_user} : row));
+    setSentinelPending(null);
+    setSentinelReason('');
+  }
 
   const detailTenant = showDetail
     ? tenantStats.find((tenant) => tenant.id === showDetail.id) ?? null
@@ -1070,6 +1113,31 @@ export default function SaTenants() {
                 <span className="text-steel-400">Creado</span>
                 <span className="text-steel-200">{formatDate(detailTenant.created_at)}</span>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4 space-y-3">
+              <div className="flex items-center gap-2 font-semibold text-sm text-steel-100"><ShieldCheck size={17} /> Usuarios centinela</div>
+              <p className="text-xs text-steel-400">Solo el superadmin global puede clasificar usuarios existentes. Se conservan sus entrenamientos, certificados y auditoría.</p>
+              <input className="input w-full" value={sentinelSearch} onChange={e => setSentinelSearch(e.target.value)} placeholder="Buscar trabajador por nombre o email..." />
+              <p className="text-xs text-steel-500">Mostrando hasta 50 coincidencias. Refiná la búsqueda para encontrar otros usuarios.</p>
+              {sentinelError && <p role="alert" className="text-xs text-red-400">{sentinelError}</p>}
+              {sentinelLoading ? <p className="text-sm text-steel-400">Buscando...</p> : sentinelRows.length === 0 ? <p className="text-sm text-steel-400">Sin coincidencias.</p> : (
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {sentinelRows.map(row => <div key={row.profile_id} className="rounded-lg border border-steel-700 p-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0"><div className="text-sm text-steel-100 truncate">{row.full_name || row.email || 'Sin nombre'}</div>
+                      <div className="text-xs text-steel-400 truncate">{row.email || 'Sin email'} · {row.is_test_user ? 'Centinela' : 'Normal'}</div></div>
+                    <button type="button" className="btn-ghost text-xs shrink-0" onClick={() => { setSentinelPending(row); setSentinelReason(''); }}>
+                      {row.is_test_user ? 'Quitar marca' : 'Marcar centinela'}
+                    </button>
+                  </div>)}
+                </div>
+              )}
+              {sentinelPending && <div className="rounded-lg border border-amber-500/30 bg-steel-950 p-3 space-y-2">
+                <p className="text-sm text-steel-100">{sentinelPending.is_test_user ? 'Quitar clasificación de' : 'Marcar como centinela a'} <b>{sentinelPending.full_name || 'usuario seleccionado'}</b></p>
+                <textarea className="input w-full min-h-20" placeholder="Motivo obligatorio (mínimo 3 caracteres)" value={sentinelReason} onChange={e=>setSentinelReason(e.target.value)} />
+                <div className="flex gap-2 justify-end"><button type="button" className="btn-ghost" onClick={()=>setSentinelPending(null)}>Cancelar</button>
+                  <button type="button" className="btn-primary" disabled={sentinelBusy !== null || sentinelReason.trim().length < 3} onClick={changeSentinel}>Confirmar</button></div>
+              </div>}
             </div>
 
             <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-4">
