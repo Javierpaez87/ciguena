@@ -1,3 +1,4 @@
+import { getTrainingTitle } from './_training-titles';
 import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
@@ -27,15 +28,6 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-const TRAINING_TITLES: Record<string, string> = {
-  tr_hand_safety: 'Cuidado de manos',
-  tr_working_at_heights: 'Trabajo en altura',
-  tr_energy_isolation: 'Aislamiento de energía',
-  tr_line_of_fire: 'Línea de fuego',
-  tr_confined_spaces: 'Espacios confinados',
-  tr_hot_work: 'Trabajo en caliente',
-  tr_lifting_operations: 'Izaje mecánico seguro',
-};
 
 function json(statusCode: number, body: unknown) {
   return {
@@ -58,9 +50,6 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
-function getTrainingTitle(trainingId: string) {
-  return TRAINING_TITLES[trainingId] || trainingId || 'Curso asignado';
-}
 
 async function sendResendEmail({
   to,

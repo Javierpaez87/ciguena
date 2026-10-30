@@ -18,6 +18,7 @@ import {
   getBrandSlug,
 } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
+import { baseTrainings } from '../../data/baseTrainings';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -119,15 +120,9 @@ function getInitial(profile?: Profile | null) {
 }
 
 function getTrainingTitle(training?: TenantTraining | null, certificate?: Certificate | null) {
-  return (
-    training?.title ||
-    training?.training_title ||
-    training?.name ||
-    certificate?.training_title ||
-    certificate?.training_name ||
-    certificate?.training_id ||
-    'Training sin título'
-  );
+  const rawTitle = training?.title || training?.training_title || training?.name || certificate?.training_title || certificate?.training_name || certificate?.training_id || '';
+  // Older certificate rows may contain the technical ID in their title fields.
+  return baseTrainings.find((item) => item.id === rawTitle || item.id === certificate?.training_id)?.title || rawTitle || 'Training sin título';
 }
 
 function getCertificateCode(certificate: Certificate) {
