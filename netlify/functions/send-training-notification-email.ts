@@ -337,7 +337,7 @@ export const handler = async (event: any) => {
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, full_name, email, status')
+    .select('id, full_name, email, status, deleted_at')
     .eq('id', assignment.user_id)
     .maybeSingle();
 
@@ -353,6 +353,10 @@ export const handler = async (event: any) => {
     return json(404, {
       error: 'No encontramos el perfil asociado a la asignación.',
     });
+  }
+
+  if (profile.deleted_at) {
+    return json(409, { error: 'El perfil está en papelera. No se enviará el correo.' });
   }
 
   if (!profile.email) {
