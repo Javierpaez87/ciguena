@@ -504,10 +504,14 @@ export default function AdminTrainings() {
           attempt > 0 ? `(reintento ${attempt})` : ''
         );
 
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) throw new Error('Sesión vencida. Volvé a ingresar para enviar emails.');
         const response = await fetch('/.netlify/functions/send-training-notification-email', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({ assignmentId, type: 'assignment', createdBy: user?.id }),
         });

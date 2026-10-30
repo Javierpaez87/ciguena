@@ -23,7 +23,7 @@ const appUrl =
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
 };
@@ -195,6 +195,33 @@ export const handler = async (event: any) => {
     },
   });
 
+  // Authenticate the caller before service-role reads or email side effects.
+  const authorizationHeader = clean(event.headers?.authorization || event.headers?.Authorization);
+  const accessToken = authorizationHeader.toLowerCase().startsWith('bearer ')
+    ? authorizationHeader.slice(7).trim()
+    : '';
+  if (!accessToken) return json(401, { error: 'Sesión no autorizada.' });
+
+  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+  if (authError || !authData?.user) {
+    return json(401, { error: 'La sesión no es válida o venció.' });
+  }
+
+  const { data: requester, error: requesterError } = await supabaseAdmin
+    .from('profiles')
+    .select('tenant_id, role, status, deleted_at')
+    .eq('auth_user_id', authData.user.id)
+    .maybeSingle();
+  if (requesterError || !requester || requester.deleted_at ||
+      clean(requester.status).toLowerCase() !== 'active') {
+    return json(403, { error: 'Perfil sin autorización para enviar notificaciones.' });
+  }
+  const requesterRole = clean(requester.role).toLowerCase();
+  const globalAdmin = requesterRole === 'super_admin' || requesterRole === 'superadmin';
+  if (!globalAdmin && requesterRole !== 'admin') {
+    return json(403, { error: 'Se requiere un perfil administrador.' });
+  }
+
   const { data: assignment, error: assignmentError } = await supabaseAdmin
     .from('training_assignments')
     .select('id, user_id, training_id, tenant_id')
@@ -213,6 +240,10 @@ export const handler = async (event: any) => {
     return json(404, {
       error: 'La asignación no existe.',
     });
+  }
+
+  if (!globalAdmin && requester.tenant_id !== assignment.tenant_id) {
+    return json(403, { error: 'No tenés permisos para enviar emails de esta empresa.' });
   }
 
   const { data: profile, error: profileError } = await supabaseAdmin

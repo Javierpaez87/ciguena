@@ -1235,9 +1235,12 @@ export default function AdminAssignments() {
     assignmentId: string;
     type: NotificationType;
   }) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error('Sesión vencida. Volvé a ingresar para enviar emails.');
     const response = await fetch('/.netlify/functions/send-training-notification-email', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ assignmentId, type, createdBy: user?.id || null }),
     });
 
