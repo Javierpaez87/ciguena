@@ -281,22 +281,6 @@ export const handler = async (event: any) => {
     });
   }
 
-  let payload: any;
-
-  try {
-    payload = JSON.parse(event.body || '{}');
-  } catch {
-    return json(400, { error: 'Solicitud inválida.' });
-  }
-
-  const assignmentId = clean(payload.assignmentId);
-  const type = normalizeType(payload.type);
-  const createdBy = clean(payload.createdBy) || null;
-
-  if (!assignmentId) {
-    return json(400, { error: 'Falta assignmentId.' });
-  }
-
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
@@ -329,6 +313,22 @@ export const handler = async (event: any) => {
   const globalAdmin = requesterRole === 'super_admin' || requesterRole === 'superadmin';
   if (!globalAdmin && requesterRole !== 'admin') {
     return json(403, { error: 'Se requiere un perfil administrador.' });
+  }
+
+  let payload: any;
+
+  try {
+    payload = JSON.parse(event.body || '{}');
+  } catch {
+    return json(400, { error: 'Solicitud inválida.' });
+  }
+
+  const assignmentId = clean(payload.assignmentId);
+  const type = normalizeType(payload.type);
+  const createdBy = clean(payload.createdBy) || null;
+
+  if (!assignmentId) {
+    return json(400, { error: 'Falta assignmentId.' });
   }
 
   const { data: assignment, error: assignmentError } = await supabaseAdmin
