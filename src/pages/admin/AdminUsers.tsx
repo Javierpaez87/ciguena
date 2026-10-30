@@ -1461,7 +1461,7 @@ export default function AdminUsers() {
       'campo_personalizado_5',
     ];
 
-    const rows = users.map((profile) => {
+    const rows = users.filter((profile) => !profile.deleted_at && profile.is_test_user !== true).map((profile) => {
       const customFields =
         profile.custom_fields ||
         ((profile.raw_payload?.custom_fields as Record<string, string> | undefined) ?? {});

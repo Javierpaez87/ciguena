@@ -333,7 +333,7 @@ export const handler = async (event: any) => {
 
   const { data: requesterProfile, error: requesterError } = await supabaseAdmin
     .from('profiles')
-    .select('id, tenant_id, role, status, email, full_name')
+    .select('id, tenant_id, role, status, email, full_name, deleted_at')
     .eq('auth_user_id', authUser.id)
     .maybeSingle();
 
@@ -345,6 +345,7 @@ export const handler = async (event: any) => {
     requesterError ||
     !requesterProfile ||
     clean(requesterProfile.status).toLowerCase() !== 'active' ||
+    Boolean(requesterProfile.deleted_at) ||
     (!isSuperAdmin && !isTenantAdmin)
   ) {
     return json(403, { error: 'No tenés permisos para enviar comunicaciones de esta empresa.' });
@@ -361,7 +362,7 @@ export const handler = async (event: any) => {
   const [profilesResult, directoryResult] = await Promise.all([
     supabaseAdmin
       .from('profiles')
-      .select('id, email, first_name, last_name, full_name, status, role')
+      .select('id, email, first_name, last_name, full_name, status, role, deleted_at, is_test_user')
       .eq('tenant_id', tenantId),
     supabaseAdmin
       .from('employee_directory')
@@ -373,16 +374,24 @@ export const handler = async (event: any) => {
     return json(500, { error: 'No pudimos verificar los destinatarios de la empresa.' });
   }
 
+  // Block profiles in trash even if they also have a roster/directory row.
+  const excludedProfileEmails = new Set((profilesResult.data ?? [])
+    .filter((row: any) => Boolean(row.deleted_at) || row.is_test_user === true)
+    .map((row: any) => clean(row.email).toLowerCase())
+    .filter(Boolean));
+  const excludedProfileIds = new Set((profilesResult.data ?? [])
+    .filter((row: any) => Boolean(row.deleted_at) || row.is_test_user === true)
+    .map((row: any) => row.id));
   const allowedByEmail = new Map<string, Recipient>();
 
   (directoryResult.data ?? []).forEach((row: any) => {
     const recipient = recipientFromDirectory(row);
-    if (recipient) allowedByEmail.set(recipient.email, recipient);
+    if (recipient && !excludedProfileEmails.has(recipient.email.toLowerCase()) && !excludedProfileIds.has(row.profile_id)) allowedByEmail.set(recipient.email, recipient);
   });
 
   (profilesResult.data ?? []).forEach((row: any) => {
     const role = clean(row?.role).toLowerCase();
-    if (role === 'super_admin' || role === 'superadmin') return;
+    if (role === 'super_admin' || role === 'superadmin' || row.deleted_at || row.is_test_user === true) return;
     const recipient = recipientFromProfile(row);
     if (!recipient) return;
     const existing = allowedByEmail.get(recipient.email);
