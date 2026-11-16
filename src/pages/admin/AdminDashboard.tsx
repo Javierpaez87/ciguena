@@ -641,15 +641,19 @@ export default function AdminDashboard() {
         if (liveParticipantsResult.error) throw liveParticipantsResult.error;
         if (liveCertificatesResult.error) throw liveCertificatesResult.error;
 
-        const rawUsers = (usersResult.data ?? []) as Profile[];
+        const allProfileRows = (usersResult.data ?? []) as Array<Profile & { deleted_at?: string | null; is_test_user?: boolean | null }>;
+        // Operational metrics exclude trashed profiles and synthetic test accounts.
+        // Their historical assignments, certificates and audit rows remain untouched in Supabase.
+        const excludedProfileIds = new Set(allProfileRows.filter(p => Boolean(p.deleted_at) || p.is_test_user === true).map(p => p.id));
+        const rawUsers = allProfileRows.filter(p => !excludedProfileIds.has(p.id)) as Profile[];
         const directoryRows = (directoryResult.data ?? []) as EmployeeDirectoryRecord[];
-        const loadedUsers = mergeProfilesWithDirectory(rawUsers as any, directoryRows) as Profile[];
+        const loadedUsers = mergeProfilesWithDirectory(rawUsers as any, directoryRows) .filter((u: any) => !excludedProfileIds.has(u.id)) as Profile[];
         const loadedTenantTrainings = (tenantTrainingsResult.data ?? []) as TenantTraining[];
-        const loadedAssignmentsRaw = (assignmentsResult.data ?? []) as Assignment[];
-        const loadedCertificates = (certificatesResult.data ?? []) as Certificate[];
+        const loadedAssignmentsRaw = ((assignmentsResult.data ?? []) as Assignment[]).filter(a => !a.user_id || !excludedProfileIds.has(a.user_id));
+        const loadedCertificates = ((certificatesResult.data ?? []) as Certificate[]).filter(c => !c.user_id || !excludedProfileIds.has(c.user_id));
         const loadedLiveTrainings = (liveTrainingsResult.data ?? []) as LiveTraining[];
-        const loadedLiveParticipants = (liveParticipantsResult.data ?? []) as LiveTrainingParticipant[];
-        const loadedLiveCertificates = (liveCertificatesResult.data ?? []) as LiveTrainingCertificate[];
+        const loadedLiveParticipants = ((liveParticipantsResult.data ?? []) as LiveTrainingParticipant[]).filter(p => !p.user_id || !excludedProfileIds.has(p.user_id));
+        const loadedLiveCertificates = ((liveCertificatesResult.data ?? []) as LiveTrainingCertificate[]).filter(c => !c.user_id || !excludedProfileIds.has(c.user_id));
 
         const userIds = rawUsers.map((profile) => profile.id).filter(Boolean);
 

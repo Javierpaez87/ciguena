@@ -1,3 +1,4 @@
+import { getTrainingTitle } from './_training-titles';
 import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
@@ -22,20 +23,11 @@ const appUrl =
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
 };
 
-const TRAINING_TITLES: Record<string, string> = {
-  tr_hand_safety: 'Cuidado de manos',
-  tr_working_at_heights: 'Trabajo en altura',
-  tr_energy_isolation: 'Aislamiento de energía',
-  tr_line_of_fire: 'Línea de fuego',
-  tr_confined_spaces: 'Espacios confinados',
-  tr_hot_work: 'Trabajo en caliente',
-  tr_lifting_operations: 'Izaje mecánico seguro',
-};
 
 function json(statusCode: number, body: unknown) {
   return {
@@ -58,9 +50,6 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
-function getTrainingTitle(trainingId: string) {
-  return TRAINING_TITLES[trainingId] || trainingId || 'Curso asignado';
-}
 
 async function sendResendEmail({
   to,
@@ -185,6 +174,40 @@ export const handler = async (event: any) => {
     });
   }
 
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  // Authenticate the caller before service-role reads or email side effects.
+  const authorizationHeader = clean(event.headers?.authorization || event.headers?.Authorization);
+  const accessToken = authorizationHeader.toLowerCase().startsWith('bearer ')
+    ? authorizationHeader.slice(7).trim()
+    : '';
+  if (!accessToken) return json(401, { error: 'Sesión no autorizada.' });
+
+  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
+  if (authError || !authData?.user) {
+    return json(401, { error: 'La sesión no es válida o venció.' });
+  }
+
+  const { data: requester, error: requesterError } = await supabaseAdmin
+    .from('profiles')
+    .select('tenant_id, role, status, deleted_at')
+    .eq('auth_user_id', authData.user.id)
+    .maybeSingle();
+  if (requesterError || !requester || requester.deleted_at ||
+      clean(requester.status).toLowerCase() !== 'active') {
+    return json(403, { error: 'Perfil sin autorización para enviar notificaciones.' });
+  }
+  const requesterRole = clean(requester.role).toLowerCase();
+  const globalAdmin = requesterRole === 'super_admin' || requesterRole === 'superadmin';
+  if (!globalAdmin && requesterRole !== 'admin') {
+    return json(403, { error: 'Se requiere un perfil administrador.' });
+  }
+
   let payload: any;
 
   try {
@@ -198,13 +221,6 @@ export const handler = async (event: any) => {
   if (!assignmentId) {
     return json(400, { error: 'Falta assignmentId.' });
   }
-
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
 
   const { data: assignment, error: assignmentError } = await supabaseAdmin
     .from('training_assignments')
@@ -226,9 +242,13 @@ export const handler = async (event: any) => {
     });
   }
 
+  if (!globalAdmin && requester.tenant_id !== assignment.tenant_id) {
+    return json(403, { error: 'No tenés permisos para enviar emails de esta empresa.' });
+  }
+
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, full_name, email, status')
+    .select('id, tenant_id, full_name, email, status, deleted_at')
     .eq('id', assignment.user_id)
     .maybeSingle();
 
@@ -244,6 +264,14 @@ export const handler = async (event: any) => {
     return json(404, {
       error: 'No encontramos el perfil asociado a la asignación.',
     });
+  }
+
+  if (profile.tenant_id !== assignment.tenant_id) {
+    return json(409, { error: 'La asignación y el perfil pertenecen a empresas distintas.' });
+  }
+
+  if (profile.deleted_at) {
+    return json(409, { error: 'El perfil está en papelera. No se enviará el correo.' });
   }
 
   if (!profile.email) {

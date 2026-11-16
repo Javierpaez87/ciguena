@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   AlertCircle,
   CalendarClock,
   CheckCircle2,
@@ -1748,6 +1749,13 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
           </div>
         </div>
       )}
+
+      <div role="status" className="rounded-xl border-2 border-amber-400/70 bg-amber-500/15 p-5 text-amber-100">
+        <div className="flex items-center gap-3 text-lg font-bold">
+          <AlertTriangle size={24} aria-hidden="true" /> SECCIÓN EN DESARROLLO
+        </div>
+        <p className="mt-2 text-sm">Este módulo todavía está en implementación y validación. No utilizar para operaciones reales hasta su habilitación.</p>
+      </div>
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>

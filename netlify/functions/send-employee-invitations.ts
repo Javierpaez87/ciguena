@@ -403,6 +403,15 @@ export const handler = async (event: any) => {
     return json(500, { error: 'No pudimos leer la nómina de empleados.' });
   }
 
+  const { data: blockedProfiles, error: blockedError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, deleted_at, is_test_user')
+    .eq('tenant_id', tenantId)
+    .or('deleted_at.not.is.null,is_test_user.eq.true');
+  if (blockedError) return json(500, { error: 'No se pudieron verificar los destinatarios.' });
+  const blockedEmails = new Set((blockedProfiles ?? [])
+    .map((profile) => normalizeEmail(profile.email)).filter(Boolean));
+  const blockedIds = new Set((blockedProfiles ?? []).map((profile) => profile.id));
   const directoryRows = (rows ?? []) as DirectoryRow[];
   const rowByEmail = new Map(
     directoryRows.map((row) => [normalizeEmail(row.email), row] as const)
@@ -413,7 +422,9 @@ export const handler = async (event: any) => {
 
   emails.forEach((email) => {
     const row = rowByEmail.get(email);
-    const skipped = classifySkipped(email, row, allowResend);
+    const skipped = (blockedEmails.has(email) || (row?.profile_id && blockedIds.has(row.profile_id)))
+      ? { email, status: 'skipped' as const, reason: 'not_eligible' as const, message: 'Usuario excluido de comunicaciones operativas.' }
+      : classifySkipped(email, row, allowResend);
 
     if (skipped) {
       results.push(skipped);
