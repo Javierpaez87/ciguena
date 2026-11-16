@@ -585,6 +585,7 @@ export default function AdminReports() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [exportWithWorkerFilter, setExportWithWorkerFilter] = useState(true);
   const [workerFilterKey, setWorkerFilterKey] = useState<WorkerFilterKey>('work_role');
   const [workerFilterValue, setWorkerFilterValue] = useState('all');
   const [detailKey, setDetailKey] = useState<ReportDetailKey | null>(null);
@@ -791,7 +792,13 @@ export default function AdminReports() {
       ? 'Empresa completa'
       : `${getWorkerFilterDefinition(workerFilterKey).label}: ${workerFilterValue}`;
 
-  const reports = useMemo(() => {
+  const buildReports = (
+    filteredUsers: Profile[],
+    filteredAssignments: Assignment[],
+    filteredCertificates: Certificate[],
+    filteredLiveTrainings: LiveTraining[],
+    filteredLiveParticipants: LiveTrainingParticipant[]
+  ) => {
     const completedAssignmentRows = filteredAssignments.filter((assignment) =>
       completedStatuses.includes(normalize(assignment.status))
     );
@@ -1066,14 +1073,16 @@ export default function AdminReports() {
       statusItems,
       certItems,
     };
-  }, [
-    filteredUsers,
-    filteredAssignments,
-    filteredCertificates,
-    filteredLiveTrainings,
-    filteredLiveParticipants,
-  ]);
+  };
 
+  const reports = useMemo(
+    () => buildReports(filteredUsers, filteredAssignments, filteredCertificates, filteredLiveTrainings, filteredLiveParticipants),
+    [filteredUsers, filteredAssignments, filteredCertificates, filteredLiveTrainings, filteredLiveParticipants]
+  );
+  const exportReports = useMemo(
+    () => exportWithWorkerFilter ? reports : buildReports(users, assignments, certificates, liveTrainings, liveParticipants),
+    [exportWithWorkerFilter, reports, users, assignments, certificates, liveTrainings, liveParticipants]
+  );
   const detailModalConfig = useMemo(() => {
     if (!detailKey) return null;
 
@@ -1230,7 +1239,7 @@ export default function AdminReports() {
     let columns: CsvExportColumn<ReportExportRow>[] = [];
 
     if (reportType === 'user') {
-      rows = reports.userReport.map((report) => ({
+      rows = exportReports.userReport.map((report) => ({
         name: report.name,
         position: report.position ?? '',
         area: report.area ?? '',
@@ -1257,7 +1266,7 @@ export default function AdminReports() {
     }
 
     if (reportType === 'training') {
-      rows = reports.trainingReport.map((report) => ({
+      rows = exportReports.trainingReport.map((report) => ({
         name: report.name,
         category: report.category,
         assigned: report.assigned,
@@ -1280,7 +1289,7 @@ export default function AdminReports() {
     }
 
     if (reportType === 'area') {
-      rows = reports.areaReport.map((report) => ({
+      rows = exportReports.areaReport.map((report) => ({
         name: report.name,
         users: report.users,
         assignments: report.assignments,
@@ -1301,7 +1310,7 @@ export default function AdminReports() {
     }
 
     if (reportType === 'live') {
-      rows = reports.liveTrainingReport.map((report) => ({
+      rows = exportReports.liveTrainingReport.map((report) => ({
         name: report.name,
         status: report.status,
         calendarStatus: report.calendarStatus,
@@ -1330,7 +1339,7 @@ export default function AdminReports() {
       columns,
       filename: `reporte-${reportType}-${brandSlug}.csv`,
     };
-  }, [brandSlug, reportType, reports]);
+  }, [brandSlug, reportType, exportReports]);
 
 
   if (loading) {
@@ -1381,7 +1390,7 @@ export default function AdminReports() {
               Actualizar
             </button>
 
-            <button onClick={() => setShowExportModal(true)} className="btn-secondary text-xs w-fit">
+            <button onClick={() => { setExportWithWorkerFilter(true); setShowExportModal(true); }} className="btn-secondary text-xs w-fit">
               <Download size={14} />
               Exportar CSV
             </button>
@@ -1958,6 +1967,9 @@ export default function AdminReports() {
         filename={reportExportConfig.filename}
         rows={reportExportConfig.rows}
         columns={reportExportConfig.columns}
+        activeFilters={workerFilterValue !== 'all' ? [{ key: 'worker', label: activeFilterSummary }] : []}
+        enabledFilterKeys={exportWithWorkerFilter ? ['worker'] : []}
+        onEnabledFilterKeysChange={(keys) => setExportWithWorkerFilter(keys.includes('worker'))}
         description="Elegí las columnas a incluir. Se exportará el tipo de reporte que estás viendo actualmente."
       />
 

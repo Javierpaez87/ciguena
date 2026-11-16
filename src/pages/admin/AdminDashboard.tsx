@@ -598,6 +598,7 @@ export default function AdminDashboard() {
   const [filterCriterion, setFilterCriterion] = useState<WorkerFilterKey>('work_role');
   const [filterValue, setFilterValue] = useState('all');
   const [showExportModal, setShowExportModal] = useState(false);
+  const [exportWithWorkerFilter, setExportWithWorkerFilter] = useState(true);
   const [detailKey, setDetailKey] = useState<DashboardDetailKey | null>(null);
 
   useEffect(() => {
@@ -1370,9 +1371,9 @@ export default function AdminDashboard() {
 
   const dashboardExportRows = useMemo<DashboardExportRow[]>(
     () =>
-      filteredWorkerUsers.map((profile) => {
-        const userAssignments = filteredAssignments.filter((item) => item.user_id === profile.id);
-        const userCertificates = filteredCertificates.filter((item) => item.user_id === profile.id);
+      (exportWithWorkerFilter ? filteredWorkerUsers : workerUsers).map((profile) => {
+        const userAssignments = assignments.filter((item) => item.user_id === profile.id);
+        const userCertificates = certificates.filter((item) => item.user_id === profile.id);
         const completedAssignments = userAssignments.filter((item) =>
           ['completed', 'passed', 'certificate_issued', 'approved'].includes(normalizeStatus(item.status))
         ).length;
@@ -1396,7 +1397,7 @@ export default function AdminDashboard() {
           certificates: userCertificates.length,
         };
       }),
-    [filteredWorkerUsers, filteredAssignments, filteredCertificates]
+    [exportWithWorkerFilter, filteredWorkerUsers, workerUsers, assignments, certificates]
   );
 
   const dashboardExportColumns = useMemo<CsvExportColumn<DashboardExportRow>[]>(
@@ -1883,7 +1884,10 @@ export default function AdminDashboard() {
         filename={`dashboard-${brandSlug}.csv`}
         rows={dashboardExportRows}
         columns={dashboardExportColumns}
-        description={`Se exportarán ${dashboardExportRows.length} trabajador(es) respetando el filtro actual: ${activeFilterSummary}.`}
+        activeFilters={hasActiveWorkerFilter ? [{ key: 'worker', label: activeFilterSummary }] : []}
+        enabledFilterKeys={exportWithWorkerFilter ? ['worker'] : []}
+        onEnabledFilterKeysChange={(keys) => setExportWithWorkerFilter(keys.includes('worker'))}
+        description={`Se exportarán ${dashboardExportRows.length} trabajador(es) con los filtros seleccionados en este modal.`}
       />
 
       {detailModalConfig && (

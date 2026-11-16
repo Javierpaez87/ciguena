@@ -27,6 +27,7 @@ import { getBrandSlug } from '../../lib/brandIdentity';
 import { supabase } from '../../lib/supabase';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
+import CsvExportModal, { type CsvExportColumn } from '../../components/ui/CsvExportModal';
 import {
   WORKER_FILTER_DEFINITIONS,
   getWorkerFilterDefinition,
@@ -1019,6 +1020,8 @@ export default function AdminUsers() {
   const [showInvite, setShowInvite] = useState(false);
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
+  const [showRosterExportModal, setShowRosterExportModal] = useState(false);
+  const [rosterExportFilters, setRosterExportFilters] = useState<string[]>([]);
 
   const [inviteEmails, setInviteEmails] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -1434,93 +1437,67 @@ export default function AdminUsers() {
     }, {});
   }, [assignments]);
 
-  function exportRosterCsv() {
-    const headers = [
-      'nombre',
-      'apellido',
-      'email',
-      'dni',
-      'telefono',
-      'rol_operativo',
-      'area',
-      'legajo',
-      'empresa_contratista',
-      'estado',
-      'puesto',
-      'supervisor',
-      'turno',
-      'fecha_ingreso',
-      'base',
-      'sede',
-      'region',
-      'yacimiento',
-      'campo_personalizado_1',
-      'campo_personalizado_2',
-      'campo_personalizado_3',
-      'campo_personalizado_4',
-      'campo_personalizado_5',
+  // Conservar las 23 columnas originales para la compatibilidad con la nómina importable.
+  const rosterExportColumns = useMemo<CsvExportColumn<Profile>[]>(() => {
+    const original: Array<[string, string, (profile: Profile) => string]> = [
+      ['nombre', 'nombre', (p) => p.first_name || ''],
+      ['apellido', 'apellido', (p) => p.last_name || ''],
+      ['email', 'email', (p) => p.email || ''],
+      ['dni', 'dni', (p) => p.dni || ''],
+      ['telefono', 'telefono', (p) => p.phone || ''],
+      ['rol_operativo', 'rol_operativo', (p) => p.work_role || p.job_role || ''],
+      ['area', 'area', (p) => p.area || ''],
+      ['legajo', 'legajo', (p) => p.employee_code || ''],
+      ['empresa_contratista', 'empresa_contratista', (p) => p.contractor_company || ''],
+      ['estado', 'estado', (p) => normalize(p.status) === 'inactive' || normalize(p.directory_status) === 'inactive' ? 'inactive' : 'active'],
+      ['puesto', 'puesto', (p) => p.position || ''],
+      ['supervisor', 'supervisor', (p) => p.supervisor || ''],
+      ['turno', 'turno', (p) => p.shift || ''],
+      ['fecha_ingreso', 'fecha_ingreso', (p) => p.hire_date || ''],
+      ['base', 'base', (p) => p.base || ''],
+      ['sede', 'sede', (p) => p.site || ''],
+      ['region', 'region', (p) => p.region || ''],
+      ['yacimiento', 'yacimiento', (p) => p.oilfield || ''],
+      ...[1, 2, 3, 4, 5].map((n) => {
+        const key = `campo_personalizado_${n}`;
+        return [key, key, (p: Profile) => String((p.custom_fields || (p.raw_payload?.custom_fields as Record<string, string> | undefined) || {})[key] || '')] as [string, string, (profile: Profile) => string];
+      }),
     ];
+    const completedStatuses = ['completed', 'passed', 'certificate_issued', 'approved'];
+    return [
+      ...original.map(([key, label, getValue]) => ({ key, label, getValue })),
+      { key: 'estado_plataforma', label: 'Estado de plataforma', getValue: (p: Profile) => getDisplayStatus(p) },
+      { key: 'estado_onboarding', label: 'Estado de onboarding', getValue: (p: Profile) => ONBOARDING_STAGE_META[getOnboardingStage(p, signatureConsentByUserId)].label },
+      { key: 'origen_ingreso', label: 'Origen de ingreso', getValue: (p: Profile) => getWorkerEntryOriginMeta(p).label },
+      { key: 'asignaciones_totales', label: 'Asignaciones totales', getValue: (p: Profile) => (assignmentsByUser[p.id] || []).length },
+      { key: 'asignaciones_completadas', label: 'Asignaciones completadas', getValue: (p: Profile) => (assignmentsByUser[p.id] || []).filter((a) => completedStatuses.includes(normalize(a.status))).length },
+      { key: 'asignaciones_pendientes', label: 'Asignaciones pendientes', getValue: (p: Profile) => (assignmentsByUser[p.id] || []).filter((a) => !completedStatuses.includes(normalize(a.status))).length },
+      { key: 'detalle_asignaciones', label: 'Detalle de asignaciones', getValue: (p: Profile) => (assignmentsByUser[p.id] || []).map((a) => `${getTrainingTitle(a.training, a)} (${a.status || 'assigned'})`).join(' | ') },
+    ];
+  }, [assignmentsByUser, signatureConsentByUserId]);
 
-    const rows = users.filter((profile) => !profile.deleted_at && profile.is_test_user !== true).map((profile) => {
-      const customFields =
-        profile.custom_fields ||
-        ((profile.raw_payload?.custom_fields as Record<string, string> | undefined) ?? {});
+  const rosterActiveFilters = [
+    ...(search.trim() ? [{ key: 'search', label: `Búsqueda: ${search.trim()}` }] : []),
+    ...(statusFilter !== 'all' ? [{ key: 'status', label: `Estado: ${statusFilter}` }] : []),
+    ...(onboardingFilter !== 'all' ? [{ key: 'onboarding', label: `Onboarding: ${ONBOARDING_STAGE_META[onboardingFilter].label}` }] : []),
+    ...(filterValue !== 'all' ? [{ key: 'criterion', label: `${activeFilterDefinition.label}: ${filterValue}` }] : []),
+  ];
+  const rosterExportRows = users.filter((profile) => {
+    if (profile.deleted_at || profile.is_test_user === true) return false;
+    if (rosterExportFilters.includes('search') && !workerMatchesSearch(profile, search)) return false;
+    if (rosterExportFilters.includes('status')) {
+      const status = normalize(profile.status || 'active');
+      if (!(status === statusFilter || (statusFilter === 'active' && isActive(profile)))) return false;
+    }
+    if (rosterExportFilters.includes('criterion') && !matchesWorkerFilter(profile, filterCriterion, [filterValue])) return false;
+    if (rosterExportFilters.includes('onboarding') && getOnboardingStage(profile, signatureConsentByUserId) !== onboardingFilter) return false;
+    return true;
+  });
 
-      const rosterStatus =
-        normalize(profile.status) === 'inactive' || normalize(profile.directory_status) === 'inactive'
-          ? 'inactive'
-          : 'active';
-
-      return [
-        profile.first_name || '',
-        profile.last_name || '',
-        profile.email || '',
-        profile.dni || '',
-        profile.phone || '',
-        profile.work_role || profile.job_role || '',
-        profile.area || '',
-        profile.employee_code || '',
-        profile.contractor_company || '',
-        rosterStatus,
-        profile.position || '',
-        profile.supervisor || '',
-        profile.shift || '',
-        profile.hire_date || '',
-        profile.base || '',
-        profile.site || '',
-        profile.region || '',
-        profile.oilfield || '',
-        customFields.campo_personalizado_1 || '',
-        customFields.campo_personalizado_2 || '',
-        customFields.campo_personalizado_3 || '',
-        customFields.campo_personalizado_4 || '',
-        customFields.campo_personalizado_5 || '',
-      ];
-    });
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const safeTenantName = (tenantName || 'empresa')
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    const today = new Date().toISOString().slice(0, 10);
-
-    link.href = url;
-    link.download = `nomina_${brandSlug}_${safeTenantName || 'empresa'}_${today}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
+  const rosterSafeTenantName = (tenantName || 'empresa').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const rosterExportFilename = `nomina_${brandSlug}_${rosterSafeTenantName || 'empresa'}_${new Date().toISOString().slice(0, 10)}.csv`;
 
   async function openTrashHistory(profile: Profile) {
     if (!tenantId || isDirectoryOnly(profile)) return;
@@ -2605,7 +2582,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
               Cargar / actualizar nómina
             </button>
 
-            <button onClick={exportRosterCsv} className="btn-secondary text-xs">
+            <button onClick={() => { setRosterExportFilters(rosterActiveFilters.map((f) => f.key)); setShowRosterExportModal(true); }} className="btn-secondary text-xs">
               <Download size={14} />
               Exportar nómina
             </button>
@@ -2944,6 +2921,19 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
           </div>
         )}
       </div>
+
+      <CsvExportModal
+        open={showRosterExportModal}
+        onClose={() => setShowRosterExportModal(false)}
+        title="Exportar nómina de trabajadores"
+        filename={rosterExportFilename}
+        rows={rosterExportRows}
+        columns={rosterExportColumns}
+        activeFilters={rosterActiveFilters}
+        enabledFilterKeys={rosterExportFilters}
+        onEnabledFilterKeysChange={setRosterExportFilters}
+        description={`Se exportarán ${rosterExportRows.length} trabajador(es). Se conservan las columnas de nómina y se agregan estado, onboarding y asignaciones.`}
+      />
 
       <Modal
         open={!!trashTarget}

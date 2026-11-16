@@ -18,6 +18,9 @@ type CsvExportModalProps<T> = {
   columns: CsvExportColumn<T>[];
   description?: string;
   filters?: React.ReactNode;
+  activeFilters?: { key: string; label: string }[];
+  enabledFilterKeys?: string[];
+  onEnabledFilterKeysChange?: (keys: string[]) => void;
 };
 
 function csvEscape(value: string | number | boolean | null | undefined) {
@@ -59,6 +62,9 @@ export default function CsvExportModal<T>({
   columns,
   description,
   filters,
+  activeFilters = [],
+  enabledFilterKeys = [],
+  onEnabledFilterKeysChange,
 }: CsvExportModalProps<T>) {
   const defaultKeys = useMemo(
     () => columns.filter((column) => column.defaultSelected !== false).map((column) => column.key),
@@ -107,6 +113,29 @@ export default function CsvExportModal<T>({
       }
     >
       <div className="space-y-4">
+        <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 space-y-2">
+          <div className="text-sm font-semibold text-steel-100">Filtros aplicados a la exportación</div>
+          {activeFilters.length === 0 ? (
+            <p className="text-xs text-steel-400">No hay filtros activos. Se incluirán todos los registros disponibles.</p>
+          ) : (
+            <>
+              <p className="text-xs text-steel-400">Desmarcá cualquier filtro para excluirlo del CSV sin modificar la pantalla.</p>
+              {activeFilters.map((filter) => (
+                <label key={filter.key} className="flex items-center gap-2 text-sm text-steel-200">
+                  <input type="checkbox" className="accent-amber-500"
+                    checked={enabledFilterKeys.includes(filter.key)}
+                    disabled={!onEnabledFilterKeysChange}
+                    onChange={() => onEnabledFilterKeysChange?.(
+                      enabledFilterKeys.includes(filter.key)
+                        ? enabledFilterKeys.filter((key) => key !== filter.key)
+                        : [...enabledFilterKeys, filter.key]
+                    )} />
+                  {filter.label}
+                </label>
+              ))}
+            </>
+          )}
+        </div>
         {filters}
         <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-sm text-steel-300">
           {description || 'Elegí las columnas que querés incluir. Se exportarán los datos correspondientes a la vista actual.'}
