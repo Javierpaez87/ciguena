@@ -21,6 +21,7 @@ import { supabase } from '../../lib/supabase';
 import { baseTrainings } from '../../data/baseTrainings';
 import StatusBadge from '../../components/ui/StatusBadge';
 import EmptyState from '../../components/ui/EmptyState';
+import CsvExportModal, { type CsvExportColumn } from '../../components/ui/CsvExportModal';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'Todos' },
@@ -230,6 +231,8 @@ export default function AdminCertificates() {
   const [tenantName, setTenantName] = useState<string>('Empresa / Tenant');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFilterKeys, setExportFilterKeys] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -444,49 +447,29 @@ export default function AdminCertificates() {
       .length;
   }
 
-  function exportCSV() {
-    const headers = [
-      'Usuario',
-      'Email',
-      'DNI',
-      'Area',
-      'Training',
-      'Codigo',
-      'Emitido',
-      'Vence',
-      'Estado',
-      'Tiene firma',
-    ];
-
-    const rows = filtered.map((certificate) => [
-      getFullName(certificate.user),
-      certificate.user?.email || '',
-      certificate.user?.dni || '',
-      certificate.user?.area || '',
-      getTrainingTitle(certificate.training, certificate),
-      getCertificateCode(certificate),
-      formatDate(getIssuedDate(certificate)),
-      formatDate(certificate.expires_at),
-      getComputedStatus(certificate),
-      getSignatureUrl(certificate) ? 'Sí' : 'No',
-    ]);
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => csvEscape(cell)).join(','))
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `certificados_${brandSlug}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
-  }
+  const certificateExportColumns = useMemo<CsvExportColumn<Certificate>[]>(() => [
+    { key: 'user', label: 'Usuario', getValue: (c) => getFullName(c.user) },
+    { key: 'email', label: 'Email', getValue: (c) => c.user?.email || '' },
+    { key: 'dni', label: 'DNI', getValue: (c) => c.user?.dni || '' },
+    { key: 'area', label: 'Area', getValue: (c) => c.user?.area || '' },
+    { key: 'training', label: 'Training', getValue: (c) => getTrainingTitle(c.training, c) },
+    { key: 'code', label: 'Codigo', getValue: (c) => getCertificateCode(c) },
+    { key: 'issued', label: 'Emitido', getValue: (c) => formatDate(getIssuedDate(c)) },
+    { key: 'expires', label: 'Vence', getValue: (c) => formatDate(c.expires_at) },
+    { key: 'status', label: 'Estado', getValue: (c) => getComputedStatus(c) },
+    { key: 'signature', label: 'Tiene firma', getValue: (c) => getSignatureUrl(c) ? 'Sí' : 'No' },
+  ], []);
+  const certificateActiveFilters = [
+    ...(search.trim() ? [{ key: 'search', label: `Búsqueda: ${search.trim()}` }] : []),
+    ...(statusFilter !== 'all' ? [{ key: 'status', label: `Estado: ${statusFilter}` }] : []),
+  ];
+  const certificateExportRows = certificates.filter((certificate) => {
+    if (exportFilterKeys.includes('status') && getComputedStatus(certificate) !== statusFilter) return false;
+    if (!exportFilterKeys.includes('search')) return true;
+    const fields = [getFullName(certificate.user), certificate.user?.email, certificate.user?.dni,
+      certificate.user?.area, getTrainingTitle(certificate.training, certificate), getCertificateCode(certificate)];
+    return fields.some((value) => normalize(value || '').includes(normalize(search)));
+  });
 
   function sendReminderExpiring() {
     const expiring = filtered.filter((certificate) =>
@@ -693,7 +676,7 @@ export default function AdminCertificates() {
               Reminder vencidos
             </button>
 
-            <button onClick={exportCSV} className="btn-secondary text-xs">
+            <button onClick={() => { setExportFilterKeys(certificateActiveFilters.map((f) => f.key)); setShowExportModal(true); }} className="btn-secondary text-xs">
               <Download size={14} />
               Exportar CSV
             </button>
@@ -1036,6 +1019,18 @@ export default function AdminCertificates() {
           </div>
         </div>
       )}
+      <CsvExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        title="Exportar certificados"
+        filename={`certificados_${brandSlug}.csv`}
+        rows={certificateExportRows}
+        columns={certificateExportColumns}
+        activeFilters={certificateActiveFilters}
+        enabledFilterKeys={exportFilterKeys}
+        onEnabledFilterKeysChange={setExportFilterKeys}
+      />
+
     </>
   );
 }

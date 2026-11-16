@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckSquare, Download, Square } from 'lucide-react';
+import { AlertTriangle, CheckSquare, Download, Square } from 'lucide-react';
 import Modal from './Modal';
 
 export type CsvExportColumn<T> = {
@@ -18,6 +18,9 @@ type CsvExportModalProps<T> = {
   columns: CsvExportColumn<T>[];
   description?: string;
   filters?: React.ReactNode;
+  activeFilters?: { key: string; label: string }[];
+  enabledFilterKeys?: string[];
+  onEnabledFilterKeysChange?: (keys: string[]) => void;
 };
 
 function csvEscape(value: string | number | boolean | null | undefined) {
@@ -59,6 +62,9 @@ export default function CsvExportModal<T>({
   columns,
   description,
   filters,
+  activeFilters = [],
+  enabledFilterKeys = [],
+  onEnabledFilterKeysChange,
 }: CsvExportModalProps<T>) {
   const defaultKeys = useMemo(
     () => columns.filter((column) => column.defaultSelected !== false).map((column) => column.key),
@@ -71,6 +77,7 @@ export default function CsvExportModal<T>({
   }, [open, defaultKeys]);
 
   const selectedColumns = columns.filter((column) => selectedKeys.includes(column.key));
+  const appliedFilters = activeFilters.filter((filter) => enabledFilterKeys.includes(filter.key));
   const allSelected = selectedKeys.length === columns.length && columns.length > 0;
 
   function toggleColumn(key: string) {
@@ -107,6 +114,60 @@ export default function CsvExportModal<T>({
       }
     >
       <div className="space-y-4">
+        <div className={`rounded-xl border p-4 space-y-3 ${
+          appliedFilters.length > 0
+            ? 'border-amber-400/70 bg-amber-500/10'
+            : 'border-steel-700 bg-steel-900/60'
+        }`}>
+          {appliedFilters.length > 0 ? (
+            <div className="flex items-start gap-3" role="status">
+              <AlertTriangle size={22} className="shrink-0 text-amber-300 mt-0.5" aria-hidden="true" />
+              <div className="space-y-2">
+                <p className="text-base font-bold text-amber-200">Atención: estás exportando información con filtros aplicados</p>
+                <p className="text-sm leading-relaxed text-steel-100">
+                  Se exportará únicamente la información que coincida con los filtros seleccionados a continuación.
+                  ¿Deseás continuar así?
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-base font-semibold text-steel-100">Exportación sin filtros aplicados</p>
+          )}
+          {activeFilters.length === 0 ? (
+            <p className="text-sm text-steel-300">No hay filtros activos. Se incluirán todos los registros disponibles.</p>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-steel-100">
+                Filtros de la pantalla (podés desmarcarlos sin modificar la vista):
+              </p>
+              <div className="space-y-2">
+                {activeFilters.map((filter) => {
+                  const enabled = enabledFilterKeys.includes(filter.key);
+                  return (
+                    <label key={filter.key} className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${
+                      enabled
+                        ? 'border-amber-400/80 bg-amber-500/20 text-amber-100 font-semibold'
+                        : 'border-steel-600 bg-steel-900/40 text-steel-300'
+                    }`}>
+                      <input type="checkbox" className="accent-amber-500 h-4 w-4"
+                        checked={enabled}
+                        disabled={!onEnabledFilterKeysChange}
+                        onChange={() => onEnabledFilterKeysChange?.(
+                          enabled
+                            ? enabledFilterKeys.filter((key) => key !== filter.key)
+                            : [...enabledFilterKeys, filter.key]
+                        )} />
+                      <span className="text-base">{filter.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {appliedFilters.length === 0 && (
+                <p className="text-sm text-emerald-300 font-medium">Desmarcaste todos los filtros: se exportarán todos los registros disponibles.</p>
+              )}
+            </>
+          )}
+        </div>
         {filters}
         <div className="rounded-xl border border-steel-700 bg-steel-900/60 p-3 text-sm text-steel-300">
           {description || 'Elegí las columnas que querés incluir. Se exportarán los datos correspondientes a la vista actual.'}

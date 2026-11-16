@@ -456,6 +456,7 @@ export default function AdminAssignments() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [exportViewFilters, setExportViewFilters] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState(50);
   const [pageNumber, setPageNumber] = useState(1);
   const [exportRoles, setExportRoles] = useState<string[]>([]);
@@ -879,7 +880,23 @@ export default function AdminAssignments() {
   const activePage = Math.min(pageNumber, pageCount);
   const pageAssignments = useMemo(() => filtered.slice((activePage - 1) * pageSize, activePage * pageSize), [filtered, activePage, pageSize]);
   useEffect(() => { setPageNumber(1); }, [search, statusFilter, workerFilterKey, workerFilterValue, trainingFilter, pageSize]);
+  const assignmentViewFilters = [
+    ...(search.trim() ? [{ key: 'search', label: `Búsqueda: ${search.trim()}` }] : []),
+    ...(statusFilter !== 'all' ? [{ key: 'status', label: `Estado: ${statusFilter}` }] : []),
+    ...(workerFilterValue !== 'all' ? [{ key: 'worker', label: `${getWorkerFilterDefinition(workerFilterKey).label}: ${workerFilterValue}` }] : []),
+    ...(trainingFilter !== 'all' ? [{ key: 'training', label: `Training: ${enabledTrainingOptions.find((t) => t.id === trainingFilter)?.title || trainingFilter}` }] : []),
+  ];
   const exportMatchingRows = useMemo(() => assignments.filter(a => {
+    if (exportViewFilters.includes('search')) {
+      const q = normalize(search);
+      const values = [getFullName(a.user), a.user?.email, a.user?.area, a.user?.job_role,
+        a.user?.position, a.user?.supervisor, a.user?.base, a.user?.site,
+        a.user?.oilfield, a.user?.shift, getTrainingTitle(a.training, a)];
+      if (!values.some((value) => normalize(value || '').includes(q))) return false;
+    }
+    if (exportViewFilters.includes('status') && normalize(a.status) !== statusFilter) return false;
+    if (exportViewFilters.includes('worker') && !matchesWorkerFilter(a.user, workerFilterKey, [workerFilterValue])) return false;
+    if (exportViewFilters.includes('training') && a.training_id !== trainingFilter && a.tenant_training_id !== trainingFilter && a.training?.id !== trainingFilter && a.training?.training_id !== trainingFilter) return false;
     if (exportRoles.length && !exportRoles.includes(getWorkerRole(a.user))) return false;
     if (exportTrainings.length && !exportTrainings.includes(a.training_id || '')) return false;
     if (exportStatuses.length && !exportStatuses.includes(a.status || '')) return false;
@@ -888,7 +905,7 @@ export default function AdminAssignments() {
     if (exportDateStart && (!iso || iso < exportDateStart)) return false;
     if (exportDateEnd && (!iso || iso > exportDateEnd)) return false;
     return true;
-  }), [assignments, exportRoles, exportTrainings, exportStatuses, exportDateField, exportDateStart, exportDateEnd]);
+  }), [assignments, search, statusFilter, workerFilterKey, workerFilterValue, trainingFilter, exportViewFilters, exportRoles, exportTrainings, exportStatuses, exportDateField, exportDateStart, exportDateEnd]);
   const exportRows = useMemo(() => exportLimit === 'all' ? exportMatchingRows : exportMatchingRows.slice(0, Number(exportLimit)), [exportMatchingRows, exportLimit]);
 
 
@@ -1988,7 +2005,7 @@ export default function AdminAssignments() {
             Actualizar
           </button>
 
-          <button onClick={() => setShowExportModal(true)} className="btn-secondary text-xs flex-shrink-0">
+          <button onClick={() => { setExportViewFilters(assignmentViewFilters.map((f) => f.key)); setShowExportModal(true); }} className="btn-secondary text-xs flex-shrink-0">
             <Download size={14} />
             Exportar CSV
           </button>
@@ -2825,6 +2842,9 @@ export default function AdminAssignments() {
         filename={`asignaciones-${brandSlug}.csv`}
         rows={exportRows}
         columns={assignmentExportColumns}
+        activeFilters={assignmentViewFilters}
+        enabledFilterKeys={exportViewFilters}
+        onEnabledFilterKeysChange={setExportViewFilters}
         description={`Coincidencias: ${exportMatchingRows.length}. Se exportarán ${exportRows.length} filas de acuerdo con los filtros de este modal.`}
         filters={<div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
