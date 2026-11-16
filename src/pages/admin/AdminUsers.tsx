@@ -1238,14 +1238,17 @@ export default function AdminUsers() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [sendingOnboardingReminder]);
 
+  // Un registro en papelera permanece recuperable, pero no integra la nómina ni sus métricas.
+  const rosterUsers = useMemo(() => users.filter((profile) => !profile.deleted_at), [users]);
+
   const filterOptions = useMemo(
-    () => getWorkerFilterOptions(users, filterCriterion),
-    [users, filterCriterion]
+    () => getWorkerFilterOptions(rosterUsers, filterCriterion),
+    [rosterUsers, filterCriterion]
   );
 
   const detectedRoleCount = useMemo(
-    () => getWorkerFilterOptions(users, 'work_role').length,
-    [users]
+    () => getWorkerFilterOptions(rosterUsers, 'work_role').length,
+    [rosterUsers]
   );
 
   const activeFilterDefinition = getWorkerFilterDefinition(filterCriterion);
@@ -1302,9 +1305,9 @@ export default function AdminUsers() {
     setFilterValue('all');
   }
 
-  const activeCount = users.filter((profile) => !profile.deleted_at && isActive(profile)).length;
-  const inactiveCount = users.filter((profile) => !profile.deleted_at && normalize(profile.status) === 'inactive').length;
-  const pendingCount = users.filter((profile) => !profile.deleted_at && normalize(profile.status) === 'pending').length;
+  const activeCount = rosterUsers.filter(isActive).length;
+  const inactiveCount = rosterUsers.filter((profile) => normalize(profile.status) === 'inactive').length;
+  const pendingCount = rosterUsers.filter((profile) => normalize(profile.status) === 'pending').length;
 
   const onboardingCounts = useMemo(() => {
     const counts: Record<OnboardingStage, number> = {
@@ -1314,12 +1317,12 @@ export default function AdminUsers() {
       completed: 0,
     };
 
-    users.forEach((profile) => {
+    rosterUsers.forEach((profile) => {
       counts[getOnboardingStage(profile, signatureConsentByUserId)] += 1;
     });
 
     return counts;
-  }, [users, signatureConsentByUserId]);
+  }, [rosterUsers, signatureConsentByUserId]);
 
   const onboardingCards: Array<{
     key: OnboardingFilter;
@@ -1330,7 +1333,7 @@ export default function AdminUsers() {
     {
       key: 'all',
       label: 'En nómina',
-      count: users.length,
+      count: rosterUsers.length,
       className: 'border-steel-700 bg-steel-800/70 text-steel-200',
     },
     ...(['not_invited', 'invited', 'registered', 'completed'] as OnboardingStage[]).map((stage) => ({
@@ -1362,10 +1365,10 @@ export default function AdminUsers() {
 
   const registeredOnboardingRows = useMemo(
     () =>
-      users.filter(
+      rosterUsers.filter(
         (profile) => getOnboardingStage(profile, signatureConsentByUserId) === 'registered'
       ),
-    [users, signatureConsentByUserId]
+    [rosterUsers, signatureConsentByUserId]
   );
 
   const registeredReminderEmails = useMemo(
@@ -2517,7 +2520,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
               onChange={(event) => setFilterValue(event.target.value)}
               className="select w-full"
             >
-              <option value="all">Todos ({users.length})</option>
+              <option value="all">Todos ({rosterUsers.length})</option>
               {filterOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label} ({option.count})
@@ -2626,7 +2629,7 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
         <div className="flex gap-3 flex-wrap">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-steel-800 rounded-lg border border-steel-700">
             <Users size={13} className="text-steel-400" />
-            <span className="text-xs text-steel-300">{users.filter((profile) => !profile.deleted_at).length} en nómina</span>
+            <span className="text-xs text-steel-300">{rosterUsers.length} en nómina</span>
           </div>
 
           <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
