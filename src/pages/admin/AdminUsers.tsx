@@ -1036,6 +1036,7 @@ export default function AdminUsers() {
   const [inviteProgress, setInviteProgress] = useState<{ processed: number; total: number } | null>(null);
   const [invitationResult, setInvitationResult] = useState<InvitationRunResult | null>(null);
   const [onboardingReminderKind, setOnboardingReminderKind] = useState<OnboardingReminderKind | null>(null);
+  const [excludedReminderDetails, setExcludedReminderDetails] = useState<OnboardingReminderKind | null>(null);
   const [onboardingReminderResult, setOnboardingReminderResult] = useState<OnboardingReminderRunResult | null>(null);
   const [onboardingReminderError, setOnboardingReminderError] = useState<string | null>(null);
   const [sendingOnboardingReminder, setSendingOnboardingReminder] = useState(false);
@@ -1393,6 +1394,55 @@ export default function AdminUsers() {
     0,
     registeredOnboardingRows.length - registeredReminderEmails.length
   );
+
+  // Visibilidad diagnóstica: comparar las tarjetas (rosterUsers) con los destinatarios
+  // calculados por los recordatorios existentes, sin modificar la lógica de envío.
+  const invitedOnboardingRows = useMemo(
+    () => rosterUsers.filter((profile) => getOnboardingStage(profile, signatureConsentByUserId) === 'invited'),
+    [rosterUsers, signatureConsentByUserId]
+  );
+
+  const invitedReminderExcluded = useMemo(() => {
+    const eligibleEmails = new Set(invitedReminderEmails);
+    return invitedOnboardingRows
+      .filter((profile) => !eligibleEmails.has(normalize(profile.email)))
+      .map((profile) => {
+        const email = normalize(profile.email);
+        const directoryMatches = employeeDirectory.filter((row) =>
+          (profile.employee_directory_id && row.id === profile.employee_directory_id) ||
+          (email && normalize(row.email) === email)
+        );
+        const matchingEmailRows = directoryMatches.filter((row) => normalize(row.email) === email);
+        let reason: string;
+        if (!email) reason = 'Sin email cargado';
+        else if (!isValidEmail(email)) reason = 'Email inválido';
+        else if (directoryMatches.length === 0) reason = 'No se encontró un registro asociado en el directorio de invitaciones';
+        else if (matchingEmailRows.length === 0) reason = 'El email no coincide con el registro del directorio';
+        else if (matchingEmailRows.every((row) => Boolean(row.profile_id))) reason = 'El registro del directorio ya está vinculado a un perfil';
+        else if (matchingEmailRows.every((row) => normalize(row.status) !== 'invited')) {
+          reason = `Estado del directorio: ${Array.from(new Set(matchingEmailRows.map((row) => row.status || 'sin estado'))).join(', ')}`;
+        } else reason = 'No cumple los criterios del recordatorio; revisar asociación con el directorio';
+        return { id: profile.id, name: getFullName(profile), email: profile.email || '', reason };
+      });
+  }, [invitedOnboardingRows, invitedReminderEmails, employeeDirectory]);
+
+  const registeredReminderExcluded = useMemo(() => {
+    const eligibleEmails = new Set(registeredReminderEmails);
+    return registeredOnboardingRows
+      .filter((profile) => !eligibleEmails.has(normalize(profile.email)))
+      .map((profile) => {
+        const email = normalize(profile.email);
+        const reason = !email ? 'Sin email cargado'
+          : !isValidEmail(email) ? 'Email inválido'
+          : !isActive(profile) ? `Cuenta no activa (${profile.status || 'sin estado'})`
+          : 'Email duplicado o excluido del listado de destinatarios';
+        return { id: profile.id, name: getFullName(profile), email: profile.email || '', reason };
+      });
+  }, [registeredOnboardingRows, registeredReminderEmails]);
+
+  const excludedReminderRows = excludedReminderDetails === 'invited'
+    ? invitedReminderExcluded
+    : registeredReminderExcluded;
 
   const bulkInvitationRows = useMemo(
     () =>
@@ -2708,15 +2758,23 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
             </div>
 
             {onboardingFilter === 'invited' && (
-              <button
-                type="button"
-                onClick={() => openOnboardingReminder('invited')}
-                disabled={invitedReminderEmails.length === 0}
-                className="btn-secondary shrink-0 text-xs"
-              >
-                <Mail size={14} />
-                Recordar a {invitedReminderEmails.length} invitado{invitedReminderEmails.length === 1 ? '' : 's'} que ya pueden registrarse
-              </button>
+              <div className="flex flex-col items-start gap-1 xl:items-end">
+                <button
+                  type="button"
+                  onClick={() => openOnboardingReminder('invited')}
+                  disabled={invitedReminderEmails.length === 0}
+                  className="btn-secondary shrink-0 text-xs"
+                >
+                  <Mail size={14} />
+                  Recordar a {invitedReminderEmails.length} invitado{invitedReminderEmails.length === 1 ? '' : 's'} que ya pueden registrarse
+                </button>
+                {invitedReminderExcluded.length > 0 && (
+                  <button type="button" onClick={() => setExcludedReminderDetails('invited')}
+                    className="text-xs font-medium text-amber-300 underline underline-offset-2 hover:text-amber-100">
+                    Ver {invitedReminderExcluded.length} invitado{invitedReminderExcluded.length === 1 ? '' : 's'} excluido{invitedReminderExcluded.length === 1 ? '' : 's'} del recordatorio
+                  </button>
+                )}
+              </div>
             )}
 
             {onboardingFilter === 'registered' && (
@@ -2731,9 +2789,10 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
                   Recordar a {registeredReminderEmails.length} registrado{registeredReminderEmails.length === 1 ? '' : 's'} que completen onboarding
                 </button>
                 {registeredReminderExcludedCount > 0 && (
-                  <span className="text-[10px] text-amber-300/80">
-                    {registeredReminderExcludedCount} registrado{registeredReminderExcludedCount === 1 ? '' : 's'} pendiente{registeredReminderExcludedCount === 1 ? '' : 's'} de aprobación o sin email no se incluye{registeredReminderExcludedCount === 1 ? '' : 'n'}.
-                  </span>
+                  <button type="button" onClick={() => setExcludedReminderDetails('registered')}
+                    className="text-xs font-medium text-amber-300 underline underline-offset-2 hover:text-amber-100">
+                    Ver {registeredReminderExcludedCount} registrado{registeredReminderExcludedCount === 1 ? '' : 's'} excluido{registeredReminderExcludedCount === 1 ? '' : 's'} del recordatorio y sus motivos
+                  </button>
                 )}
               </div>
             )}
@@ -3638,6 +3697,42 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={excludedReminderDetails !== null}
+        onClose={() => setExcludedReminderDetails(null)}
+        title={excludedReminderDetails === 'invited' ? 'Invitados excluidos del recordatorio' : 'Registrados excluidos del recordatorio'}
+        size="lg"
+        footer={<button type="button" className="btn-secondary" onClick={() => setExcludedReminderDetails(null)}>Cerrar</button>}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-steel-300">
+            Estos trabajadores aparecen en la tarjeta de onboarding, pero no están en la lista de emails habilitados para este recordatorio.
+            El listado es informativo: no cambia las reglas de envío ni aprueba usuarios.
+          </p>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+            {excludedReminderRows.length} trabajador{excludedReminderRows.length === 1 ? '' : 'es'} identificado{excludedReminderRows.length === 1 ? '' : 's'} como excluido{excludedReminderRows.length === 1 ? '' : 's'}.
+          </div>
+          {excludedReminderRows.length ? (
+            <div className="max-h-[50vh] overflow-y-auto space-y-2">
+              {excludedReminderRows.map((row) => (
+                <div key={row.id} className="rounded-lg border border-steel-700 bg-steel-900/60 p-3">
+                  <div className="font-medium text-sm text-steel-100">{row.name || 'Sin nombre'}</div>
+                  <div className="text-xs text-steel-400 break-all">{row.email || 'Sin email'}</div>
+                  <div className="mt-2 text-xs text-amber-300">Motivo: {row.reason}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-steel-400">No se identificaron trabajadores excluidos de esta categoría.</p>
+          )}
+          {excludedReminderDetails === 'invited' && invitedOnboardingRows.length - invitedReminderEmails.length !== invitedReminderExcluded.length && (
+            <p className="text-xs text-steel-400">
+              El total de destinatarios también puede diferir por registros del directorio que no coinciden con la tarjeta. Revisar asociaciones antes de modificar los envíos.
+            </p>
+          )}
+        </div>
       </Modal>
 
       <Modal
