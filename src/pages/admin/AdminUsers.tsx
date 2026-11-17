@@ -1345,23 +1345,47 @@ export default function AdminUsers() {
     })),
   ];
 
-  const invitedReminderEmails = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          employeeDirectory
-            .filter(
-              (row) =>
-                !row.profile_id &&
-                normalize(row.status) === 'invited' &&
-                Boolean(row.email) &&
-                isValidEmail(row.email || '')
-            )
-            .map((row) => normalize(row.email))
-            .filter(Boolean)
-        )
-      ),
+  // La nómina filtrada por etapa es la referencia para los recordatorios.
+  // El directorio valida la elegibilidad de cada email, pero no incorpora destinatarios extra.
+  const invitedOnboardingRows = useMemo(
+    () => rosterUsers.filter((profile) => getOnboardingStage(profile, signatureConsentByUserId) === 'invited'),
+    [rosterUsers, signatureConsentByUserId]
+  );
+
+  const invitedDirectoryEligibleEmails = useMemo(
+    () => new Set(employeeDirectory
+      .filter((row) => !row.profile_id && normalize(row.status) === 'invited' && isValidEmail(row.email || ''))
+      .map((row) => normalize(row.email))
+      .filter(Boolean)),
     [employeeDirectory]
+  );
+
+  const invitedRosterEmailSet = useMemo(
+    () => new Set(invitedOnboardingRows.map((profile) => normalize(profile.email)).filter(Boolean)),
+    [invitedOnboardingRows]
+  );
+
+  const invitedReminderEmails = useMemo(
+    () => Array.from(new Set(invitedOnboardingRows
+      .map((profile) => normalize(profile.email))
+      .filter((email) => Boolean(email) && invitedDirectoryEligibleEmails.has(email)))),
+    [invitedOnboardingRows, invitedDirectoryEligibleEmails]
+  );
+
+  // Diagnóstico inverso: emails elegibles del directorio que no corresponden a un invitado en nómina.
+  const invitedDirectoryExtra = useMemo(
+    () => Array.from(invitedDirectoryEligibleEmails)
+      .filter((email) => !invitedRosterEmailSet.has(email))
+      .map((email) => {
+        const directoryRow = employeeDirectory.find((row) => normalize(row.email) === email);
+        return {
+          id: directoryRow?.id || email,
+          name: directoryRow?.full_name || [directoryRow?.first_name, directoryRow?.last_name].filter(Boolean).join(' ') || 'Sin nombre',
+          email,
+          reason: 'Elegible en el directorio, pero no figura como invitado en la nómina activa',
+        };
+      }),
+    [invitedDirectoryEligibleEmails, invitedRosterEmailSet, employeeDirectory]
   );
 
   const registeredOnboardingRows = useMemo(
@@ -1395,13 +1419,7 @@ export default function AdminUsers() {
     registeredOnboardingRows.length - registeredReminderEmails.length
   );
 
-  // Visibilidad diagnóstica: comparar las tarjetas (rosterUsers) con los destinatarios
-  // calculados por los recordatorios existentes, sin modificar la lógica de envío.
-  const invitedOnboardingRows = useMemo(
-    () => rosterUsers.filter((profile) => getOnboardingStage(profile, signatureConsentByUserId) === 'invited'),
-    [rosterUsers, signatureConsentByUserId]
-  );
-
+  // Diagnóstico por diferencia de conjuntos: invitados de nómina no elegibles según directorio.
   const invitedReminderExcluded = useMemo(() => {
     const eligibleEmails = new Set(invitedReminderEmails);
     return invitedOnboardingRows
@@ -3708,9 +3726,15 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
       >
         <div className="space-y-3">
           <p className="text-sm text-steel-300">
-            Estos trabajadores aparecen en la tarjeta de onboarding, pero no están en la lista de emails habilitados para este recordatorio.
-            El listado es informativo: no cambia las reglas de envío ni aprueba usuarios.
+            Estos trabajadores aparecen en la tarjeta de onboarding, pero no cumplen las condiciones del recordatorio.
+            La nómina activa determina el universo y el directorio valida la elegibilidad. No se modifican aprobaciones ni perfiles.
           </p>
+          {excludedReminderDetails === 'invited' && (
+            <div className="rounded-lg border border-steel-700 bg-steel-900/60 px-3 py-2 text-sm text-steel-200">
+              Conciliación: {invitedOnboardingRows.length} invitados en nómina − {invitedReminderExcluded.length} excluidos = {invitedReminderEmails.length} destinatarios válidos.
+              {invitedDirectoryExtra.length > 0 && ` Además, ${invitedDirectoryExtra.length} registro(s) del directorio quedan fuera porque no figuran como invitados en la nómina activa.`}
+            </div>
+          )}
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
             {excludedReminderRows.length} trabajador{excludedReminderRows.length === 1 ? '' : 'es'} identificado{excludedReminderRows.length === 1 ? '' : 's'} como excluido{excludedReminderRows.length === 1 ? '' : 's'}.
           </div>
@@ -3727,10 +3751,19 @@ Una vez finalizado este paso, tu onboarding quedará completo y podrás continua
           ) : (
             <p className="text-sm text-steel-400">No se identificaron trabajadores excluidos de esta categoría.</p>
           )}
-          {excludedReminderDetails === 'invited' && invitedOnboardingRows.length - invitedReminderEmails.length !== invitedReminderExcluded.length && (
-            <p className="text-xs text-steel-400">
-              El total de destinatarios también puede diferir por registros del directorio que no coinciden con la tarjeta. Revisar asociaciones antes de modificar los envíos.
-            </p>
+          {excludedReminderDetails === 'invited' && invitedDirectoryExtra.length > 0 && (
+            <div className="space-y-2 border-t border-steel-700 pt-3">
+              <div className="text-sm font-semibold text-amber-200">
+                {invitedDirectoryExtra.length} registro(s) adicional(es) en el directorio — no recibirán este recordatorio
+              </div>
+              {invitedDirectoryExtra.map((row) => (
+                <div key={row.id} className="rounded-lg border border-steel-700 bg-steel-900/60 p-3">
+                  <div className="font-medium text-sm text-steel-100">{row.name}</div>
+                  <div className="text-xs text-steel-400 break-all">{row.email}</div>
+                  <div className="mt-2 text-xs text-amber-300">Motivo: {row.reason}</div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </Modal>
