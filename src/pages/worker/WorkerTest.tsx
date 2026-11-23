@@ -450,7 +450,13 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     return (
       <div className="text-center py-16">
         <ClipboardList size={32} className="mx-auto mb-3 text-steel-600" />
-        <p className="text-steel-500">No quedan más preguntas disponibles para este examen.</p>
+        <h2 className="text-xl font-semibold text-steel-100 mb-3">Intentos agotados</h2>
+        <p className="text-steel-400 mb-2">
+          Has alcanzado el límite de {maxAttempts} intentos disponibles para esta evaluación.
+        </p>
+        <p className="text-steel-400">
+          Los administradores de la plataforma se pondrán en contacto con vos para informarte cómo continuar con tu capacitación.
+        </p>
         <button
           onClick={() => onNavigate('worker-trainings')}
           className="btn-secondary mt-4 mx-auto"
@@ -652,7 +658,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
                 : 'Felicitaciones, superaste la evaluación. Tu certificado fue emitido correctamente.'
               : hasMoreAttempts
                 ? 'No alcanzaste el puntaje mínimo requerido. Podés volver a intentarlo con otras preguntas.'
-                : 'No alcanzaste el puntaje mínimo requerido y ya no quedan más intentos disponibles.'}
+                : `No alcanzaste el puntaje mínimo requerido y agotaste los ${maxAttempts} intentos disponibles. Los administradores de la plataforma se pondrán en contacto con vos para informarte cómo continuar con tu capacitación.`}
           </p>
 
           <div className="inline-block bg-steel-900 rounded-2xl px-8 py-5 mb-6 border border-steel-700">
