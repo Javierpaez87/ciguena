@@ -3,6 +3,7 @@ import { LifeBuoy, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
 import SupportRequestModal from '../../components/support/SupportRequestModal';
+import SupportConversations from '../../components/support/SupportConversations';
 
 export default function WorkerFeedback() {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ export default function WorkerFeedback() {
             </div>
           </div>
         </div>
+        <SupportConversations />
       </div>
 
       <SupportRequestModal
