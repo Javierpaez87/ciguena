@@ -3,9 +3,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export const EXTERNAL_TENANT='00000000-0000-4000-8000-000000000001';
 export const enabled=()=>process.env.CIGUENA_EXTERNAL_SUPPORT_ENABLED==='true';
 export const emailAllowed=(address:string)=>{
+ const email=address.trim().toLowerCase();
+ // Sin allowlist: admitir cualquier direccion de contacto con formato valido.
+ // Con allowlist: limitar el piloto a los destinatarios explicitamente autorizados.
+ if(email.length>254||!(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return false;
  const allow=(process.env.CIGUENA_EXTERNAL_SUPPORT_EMAIL_ALLOWLIST||'')
   .toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
- return allow.length>0&&allow.includes(address.toLowerCase().trim());
+ return allow.length===0||allow.includes(email);
 };
 export const digest=(token:string)=>createHash('sha256').update(token).digest('hex');
 export async function issueLink(db:SupabaseClient,requestId:string,email:string){
