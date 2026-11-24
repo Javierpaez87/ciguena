@@ -70,11 +70,17 @@ export default function SupportConversations(){
       Estado en BondiSupport: <span className="rounded-lg border border-steel-600 bg-steel-900 px-2 py-1 font-semibold">{statusLabel[conversation.ticket.status]||conversation.ticket.status}</span>
     </div>}
     <div className="max-h-80 overflow-y-auto space-y-3 rounded-xl bg-steel-900/50 border border-steel-700 p-3" aria-live="polite">
-     {conversation?.messages.length ? conversation.messages.map((m:ChatMessage)=><div key={m.id} className={`flex ${m.author_role==='usuario'?'justify-end':'justify-start'}`}>
-      <div className="max-w-[90%] rounded-xl bg-steel-800 px-3 py-2 border border-steel-700">
-       <p className="text-xs text-steel-400">{m.author_name} · {new Date(m.created_at).toLocaleString('es-AR')}</p>
-       <p className="text-sm text-steel-100 whitespace-pre-wrap break-words">{m.body}</p>
-      </div></div>):<p className="text-sm text-steel-500">Sin mensajes todavía. Podés escribir tu consulta abajo.</p>}
+     {conversation?.messages.length ? conversation.messages.map((m:ChatMessage)=>{
+      const isUser=m.author_role==='usuario';
+      return <div key={m.id} className={`flex w-full ${isUser?'justify-start':'justify-end'}`}>
+       <div className={`max-w-[85%] min-w-0 rounded-2xl border px-3 py-2 shadow-sm ${isUser?'rounded-bl-sm border-sky-500/40 bg-sky-500/15':'rounded-br-sm border-emerald-500/40 bg-emerald-500/15'}`}>
+        <p className={`text-xs font-medium ${isUser?'text-sky-300':'text-emerald-300'}`}>
+         {isUser?'Vos':m.author_name} · {new Date(m.created_at).toLocaleString('es-AR')}
+        </p>
+        <p className="mt-1 text-sm text-steel-100 whitespace-pre-wrap break-words">{m.body}</p>
+       </div>
+      </div>;
+     }):<p className="text-sm text-steel-500">Sin mensajes todavía. Podés escribir tu consulta abajo.</p>}
     </div>
     {closed&&<div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 space-y-2">
       <p className="text-sm text-amber-100">Este ticket fue cerrado por soporte. Si el problema continúa, podés reabrirlo.</p>

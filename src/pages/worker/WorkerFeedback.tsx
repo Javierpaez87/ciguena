@@ -32,6 +32,7 @@ export default function WorkerFeedback() {
                 <MessageSquare size={16} />
                 Reportar problema o sugerencia
               </button>
+              <p className="mt-2 text-xs text-steel-400">El formulario permite adjuntar una captura JPG, PNG o WEBP (hasta 10 MB).</p>
             </div>
           </div>
         </div>
