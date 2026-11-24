@@ -9,9 +9,23 @@ export default function ExternalSupportFollowup(){
  const [data,setData]=useState<Data|null>(null),[text,setText]=useState(''),[error,setError]=useState(''),[sending,setSending]=useState(false);
  const [requestId,setRequestId]=useState(''),[email,setEmail]=useState(''),[issued,setIssued]=useState(false);
  const messageId=useRef<string|null>(null);
+ const fetching=useRef(false);
  useEffect(()=>{if(token.current){history.replaceState(null,'',window.location.pathname);void load();}},[]);
- async function load(){if(!token.current)return;try{const result=await request({action:'get',token:token.current});setData(result);setError('');}
- catch(e){setError(e instanceof Error?e.message:'Error');}}
+ // Refrescar automáticamente mientras la pestaña esté visible; evitar peticiones solapadas.
+ useEffect(()=>{
+  if(!token.current)return;
+  const refresh=()=>{if(!document.hidden)void load(true);};
+  const interval=window.setInterval(refresh,10000);
+  document.addEventListener('visibilitychange',refresh);
+  return ()=>{window.clearInterval(interval);document.removeEventListener('visibilitychange',refresh);};
+ },[]);
+ async function load(silent=false){
+  if(!token.current||fetching.current)return;
+  fetching.current=true;
+  try{const result=await request({action:'get',token:token.current});setData(result);if(!silent)setError('');}
+  catch(e){if(!silent)setError(e instanceof Error?e.message:'Error');}
+  finally{fetching.current=false;}
+ }
  async function send(){if(!text.trim()||sending)return;setSending(true);try{
   if(!messageId.current)messageId.current=crypto.randomUUID();
   await request({action:'send',token:token.current,text:text.trim(),messageId:messageId.current});
@@ -33,6 +47,7 @@ export default function ExternalSupportFollowup(){
  <p className="whitespace-pre-wrap break-words">{m.body}</p></div></div>):<p className="text-sm text-slate-400">Todavía no hay respuestas.</p>}</div>
  {data.ticket?.status!=='cerrado'&&<div className="space-y-2"><textarea className="w-full rounded-lg border border-slate-600 bg-slate-900 p-3" rows={3} maxLength={3000} value={text} onChange={e=>{setText(e.target.value);messageId.current=null;}} placeholder="Escribí una respuesta..."/>
  <button onClick={()=>void send()} disabled={!text.trim()||sending} className="rounded-lg bg-cyan-700 px-4 py-2 disabled:opacity-50">{sending?'Enviando...':'Enviar respuesta'}</button></div>}
+ <p className="text-xs text-slate-400">La conversación se actualiza automáticamente cada 10 segundos.</p>
  <button onClick={()=>void load()} className="text-sm text-cyan-300 underline">Actualizar conversación</button>
  </>:<form onSubmit={issue} className="space-y-3"><h2 className="font-semibold">Solicitar otro enlace</h2>
  <p className="text-sm text-slate-300">Si tu enlace venció, ingresá el identificador del reporte y el mismo email que usaste para reportar.</p>

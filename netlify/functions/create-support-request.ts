@@ -1,4 +1,5 @@
 import { issueLink } from '../lib/externalSupport';
+import { syncExternalTicket } from '../lib/bondiExternalSync';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -249,8 +250,19 @@ export const handler = async (event: any) => {
 
   let followupEmailSent = false;
   if (!authUserId && (source === 'login' || source === 'register')) {
-    try { followupEmailSent = await issueLink(supabaseAdmin, request.id, submittedEmail); }
-    catch (err) { console.error('No se pudo emitir seguimiento externo', err instanceof Error ? err.name : 'error'); }
+    // Encolar via trigger SQL y sincronizar ya, independientemente de que el
+    // destinatario abra su enlace. Si falla BondiSupport, el cron reintenta.
+    const [syncResult, emailResult] = await Promise.allSettled([
+      syncExternalTicket(supabaseAdmin, request.id, process.env.CIGUENA_BONDI_QA_CONNECTOR_TOKEN || ''),
+      issueLink(supabaseAdmin, request.id, submittedEmail),
+    ]);
+    if (syncResult.status === 'rejected') {
+      console.error('BondiSupport: ticket externo pendiente de reintento',
+        syncResult.reason instanceof Error ? syncResult.reason.message : 'unknown');
+    }
+    if (emailResult.status === 'fulfilled') followupEmailSent = emailResult.value;
+    else console.error('No se pudo emitir seguimiento externo',
+      emailResult.reason instanceof Error ? emailResult.reason.name : 'error');
   }
   return json(201, { ok: true, requestId: request.id, followupEmailSent });
 };

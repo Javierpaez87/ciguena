@@ -1,5 +1,6 @@
 /** Worker para Cigüeña QA. Nunca usar variables VITE_ ni conectar a Supabase producción. */
 import { createClient } from '@supabase/supabase-js';
+import { syncExternalTicket } from '../lib/bondiExternalSync';
 export const config={schedule:'*/5 * * * *'};
 const CENTRAL='https://bondisupport.netlify.app/.netlify/functions/ciguena-qa-support?op=ticket';
 function dbClient(){
@@ -33,6 +34,11 @@ export default async function handler(){
  let synced=0,failed=0;
  for(const job of jobs||[]){
   try{
+   if(job.tenant_id===null){
+     await syncExternalTicket(db,job.request_id,token);
+     synced++;
+     continue;
+   }
    const {data:r,error:re}=await db.from('support_requests')
      .select('id,source,tenant_id,auth_user_id,request_type,priority,description,contact_name,attachment_path')
      .eq('id',job.request_id).maybeSingle();
