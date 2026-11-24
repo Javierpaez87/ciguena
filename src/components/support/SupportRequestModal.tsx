@@ -53,6 +53,7 @@ export default function SupportRequestModal({
   defaultEmail = '',
   defaultPhone = '',
 }: SupportRequestModalProps) {
+  const [externalReceipt, setExternalReceipt] = useState<{id:string;sent:boolean}|null>(null);
   const [requestType, setRequestType] = useState<SupportRequestType>('problem');
   const [priority, setPriority] = useState<SupportPriority>('medium');
   const [name, setName] = useState(defaultName);
@@ -105,7 +106,7 @@ export default function SupportRequestModal({
         ? await compressSupportImage(attachment)
         : null;
 
-      await submitSupportRequest({
+      const receipt = await submitSupportRequest({
         requestType,
         priority,
         source,
@@ -118,6 +119,7 @@ export default function SupportRequestModal({
         website,
       });
 
+      if (source !== 'platform') setExternalReceipt({id:receipt.requestId,sent:!!receipt.followupEmailSent});
       setSubmitted(true);
       setDescription('');
       setAttachment(null);
@@ -165,6 +167,11 @@ export default function SupportRequestModal({
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-steel-400">
             Recibimos la información. Los datos de contacto y la captura adjunta, si agregaste una, quedaron asociados al reporte.
           </p>
+          {externalReceipt && <div className="mt-4 rounded-lg border border-steel-600 p-3 text-sm text-left space-y-2">
+            <p>Identificador de solicitud: <code className="break-all">{externalReceipt.id}</code></p>
+            <p>{externalReceipt.sent ? 'Enviamos un enlace temporal de seguimiento al correo indicado. Revisá también la carpeta de spam.' : 'Tu reporte quedó registrado. El seguimiento externo por correo todavía no está habilitado para esta dirección en QA.'}</p>
+            <p>Guardá este identificador si necesitás solicitar otro enlace.</p>
+          </div>}
         </div>
       ) : (
         <form id="support-request-form" onSubmit={handleSubmit} className="space-y-5">

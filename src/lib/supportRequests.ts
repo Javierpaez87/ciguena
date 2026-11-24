@@ -151,5 +151,5 @@ export async function submitSupportRequest(input: SubmitSupportRequestInput) {
     );
   }
 
-  return result as { ok: true; requestId: string };
+  return result as { ok: true; requestId: string; followupEmailSent?: boolean };
 }

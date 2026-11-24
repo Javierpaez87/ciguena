@@ -1,3 +1,4 @@
+import { issueLink } from '../lib/externalSupport';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -86,7 +87,7 @@ export const handler = async (event: any) => {
   const submittedEmail = normalizeEmail(body.email);
   const submittedPhone = clean(body.phone, 100);
   const description = clean(body.description, 4000);
-  const submittedTenantId = clean(body.tenantId, 80) || null;
+  // tenantId de un formulario público no prueba pertenencia a una empresa.
 
   if (!requestTypes.has(requestType)) {
     return json(400, { error: 'Seleccioná si se trata de un problema o una sugerencia.' });
@@ -113,7 +114,7 @@ export const handler = async (event: any) => {
   });
 
   let userId: string | null = null;
-  let tenantId: string | null = submittedTenantId;
+  let tenantId: string | null = null; // Nunca confiar en tenantId enviado por navegador público.
   let authUserId: string | null = null;
 
   const bearerToken = getBearerToken(event.headers || {});
@@ -246,5 +247,10 @@ export const handler = async (event: any) => {
     return json(500, { error: 'No pudimos guardar el reporte. Intentá nuevamente.' });
   }
 
-  return json(201, { ok: true, requestId: request.id });
+  let followupEmailSent = false;
+  if (!authUserId && (source === 'login' || source === 'register')) {
+    try { followupEmailSent = await issueLink(supabaseAdmin, request.id, submittedEmail); }
+    catch (err) { console.error('No se pudo emitir seguimiento externo', err instanceof Error ? err.name : 'error'); }
+  }
+  return json(201, { ok: true, requestId: request.id, followupEmailSent });
 };

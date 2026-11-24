@@ -1,3 +1,4 @@
+import ExternalSupportFollowup from './pages/ExternalSupportFollowup';
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { BrandingProvider, useBranding } from './contexts/BrandingContext';
@@ -624,6 +625,7 @@ function AppContent() {
 }
 
 export default function App() {
+  if (window.location.pathname === "/soporte/seguimiento") return <ExternalSupportFollowup />;
   return (
     <AuthProvider>
       <BrandingProvider>
