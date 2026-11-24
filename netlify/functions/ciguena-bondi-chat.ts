@@ -19,8 +19,10 @@ export const handler=async(event:any)=>{
  let body:any;
  try {body=JSON.parse(event.body||'{}');}catch{return json(400,{error:'Solicitud invalida'});}
  const action=body?.action;
- if(!['list','conversation','send'].includes(action))return json(400,{error:'Accion invalida'});
+ if(!['list','conversation','send','reopen'].includes(action))return json(400,{error:'Accion invalida'});
  if(action!=='list'&&!UUID.test(body?.requestId||''))return json(400,{error:'Reporte invalido'});
+ if(action==='reopen'&&(typeof body?.reason!=='string'||body.reason.trim().length<5||body.reason.length>1000))
+   return json(400,{error:'Indica un motivo de al menos 5 caracteres'});
  if(action==='send'&&(typeof body?.text!=='string'||!body.text.trim()||body.text.length>3000))
    return json(400,{error:'Mensaje invalido'});
  try{
@@ -59,6 +61,17 @@ export const handler=async(event:any)=>{
   const {data:out,error:outError}=await db.from('support_bondi_outbox')
     .select('state,central_ticket_id').eq('request_id',local.id).eq('state','synced').maybeSingle();
   if(outError||!out?.central_ticket_id)return json(409,{error:'Reporte pendiente de sincronizar'});
+  if(action==='reopen'){
+   const response=await fetch(`${CENTRAL}?op=reopen`,{
+     method:'POST',headers:{'x-bondisupport-connector-key':token,'content-type':'application/json'},
+     body:JSON.stringify({external_request_id:local.id,tenant_id:profile.tenant_id,
+       author_name:profile.full_name||'Usuario Cigüeña',reason:body.reason.trim()}),
+     signal:AbortSignal.timeout(12000),cache:'no-store',
+   });
+   const reply=await response.json().catch(()=>({}));
+   if(!response.ok)return json(response.status===409?409:502,{error:response.status===409?'El ticket ya no está cerrado. Actualizá la conversación.':'No se pudo reabrir el ticket'});
+   return json(200,reply);
+  }
   const params=new URLSearchParams({op:action==='send'?'message':'conversation',
     external_request_id:local.id,tenant_id:profile.tenant_id});
   // El identificador se origina en servidor. En reintentos del navegador no se duplican mensajes

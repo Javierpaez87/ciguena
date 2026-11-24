@@ -10,6 +10,8 @@ export default function SupportConversations(){
  const [error,setError]=useState('');
  const [loading,setLoading]=useState(false);
  const [sending,setSending]=useState(false);
+ const [reopenReason,setReopenReason]=useState('');
+ const [reopening,setReopening]=useState(false);
  const sentId=useRef<string|null>(null);
  const loadReports=useCallback(async()=>{
   try{const data=await chatRequest<{reports:Report[]}>({action:'list'});setReports(data.reports);
@@ -32,8 +34,18 @@ export default function SupportConversations(){
   const timer=window.setInterval(()=>{if(!document.hidden)void loadMessages(selected);},15000);
   return()=>window.clearInterval(timer);
  },[selected,loadMessages]);
+ const closed=conversation?.ticket?.status==='cerrado';
+ const statusLabel:Record<string,string>={nuevo:'Nuevo',en_progreso:'En progreso',esperando_cliente:'Esperando cliente',resuelto:'Resuelto',cerrado:'Cerrado',reabierto:'Reabierto'};
+ const reopen=async()=>{
+  if(!selected||!closed||reopening||reopenReason.trim().length<5)return;
+  setReopening(true);setError('');
+  try{await chatRequest({action:'reopen',requestId:selected,reason:reopenReason.trim()});
+   setReopenReason('');await loadMessages(selected,true);
+  }catch(e){setError(e instanceof Error?e.message:'No se pudo reabrir el ticket');}
+  finally{setReopening(false);}
+ };
  const send=async()=>{
-  if(!selected||!text.trim()||sending)return;
+  if(!selected||!text.trim()||sending||closed)return;
   if(!sentId.current)sentId.current=crypto.randomUUID();
   setSending(true);setError('');
   try{await chatRequest({action:'send',requestId:selected,text:text.trim(),messageId:sentId.current});
@@ -54,6 +66,9 @@ export default function SupportConversations(){
      {reports.map(r=><option key={r.id} value={r.id}>{new Date(r.created_at).toLocaleDateString('es-AR')} · {r.description.slice(0,75)}</option>)}
     </select></label>
    {loading?<p className="text-steel-400 text-sm">Cargando conversación...</p>:<>
+    {conversation?.ticket&&<div className="flex items-center gap-2 text-xs text-steel-300">
+      Estado en BondiSupport: <span className="rounded-lg border border-steel-600 bg-steel-900 px-2 py-1 font-semibold">{statusLabel[conversation.ticket.status]||conversation.ticket.status}</span>
+    </div>}
     <div className="max-h-80 overflow-y-auto space-y-3 rounded-xl bg-steel-900/50 border border-steel-700 p-3" aria-live="polite">
      {conversation?.messages.length ? conversation.messages.map((m:ChatMessage)=><div key={m.id} className={`flex ${m.author_role==='usuario'?'justify-end':'justify-start'}`}>
       <div className="max-w-[90%] rounded-xl bg-steel-800 px-3 py-2 border border-steel-700">
@@ -61,10 +76,17 @@ export default function SupportConversations(){
        <p className="text-sm text-steel-100 whitespace-pre-wrap break-words">{m.body}</p>
       </div></div>):<p className="text-sm text-steel-500">Sin mensajes todavía. Podés escribir tu consulta abajo.</p>}
     </div>
-    <textarea className="input w-full min-h-20" value={text} onChange={e=>onText(e.target.value)}
-     maxLength={3000} placeholder="Escribí un mensaje para soporte..." aria-label="Nuevo mensaje"/>
-    <div className="flex justify-end"><button type="button" className="btn-primary" disabled={sending||!text.trim()}
-     onClick={()=>void send()}><Send size={15}/>{sending?'Enviando...':'Enviar mensaje'}</button></div>
+    {closed&&<div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 space-y-2">
+      <p className="text-sm text-amber-100">Este ticket fue cerrado por soporte. Si el problema continúa, podés reabrirlo.</p>
+      <textarea className="input w-full min-h-16" maxLength={1000} value={reopenReason}
+        onChange={e=>setReopenReason(e.target.value)} placeholder="Explicá por qué necesitás reabrirlo..." aria-label="Motivo de reapertura"/>
+      <button type="button" className="btn-primary" onClick={()=>void reopen()}
+        disabled={reopening||reopenReason.trim().length<5}>{reopening?'Reabriendo...':'Reabrir ticket'}</button>
+    </div>}
+    {!closed&&<textarea className="input w-full min-h-20" value={text} onChange={e=>onText(e.target.value)}
+     maxLength={3000} placeholder="Escribí un mensaje para soporte..." aria-label="Nuevo mensaje"/>}
+    {!closed&&<div className="flex justify-end"><button type="button" className="btn-primary" disabled={sending||!text.trim()}
+     onClick={()=>void send()}><Send size={15}/>{sending?'Enviando...':'Enviar mensaje'}</button></div>}
    </>}
   </>}
   {error&&<p className="text-sm text-red-300" role="alert">{error}</p>}
