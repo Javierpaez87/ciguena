@@ -1,5 +1,6 @@
 import { issueLink } from '../lib/externalSupport';
 import { syncExternalTicket } from '../lib/bondiExternalSync';
+import { bondiSettings } from '../lib/bondiConnector.mjs';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -253,7 +254,7 @@ export const handler = async (event: any) => {
     // Encolar via trigger SQL y sincronizar ya, independientemente de que el
     // destinatario abra su enlace. Si falla BondiSupport, el cron reintenta.
     const [syncResult, emailResult] = await Promise.allSettled([
-      syncExternalTicket(supabaseAdmin, request.id, process.env.CIGUENA_BONDI_QA_CONNECTOR_TOKEN || ''),
+      syncExternalTicket(supabaseAdmin, request.id, bondiSettings().token),
       issueLink(supabaseAdmin, request.id, submittedEmail),
     ]);
     if (syncResult.status === 'rejected') {

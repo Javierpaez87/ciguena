@@ -1,12 +1,12 @@
-/** Worker para Cigüeña QA. Nunca usar variables VITE_ ni conectar a Supabase producción. */
+/** Worker privado por entorno; credenciales Supabase y BondiSupport de su Netlify. */
 import { createClient } from '@supabase/supabase-js';
 import { syncExternalTicket } from '../lib/bondiExternalSync';
+import { bondiSettings } from '../lib/bondiConnector.mjs';
 export const config={schedule:'*/5 * * * *'};
-const CENTRAL='https://bondisupport.netlify.app/.netlify/functions/ciguena-qa-support?op=ticket';
 function dbClient(){
  const url=(process.env.SUPABASE_URL||'').trim();
  const key=(process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
- if(!/^https:\/\/[^/]+\.supabase\.co\/?$/.test(url)||!key)throw new Error('missing_qa_db_config');
+ if(!/^https:\/\/[^/]+\.supabase\.co\/?$/.test(url)||!key)throw new Error('missing_db_config');
  const fetchForSecret=key.startsWith('sb_secret_')?(input,init={})=>{
    const h=new Headers(init.headers??(input instanceof Request?input.headers:undefined));
    if(h.get('authorization')===`Bearer ${key}`)h.delete('authorization');
@@ -22,9 +22,8 @@ async function update(db,id,patch){
 }
 export default async function handler(){
  if(process.env.CIGUENA_BONDI_SYNC_ENABLED!=='true')return new Response('disabled',{status:200});
- const token=process.env.CIGUENA_BONDI_QA_CONNECTOR_TOKEN||'';
- if(token.length!==64||/[^\x21-\x7e]/.test(token))return new Response('bad token config',{status:503});
  try{
+ const {token,endpoint}=bondiSettings();
  const db=dbClient();
  const {data:jobs,error}=await db.from('support_bondi_outbox')
    .select('request_id,tenant_id,attempts,state,next_attempt_at')
@@ -50,7 +49,7 @@ export default async function handler(){
    const {data:profiles,error:pe}=await db.from('profiles').select('id')
       .eq('auth_user_id',r.auth_user_id).eq('tenant_id',r.tenant_id).limit(1);
    if(pe||!profiles?.length)throw new Error('tenant_not_verified');
-   const response=await fetch(CENTRAL,{method:'POST',headers:{'content-type':'application/json',
+   const response=await fetch(`${endpoint}?op=ticket`,{method:'POST',headers:{'content-type':'application/json',
      'x-bondisupport-connector-key':token},body:JSON.stringify({
      external_request_id:r.id,tenant_id:r.tenant_id,contact_name:r.contact_name,
      description:r.description,request_type:r.request_type,priority:r.priority,

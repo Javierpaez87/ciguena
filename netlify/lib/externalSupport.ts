@@ -26,7 +26,7 @@ export async function issueLink(db:SupabaseClient,requestId:string,email:string)
  const path=`${site}/soporte/seguimiento#token=${token}`;
  const res=await fetch('https://api.resend.com/emails',{
   method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},
-  body:JSON.stringify({from:sender,to:[email],subject:'Acceso a tu solicitud de soporte Cigüeña QA',
+  body:JSON.stringify({from:sender,to:[email],subject:`Acceso a tu solicitud de soporte ${process.env.CIGUENA_EXTERNAL_SUPPORT_LABEL || (process.env.CIGUENA_BONDI_ENV==='prod'?'Cigüeña':'Cigüeña QA')}` ,
    text:`Recibimos tu solicitud. Para ver y responder a soporte, abrí este enlace temporal (válido por 48 horas):\n\n${path}\n\nSi no hiciste esta solicitud, ignorá este correo.`}),
  });
  if(!res.ok){console.error('external support mail status',res.status);return false;}

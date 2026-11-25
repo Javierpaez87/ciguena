@@ -1,14 +1,15 @@
 /** Sincronización privada e idempotente de tickets externos hacia BondiSupport QA. */
 import type { SupabaseClient } from '@supabase/supabase-js';
-const CENTRAL = 'https://bondisupport.netlify.app/.netlify/functions/ciguena-qa-support?op=external-ticket';
+import { bondiSettings } from './bondiConnector.mjs';
 export async function syncExternalTicket(db: SupabaseClient, requestId: string, connector: string) {
-  if (connector.length !== 64) throw new Error('missing_external_connector');
+  const {token,endpoint}=bondiSettings();
+  if(connector!==token)throw new Error('external_connector_mismatch');
   const {data:r,error}=await db.from('support_requests')
     .select('id,source,auth_user_id,tenant_id,request_type,priority,description,contact_name,contact_email')
     .eq('id',requestId).maybeSingle();
   if(error||!r||!['login','register'].includes(r.source)||r.auth_user_id||r.tenant_id)
     throw new Error('invalid_external_request');
-  const response=await fetch(CENTRAL,{method:'POST',headers:{'content-type':'application/json',
+  const response=await fetch(`${endpoint}?op=external-ticket`,{method:'POST',headers:{'content-type':'application/json',
     'x-bondisupport-connector-key':connector},body:JSON.stringify({
       external_request_id:r.id,request_type:r.request_type,priority:r.priority,
       contact_name:r.contact_name,contact_email:r.contact_email,description:r.description,

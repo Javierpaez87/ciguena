@@ -1,8 +1,8 @@
-/** Chat Cigüeña QA: proxy autenticado, sin exponer secreto de BondiSupport al navegador. */
+/** Chat Cigüeña: proxy autenticado, sin exponer secreto de BondiSupport al navegador. */
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { bondiSettings } from '../lib/bondiConnector.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CENTRAL='https://bondisupport.netlify.app/.netlify/functions/ciguena-qa-support';
 const json=(statusCode:number,body:unknown)=>({statusCode,headers:{'content-type':'application/json','cache-control':'no-store'},body:JSON.stringify(body)});
 const parseBearer=(headers:Record<string,string|undefined>)=>{
  const value=headers.authorization||headers.Authorization||'';
@@ -12,7 +12,8 @@ export const handler=async(event:any)=>{
  if(event.httpMethod!=='POST')return json(405,{error:'Metodo no permitido'});
  const jwt=parseBearer(event.headers||{});
  if(!jwt)return json(401,{error:'Inicia sesion'});
- const token=process.env.CIGUENA_BONDI_QA_CONNECTOR_TOKEN||'';
+ let token:string;let central:string;
+ try{({token,endpoint:central}=bondiSettings());}catch{return json(503,{error:'Conector no configurado'});}
  const url=(process.env.SUPABASE_URL||'').trim();
  const key=(process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
  if(token.length!==64||!url||!key)return json(503,{error:'Conexion no configurada'});
@@ -62,7 +63,7 @@ export const handler=async(event:any)=>{
     .select('state,central_ticket_id').eq('request_id',local.id).eq('state','synced').maybeSingle();
   if(outError||!out?.central_ticket_id)return json(409,{error:'Reporte pendiente de sincronizar'});
   if(action==='reopen'){
-   const response=await fetch(`${CENTRAL}?op=reopen`,{
+   const response=await fetch(`${central}?op=reopen`,{
      method:'POST',headers:{'x-bondisupport-connector-key':token,'content-type':'application/json'},
      body:JSON.stringify({external_request_id:local.id,tenant_id:profile.tenant_id,
        author_name:profile.full_name||'Usuario Cigüeña',reason:body.reason.trim()}),
@@ -77,7 +78,7 @@ export const handler=async(event:any)=>{
   // El identificador se origina en servidor. En reintentos del navegador no se duplican mensajes
   // si se envía el mismo messageId.
   const messageId=typeof body.messageId==='string'&&UUID.test(body.messageId)?body.messageId:randomUUID();
-  const response=await fetch(`${CENTRAL}?${params}`,{
+  const response=await fetch(`${central}?${params}`,{
     method:action==='send'?'POST':'GET',
     headers:{'x-bondisupport-connector-key':token,...(action==='send'?{'content-type':'application/json'}:{})},
     ...(action==='send'?{body:JSON.stringify({message_id:messageId,author_name:profile.full_name||'Usuario Cigüeña',body:body.text})}:{}),
