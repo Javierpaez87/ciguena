@@ -37,6 +37,10 @@ export const handler=async(event:any)=>{
    }
    return reply(200,{ok:true}); // sin revelar si existe el reporte
   }
+  // El enlace puede emitirse con el conector apagado; leer/escribir en el
+  // ticket central debe esperar a que se active la sincronizacion.
+  if(process.env.CIGUENA_BONDI_SYNC_ENABLED!=='true')
+   return reply(503,{error:'Seguimiento temporalmente no disponible'});
   if(typeof data.token!=='string'||!/^[a-f0-9]{64}$/.test(data.token))return reply(401,{error:'Enlace inválido'});
   const {data:access}=await db.from('support_external_access').select('request_id,expires_at')
     .eq('token_hash',digest(data.token)).maybeSingle();

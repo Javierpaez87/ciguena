@@ -251,10 +251,14 @@ export const handler = async (event: any) => {
 
   let followupEmailSent = false;
   if (!authUserId && (source === 'login' || source === 'register')) {
-    // Encolar via trigger SQL y sincronizar ya, independientemente de que el
-    // destinatario abra su enlace. Si falla BondiSupport, el cron reintenta.
+    // El trigger SQL deja el ticket en la cola incluso con sincronizacion desactivada.
+    // El envio inmediato y el worker deben respetar el mismo interruptor.
+    // Emitir el enlace por email es independiente de BondiSupport.
+    const syncEnabled = process.env.CIGUENA_BONDI_SYNC_ENABLED === 'true';
     const [syncResult, emailResult] = await Promise.allSettled([
-      syncExternalTicket(supabaseAdmin, request.id, bondiSettings().token),
+      syncEnabled
+        ? syncExternalTicket(supabaseAdmin, request.id, bondiSettings().token)
+        : Promise.resolve(null),
       issueLink(supabaseAdmin, request.id, submittedEmail),
     ]);
     if (syncResult.status === 'rejected') {

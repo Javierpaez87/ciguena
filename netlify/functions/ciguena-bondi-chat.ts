@@ -10,6 +10,7 @@ const parseBearer=(headers:Record<string,string|undefined>)=>{
 };
 export const handler=async(event:any)=>{
  if(event.httpMethod!=='POST')return json(405,{error:'Metodo no permitido'});
+ if(process.env.CIGUENA_BONDI_SYNC_ENABLED!=='true')return json(503,{error:'Conector temporalmente desactivado'});
  const jwt=parseBearer(event.headers||{});
  if(!jwt)return json(401,{error:'Inicia sesion'});
  let token:string;let central:string;
