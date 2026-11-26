@@ -1,3 +1,6 @@
+import { issueLink } from '../lib/externalSupport';
+import { syncExternalTicket } from '../lib/bondiExternalSync';
+import { bondiSettings } from '../lib/bondiConnector.mjs';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -86,7 +89,7 @@ export const handler = async (event: any) => {
   const submittedEmail = normalizeEmail(body.email);
   const submittedPhone = clean(body.phone, 100);
   const description = clean(body.description, 4000);
-  const submittedTenantId = clean(body.tenantId, 80) || null;
+  // tenantId de un formulario público no prueba pertenencia a una empresa.
 
   if (!requestTypes.has(requestType)) {
     return json(400, { error: 'Seleccioná si se trata de un problema o una sugerencia.' });
@@ -113,7 +116,7 @@ export const handler = async (event: any) => {
   });
 
   let userId: string | null = null;
-  let tenantId: string | null = submittedTenantId;
+  let tenantId: string | null = null; // Nunca confiar en tenantId enviado por navegador público.
   let authUserId: string | null = null;
 
   const bearerToken = getBearerToken(event.headers || {});
@@ -246,5 +249,25 @@ export const handler = async (event: any) => {
     return json(500, { error: 'No pudimos guardar el reporte. Intentá nuevamente.' });
   }
 
-  return json(201, { ok: true, requestId: request.id });
+  let followupEmailSent = false;
+  if (!authUserId && (source === 'login' || source === 'register')) {
+    // El trigger SQL deja el ticket en la cola incluso con sincronizacion desactivada.
+    // El envio inmediato y el worker deben respetar el mismo interruptor.
+    // Emitir el enlace por email es independiente de BondiSupport.
+    const syncEnabled = process.env.CIGUENA_BONDI_SYNC_ENABLED === 'true';
+    const [syncResult, emailResult] = await Promise.allSettled([
+      syncEnabled
+        ? syncExternalTicket(supabaseAdmin, request.id, bondiSettings().token)
+        : Promise.resolve(null),
+      issueLink(supabaseAdmin, request.id, submittedEmail),
+    ]);
+    if (syncResult.status === 'rejected') {
+      console.error('BondiSupport: ticket externo pendiente de reintento',
+        syncResult.reason instanceof Error ? syncResult.reason.message : 'unknown');
+    }
+    if (emailResult.status === 'fulfilled') followupEmailSent = emailResult.value;
+    else console.error('No se pudo emitir seguimiento externo',
+      emailResult.reason instanceof Error ? emailResult.reason.name : 'error');
+  }
+  return json(201, { ok: true, requestId: request.id, followupEmailSent });
 };
