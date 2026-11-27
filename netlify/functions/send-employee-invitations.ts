@@ -1,3 +1,4 @@
+import { maintenanceResponse, maintenanceClientHeaders } from '../lib/platformMaintenance.mjs';
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -288,6 +289,8 @@ async function updateInvitationStatus(
 }
 
 export const handler = async (event: any) => {
+  const maintenanceBlock = await maintenanceResponse(event, 'authorized');
+  if (maintenanceBlock) return maintenanceBlock;
   if (event.httpMethod === 'OPTIONS') {
     return json(200, { ok: true });
   }
@@ -335,6 +338,7 @@ export const handler = async (event: any) => {
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    global: { headers: maintenanceClientHeaders(event) },
     auth: {
       autoRefreshToken: false,
       persistSession: false,

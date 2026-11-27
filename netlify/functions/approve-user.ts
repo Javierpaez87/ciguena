@@ -1,3 +1,4 @@
+import { maintenanceResponse, maintenanceClientHeaders } from '../lib/platformMaintenance.mjs';
 import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
@@ -194,6 +195,8 @@ export function buildApprovalEmailHtml({
 }
 
 export const handler = async (event: any) => {
+  const maintenanceBlock = await maintenanceResponse(event, 'superadmin');
+  if (maintenanceBlock) return maintenanceBlock;
   if (event.httpMethod === 'OPTIONS') {
     return json(200, { ok: true });
   }
@@ -227,6 +230,7 @@ export const handler = async (event: any) => {
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    global: { headers: maintenanceClientHeaders(event) },
     auth: {
       autoRefreshToken: false,
       persistSession: false,

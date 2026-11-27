@@ -15,6 +15,7 @@ import { supabase } from '../../lib/supabase';
 import { getTrainingTestByTrainingId } from '../../data/trainingTests';
 import { baseTrainings } from '../../data/baseTrainings';
 import { calculateCertificateExpirationISO } from '../../lib/trainingConfiguration';
+import { clearExamDraft, examDraftKey, examDraftVersion, readExamDraft, writeExamDraft } from '../../lib/maintenanceExamDraft';
 
 interface WorkerTestProps {
   assignment?: {
@@ -78,6 +79,7 @@ const getExpirationDate = async (trainingId: string, tenantId: string) => {
     .eq('training_id', trainingId)
     .maybeSingle();
 
+  if (error?.code === 'PT503') throw new Error('La plataforma entró en mantenimiento.');
   if (error) {
     console.warn(
       'No pudimos leer la vigencia específica del tenant. Se usará la vigencia del catálogo.',
@@ -105,9 +107,11 @@ const shuffleArray = <T,>(items: T[]) => {
 };
 
 export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) {
-  const { isReadOnly } = useAuth();
+  const { isReadOnly, sessionUser } = useAuth();
   const trainingId = assignment?.training_id ?? '';
   const test = getTrainingTestByTrainingId(trainingId);
+  const draftKey = !isReadOnly && sessionUser?.id && assignment?.id && test ? examDraftKey(sessionUser.id, assignment.id, test.id) : null;
+  const draftVersion = test ? examDraftVersion(test) : '';
 
   const [state, setState] = useState<TestState>('intro');
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -123,34 +127,72 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [attemptHistoryLoaded, setAttemptHistoryLoaded] = useState(false);
   const [completedEarlier, setCompletedEarlier] = useState(false);
+  const [draftOrder, setDraftOrder] = useState<Record<string, string[]> | null>(null);
+  const [resumedDraft, setResumedDraft] = useState(false);
+  const [draftSaveFailed, setDraftSaveFailed] = useState(false);
+  const [passedAttemptId, setPassedAttemptId] = useState<string | null>(null);
+  const [hasCertificate, setHasCertificate] = useState<boolean | null>(null);
 
   useEffect(() => {
     let active = true;
     setAttemptHistoryLoaded(false);
     setCompletedEarlier(false);
+    setPassedAttemptId(null);
+    setHasCertificate(null);
     setAttempt(1);
+    setDraftOrder(null);
+    setResumedDraft(false);
+    setDraftSaveFailed(false);
+    setAnswers({});
+    setCurrentQ(0);
+    setResult(null);
+    setState('intro');
+    setSaveWarning(null);
     if (!assignment?.id || !test) {
       setAttemptHistoryLoaded(true);
       return;
     }
     supabase.from('training_test_attempts')
-      .select('attempt_number, passed')
+      .select('id, attempt_number, passed')
       .eq('assignment_id', assignment.id)
       .eq('test_id', test.id)
       .order('attempt_number', { ascending: false })
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
         if (!active) return;
         if (error) {
           console.error('No se pudo recuperar historial de intentos:', error);
           setSaveWarning('No pudimos verificar los intentos anteriores. Contactá a soporte antes de rendir.');
           return;
         }
-        setCompletedEarlier(Boolean(data?.some(item => item.passed)));
-        setAttempt((data?.[0]?.attempt_number ?? 0) + 1);
+        const passing = data?.find(item => item.passed);
+        const nextAttempt = (data?.[0]?.attempt_number ?? 0) + 1;
+        setCompletedEarlier(Boolean(passing));
+        setAttempt(nextAttempt);
+        if (passing) {
+          clearExamDraft(draftKey);
+          setPassedAttemptId(passing.id);
+          const { data: certificates, error: certificateError } = await supabase
+            .from('certificates').select('id').eq('assignment_id', assignment.id).limit(1);
+          if (!active) return;
+          setHasCertificate(certificateError ? null : Boolean(certificates?.length));
+        } else {
+          const start = (nextAttempt - 1) * test.questionsPerAttempt;
+          const batch = test.questions.slice(start, start + test.questionsPerAttempt);
+          const draft = readExamDraft(draftKey, draftVersion, nextAttempt, batch.map(question => ({
+            id: question.id, optionKeys: question.options.map(getOptionKey),
+          })));
+          if (draft) {
+            setDraftOrder(draft.optionOrder);
+            setAnswers(draft.answers);
+            setCurrentQ(draft.currentQ);
+            setResumedDraft(true);
+            setState('taking');
+          }
+        }
         setAttemptHistoryLoaded(true);
       });
     return () => { active = false; };
-  }, [assignment?.id, test?.id]);
+  }, [assignment?.id, test?.id, draftKey, draftVersion]);
 
 
   const questionsForAttempt = useMemo<ShuffledQuestion[]>(() => {
@@ -160,11 +202,34 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     const startIndex = (attempt - 1) * questionsPerAttempt;
     const endIndex = startIndex + questionsPerAttempt;
 
-    return test.questions.slice(startIndex, endIndex).map(question => ({
-      ...question,
-      options: shuffleArray(question.options),
-    }));
-  }, [test, attempt]);
+    return test.questions.slice(startIndex, endIndex).map(question => {
+      const savedOrder = draftOrder?.[question.id];
+      const options = savedOrder
+        ? [...question.options].sort((a, b) => savedOrder.indexOf(a.key) - savedOrder.indexOf(b.key))
+        : shuffleArray(question.options);
+      return { ...question, options };
+    });
+  }, [test, attempt, draftOrder]);
+
+  function persistDraft(nextAnswers = answers, nextQ = currentQ) {
+    if (!draftKey || isReadOnly || !attemptHistoryLoaded || completedEarlier || !questionsForAttempt.length) return;
+    const ok = writeExamDraft(draftKey, {
+      version: draftVersion, attempt, currentQ: nextQ, answers: nextAnswers,
+      optionOrder: Object.fromEntries(questionsForAttempt.map(question => [question.id, question.options.map(getOptionKey)])),
+      savedAt: Date.now(),
+    });
+    setDraftSaveFailed(!ok);
+  }
+
+  function beginExam() {
+    persistDraft();
+    setState('taking');
+  }
+
+  function moveToQuestion(next: number) {
+    persistDraft(answers, next);
+    setCurrentQ(next);
+  }
 
   const maxAttempts = test
     ? Math.min(
@@ -174,7 +239,9 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     : 0;
 
   const selectAnswer = (questionId: string, optionKey: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: optionKey }));
+    const next = { ...answers, [questionId]: optionKey };
+    persistDraft(next);
+    setAnswers(next);
   };
 
   const getCurrentProfile = async () => {
@@ -326,10 +393,12 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
     });
     if (error || !attemptId) {
       console.error('No se pudo registrar el examen auditado:', error);
-      setSaveWarning('No pudimos guardar la evidencia del examen. No se emitió ningún certificado. Contactá a soporte antes de reintentar.');
+      setSaveWarning(error?.code === 'PT503' ? 'La plataforma entró en mantenimiento. Volvé a abrir esta evaluación cuando finalice para recuperar el borrador de esta pestaña, si está disponible.' : 'No pudimos guardar la evidencia del examen. No se emitió ningún certificado. Contactá a soporte antes de reintentar.');
       return null;
     }
 
+    // The server has returned an audited attempt ID; never replay this draft.
+    clearExamDraft(draftKey);
     const { data: recorded, error: readError } = await supabase
       .from('training_test_attempts')
       .select('id, score, passed, correct_answers, total_questions')
@@ -337,7 +406,8 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
       .single();
     if (readError || !recorded) {
       console.error('No se pudo consultar el resultado registrado:', readError);
-      setSaveWarning('El intento quedó registrado, pero no pudimos consultar el resultado. No vuelvas a rendirlo: contactá a soporte.');
+      setAttemptHistoryLoaded(false);
+      setSaveWarning('El intento quedó registrado, pero no pudimos consultar el resultado. Volvé a abrir la evaluación después del mantenimiento. Si el problema continúa, contactá a soporte.');
       return null;
     }
     return {
@@ -401,12 +471,34 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   const retry = () => {
     const nextAttempt = attempt + 1;
 
+    clearExamDraft(draftKey);
+    setDraftOrder(null);
+    setResumedDraft(false);
+    setDraftSaveFailed(false);
     setAnswers({});
     setCurrentQ(0);
     setResult(null);
     setSaveWarning(null);
     setAttempt(nextAttempt);
     setState('intro');
+  };
+
+  // A maintenance activation may occur between recording a passing attempt and
+  // issuing its certificate. Retry only the existing idempotent certificate RPC.
+  const recoverCertificate = async () => {
+    if (!passedAttemptId || isReadOnly || isSaving) return;
+    setIsSaving(true);
+    setSaveWarning(null);
+    try {
+      const { tenantId } = await getCertificateContext();
+      if (!tenantId || !assignment?.training_id) throw new Error('No se pudo verificar el tenant de la capacitación.');
+      const expiresAt = await getExpirationDate(assignment.training_id, tenantId);
+      const { error } = await supabase.rpc('issue_audited_test_certificate', { p_attempt_id: passedAttemptId, p_expires_at: expiresAt });
+      if (error) throw error;
+      setHasCertificate(true);
+    } catch {
+      setSaveWarning('Tu examen sigue aprobado. No pudimos recuperar el certificado; intentá nuevamente más tarde o contactá a soporte.');
+    } finally { setIsSaving(false); }
   };
 
   const q = questionsForAttempt[currentQ];
@@ -433,15 +525,17 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
   }
 
   if (!attemptHistoryLoaded) {
-    return <div className="text-center py-16">{saveWarning || 'Verificando historial de intentos...'}</div>;
+    return <div className="text-center py-16">{saveWarning || 'Verificando historial de intentos...'}{saveWarning && <button onClick={() => onNavigate('worker-trainings')} className="btn-secondary mt-4 mx-auto">Volver a mis trainings</button>}</div>;
   }
 
   if (completedEarlier) {
     return (
       <div className="text-center py-16">
         <Award size={32} className="mx-auto mb-3" />
-        <p>Este examen ya fue aprobado. Consultá tu certificado.</p>
-        <button onClick={() => onNavigate('worker-certificates')} className="btn-primary mt-4 mx-auto">Ver certificados</button>
+        <p>{hasCertificate === true ? 'Este examen ya fue aprobado. Consultá tu certificado.' : 'Este examen ya fue aprobado. Si quedó pendiente el certificado, podés recuperarlo sin volver a rendir.'}</p>
+        {saveWarning && <p role="alert" className="text-amber-200 mt-3">{saveWarning}</p>}
+        {hasCertificate !== true && passedAttemptId && !isReadOnly && <button onClick={recoverCertificate} disabled={isSaving} className="btn-primary mt-4 mx-auto">{isSaving ? 'Recuperando...' : 'Recuperar certificado'}</button>}
+        <button onClick={() => onNavigate('worker-certificates')} className="btn-secondary mt-4 mx-auto">Ver certificados</button>
       </div>
     );
   }
@@ -482,6 +576,9 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
           </div>
         </div>
       )}
+
+      {state === 'taking' && resumedDraft && <p role="status" className="text-emerald-300 text-sm">Retomaste las respuestas guardadas en esta pestaña.</p>}
+      {state === 'taking' && draftSaveFailed && <p role="alert" className="text-amber-200 text-sm">No pudimos guardar un borrador local. Si se interrumpe el examen, es posible que debas empezar nuevamente.</p>}
 
       {state === 'intro' && (
         <div className="card text-center py-8">
@@ -526,7 +623,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
             Las opciones se muestran en orden aleatorio para evitar patrones de respuesta.
           </p>
 
-          <button onClick={() => setState('taking')} className="btn-primary mx-auto px-8 py-3 text-base">
+          <button onClick={beginExam} className="btn-primary mx-auto px-8 py-3 text-base">
             <Play size={18} /> Comenzar evaluación
           </button>
         </div>
@@ -598,7 +695,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
           <div className="flex items-center justify-between">
             <button
-              onClick={() => setCurrentQ((questionIndex) => Math.max(0, questionIndex - 1))}
+              onClick={() => moveToQuestion(Math.max(0, currentQ - 1))}
               disabled={currentQ === 0 || isSaving}
               className="btn-secondary disabled:opacity-40"
             >
@@ -607,7 +704,7 @@ export default function WorkerTest({ assignment, onNavigate }: WorkerTestProps) 
 
             {currentQ < questionsForAttempt.length - 1 ? (
               <button
-                onClick={() => setCurrentQ((questionIndex) => questionIndex + 1)}
+                onClick={() => moveToQuestion(currentQ + 1)}
                 disabled={answers[q.id] === undefined || isSaving}
                 className="btn-primary disabled:opacity-40"
               >

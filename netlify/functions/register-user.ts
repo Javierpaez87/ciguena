@@ -1,3 +1,4 @@
+import { maintenanceResponse } from '../lib/platformMaintenance.mjs';
 import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
@@ -314,6 +315,8 @@ export function buildInternalEmailHtml({
 }
 
 export const handler = async (event: any) => {
+  const maintenanceBlock = await maintenanceResponse(event, 'public');
+  if (maintenanceBlock) return maintenanceBlock;
   if (event.httpMethod === 'OPTIONS') {
     return json(200, { ok: true });
   }

@@ -1,3 +1,4 @@
+import { maintenanceResponse, maintenanceClientHeaders } from '../lib/platformMaintenance.mjs';
 import { issueLink } from '../lib/externalSupport';
 import { syncExternalTicket } from '../lib/bondiExternalSync';
 import { bondiSettings } from '../lib/bondiConnector.mjs';
@@ -57,6 +58,8 @@ function getBearerToken(eventHeaders: Record<string, string | undefined>) {
 }
 
 export const handler = async (event: any) => {
+  const maintenanceBlock = await maintenanceResponse(event, 'authorized');
+  if (maintenanceBlock) return maintenanceBlock;
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };
   }
@@ -112,6 +115,7 @@ export const handler = async (event: any) => {
   }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    global: { headers: maintenanceClientHeaders(event) },
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
