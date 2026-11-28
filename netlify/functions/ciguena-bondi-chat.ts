@@ -1,3 +1,4 @@
+import { maintenanceResponse, maintenanceClientHeaders } from '../lib/platformMaintenance.mjs';
 /** Chat Cigüeña: proxy autenticado, sin exponer secreto de BondiSupport al navegador. */
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +10,8 @@ const parseBearer=(headers:Record<string,string|undefined>)=>{
  return value.startsWith('Bearer ')?value.slice(7).trim():'';
 };
 export const handler=async(event:any)=>{
+  const maintenanceBlock = await maintenanceResponse(event, 'authorized');
+  if (maintenanceBlock) return maintenanceBlock;
  if(event.httpMethod!=='POST')return json(405,{error:'Metodo no permitido'});
  if(process.env.CIGUENA_BONDI_SYNC_ENABLED!=='true')return json(503,{error:'Conector temporalmente desactivado'});
  const jwt=parseBearer(event.headers||{});
@@ -29,12 +32,12 @@ export const handler=async(event:any)=>{
    return json(400,{error:'Mensaje invalido'});
  try{
   const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},
-   ...(key.startsWith('sb_secret_')?{global:{fetch:(input:any,init:any={})=>{
+   global:{headers:maintenanceClientHeaders(event),...(key.startsWith('sb_secret_')?{fetch:(input:any,init:any={})=>{
     const headers=new Headers(init.headers??(input instanceof Request?input.headers:undefined));
     if(headers.get('authorization')===`Bearer ${key}`)headers.delete('authorization');
     if(!headers.has('apikey'))headers.set('apikey',key);
     return fetch(input,{...init,headers});
-   }}}:{})});
+   }}:{})}});
   const {data:identity,error:authError}=await db.auth.getUser(jwt);
   if(authError||!identity?.user?.id)return json(401,{error:'Sesion invalida'});
   const {data:profile,error:pe}=await db.from('profiles').select('id,tenant_id,full_name,status')

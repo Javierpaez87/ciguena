@@ -1,4 +1,5 @@
-import React from 'react';
+import { useState } from 'react';
+import { useMaintenance } from '../../contexts/MaintenanceContext';
 import { Bell } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranding } from '../../contexts/BrandingContext';
@@ -68,6 +69,16 @@ function getUserInitial(fullName?: string | null, email?: string | null) {
 export default function Header({ title, subtitle }: HeaderProps) {
   const { user, isGhostMode, ghostSession } = useAuth();
   const { branding } = useBranding();
+  const { status, setEnabled } = useMaintenance();
+  const [busy, setBusy] = useState(false);
+  const [maintenanceError, setMaintenanceError] = useState('');
+  async function toggleMaintenance() {
+    if (!status?.can_manage || busy) return;
+    const next = !status.enabled;
+    if (!window.confirm(next ? '¿Activar mantenimiento global en este entorno? Los usuarios convencionales quedarán bloqueados.' : '¿Restablecer el acceso a todos los usuarios?')) return;
+    setBusy(true); setMaintenanceError('');
+    try { await setEnabled(next); } catch (error) { setMaintenanceError(error instanceof Error ? error.message : 'No se pudo cambiar el estado'); } finally { setBusy(false); }
+  }
 
   const styles = getHeaderStyles(user?.role);
   const normalizedRole = normalizeRole(user?.role);
@@ -103,6 +114,14 @@ export default function Header({ title, subtitle }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-3">
+        {isSuperAdmin && !isGhostMode && status?.can_manage && (
+          <div className="text-right">
+            <button type="button" disabled={busy} onClick={()=>void toggleMaintenance()} className="rounded-lg border border-amber-400/50 px-3 py-2 text-xs font-semibold text-amber-200 disabled:opacity-50">
+              {busy ? 'Actualizando...' : status.enabled ? 'Desactivar mantenimiento' : 'Activar mantenimiento'}
+            </button>
+            {maintenanceError && <p role="alert" className="text-xs text-red-300 max-w-xs">{maintenanceError}</p>}
+          </div>
+        )}
         <button
           type="button"
           className={`relative p-2 rounded-lg transition-colors ${

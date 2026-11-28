@@ -1,3 +1,4 @@
+import { maintenanceResponse, maintenanceClientHeaders } from '../lib/platformMaintenance.mjs';
 import { createClient } from '@supabase/supabase-js';
 import {
   getCtaTextColor,
@@ -458,6 +459,8 @@ async function createGoogleCalendarEvent({
 }
 
 export async function handler(event: { httpMethod: string; body?: string | null }) {
+  const maintenanceBlock = await maintenanceResponse(event, 'superadmin');
+  if (maintenanceBlock) return maintenanceBlock;
   if (event.httpMethod === 'OPTIONS') {
     return json(200, { ok: true });
   }
@@ -476,7 +479,7 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       return json(400, { error: 'Falta live_training_id.' });
     }
 
-    const client = createClient(supabaseUrl as string, serviceRoleKey as string);
+    const client = createClient(supabaseUrl as string, serviceRoleKey as string, { global: { headers: maintenanceClientHeaders(event) } });
 
     const { data: training, error: trainingError } = await client
       .from('live_trainings')
@@ -654,7 +657,7 @@ export async function handler(event: { httpMethod: string; body?: string | null 
       const liveTrainingId = typeof body.live_training_id === 'string' ? body.live_training_id.trim() : '';
 
       if (supabaseUrl && serviceRoleKey && liveTrainingId) {
-        const client = createClient(supabaseUrl, serviceRoleKey);
+        const client = createClient(supabaseUrl, serviceRoleKey, { global: { headers: maintenanceClientHeaders(event) } });
         await client
           .from('live_trainings')
           .update({

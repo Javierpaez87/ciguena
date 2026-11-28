@@ -1,3 +1,5 @@
+import { MaintenanceProvider } from './contexts/MaintenanceContext';
+import MaintenanceGate from './components/maintenance/MaintenanceGate';
 import ExternalSupportFollowup from './pages/ExternalSupportFollowup';
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -625,11 +627,14 @@ function AppContent() {
 }
 
 export default function App() {
-  if (window.location.pathname === "/soporte/seguimiento") return <ExternalSupportFollowup />;
   return (
     <AuthProvider>
       <BrandingProvider>
-        <AppContent />
+        <MaintenanceProvider>
+          <MaintenanceGate>
+            {window.location.pathname === "/soporte/seguimiento" ? <ExternalSupportFollowup /> : <AppContent />}
+          </MaintenanceGate>
+        </MaintenanceProvider>
       </BrandingProvider>
     </AuthProvider>
   );

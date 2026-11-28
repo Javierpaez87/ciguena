@@ -782,6 +782,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ''}`,
       },
       body: JSON.stringify({
         live_training_id: liveTrainingId,
@@ -811,6 +812,7 @@ export default function AdminLiveTrainings({ onNavigate }: AdminLiveTrainingsPro
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ''}`,
       },
       body: JSON.stringify({
         live_training_id: liveTrainingId,

@@ -1,3 +1,4 @@
+import { maintenanceResponse } from '../lib/platformMaintenance.mjs';
 /** Enlace externo con email verificado, aislado del acceso de trabajadores SPI. */
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
@@ -11,6 +12,8 @@ const call=async(op:string,token:string,endpoint:string,body?:unknown,qs?:URLSea
  const obj=await r.json().catch(()=>({}));if(!r.ok)throw new Error('central '+r.status);return obj;
 };
 export const handler=async(event:any)=>{
+  const maintenanceBlock = await maintenanceResponse(event, 'public');
+  if (maintenanceBlock) return maintenanceBlock;
  if(event.httpMethod!=='POST')return reply(405,{error:'Método no permitido'});
  if(!enabled())return reply(404,{error:'Seguimiento externo no disponible'});
  if(Buffer.byteLength(event.body||'','utf8')>8000)return reply(413,{error:'Solicitud demasiado grande'});

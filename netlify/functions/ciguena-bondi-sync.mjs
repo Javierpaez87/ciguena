@@ -1,3 +1,4 @@
+import { maintenanceEnabled } from '../lib/platformMaintenance.mjs';
 /** Worker privado por entorno; credenciales Supabase y BondiSupport de su Netlify. */
 import { createClient } from '@supabase/supabase-js';
 import { syncExternalTicket } from '../lib/bondiExternalSync';
@@ -23,6 +24,7 @@ async function update(db,id,patch){
 export default async function handler(){
  if(process.env.CIGUENA_BONDI_SYNC_ENABLED!=='true')return new Response('disabled',{status:200});
  try{
+ if(await maintenanceEnabled())return new Response('maintenance: paused',{status:200});
  const {token,endpoint}=bondiSettings();
  const db=dbClient();
  const {data:jobs,error}=await db.from('support_bondi_outbox')
@@ -32,6 +34,7 @@ export default async function handler(){
  if(error)throw new Error('queue_read_failed');
  let synced=0,failed=0;
  for(const job of jobs||[]){
+  if(await maintenanceEnabled())break;
   try{
    if(job.tenant_id===null){
      await syncExternalTicket(db,job.request_id,token);
